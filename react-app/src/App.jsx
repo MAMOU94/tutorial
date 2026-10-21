@@ -33172,7 +33172,7 @@ except Exception as _ngr_error:
         <div className="h-full min-h-0" style={{ background: '#131313' }}>
           <div className="flex h-full min-h-0 flex-col overflow-hidden border border-zinc-800">
             {/* Header Bar */}
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 px-4 py-2.5" style={{ background: '#000000' }}>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 px-4 py-2.5" style={{ background: '#050505' }}>
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <span className="inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-[10.5px] font-semibold tracking-wide bg-[#141414] border border-[#262626] text-zinc-300 shadow-sm">
                   <span className={`h-2 w-2 rounded-full animate-pulse ${isLiveConsoleActive ? 'bg-emerald-400' : 'bg-rose-500'}`} />
@@ -39317,7 +39317,7 @@ except Exception as _ngr_error:
             height={700}
           >
             <div className="relative flex flex-col h-full overflow-hidden bg-[#131313]">
-              <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 border-b border-zinc-800 bg-black">
+              <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 border-b border-zinc-800 bg-[#050505]">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-[10.5px] font-semibold tracking-wide bg-[#141414] border border-[#262626] text-zinc-300 shadow-sm">
                     <span className={`h-2 w-2 rounded-full animate-pulse ${isLiveConsoleActive ? 'bg-emerald-400' : 'bg-rose-500'}`} />
