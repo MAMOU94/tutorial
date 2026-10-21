@@ -33255,8 +33255,8 @@ except Exception as _ngr_error:
             <ResizablePanelGroup
               direction={isRConsoleHorizontal ? 'horizontal' : 'vertical'}
               responsive
-              sizes={rConsolePanelSizes}
-              onSizesChange={setRConsolePanelSizes}
+              sizes={[rConsolePanelSizes[0], 100 - rConsolePanelSizes[0]]}
+              onSizesChange={(sizes) => setRConsolePanelSizes([sizes[0], sizes[1], rConsolePanelSizes[2]])}
             >
               {renderRIdeChatPanel()}
 
@@ -33509,6 +33509,7 @@ except Exception as _ngr_error:
                 </div>
               </div>
 
+              {false && (<>
               {/* Console Panel - Compact Black Table Style */}
               <div className="flex min-h-[260px] min-w-0 flex-1 flex-col overflow-hidden" style={{ background: '#131313' }}>
                 {/* Console Output - VS Code Terminal Style */}
@@ -33770,6 +33771,7 @@ except Exception as _ngr_error:
                   </div>
                 )}
               </div>
+              </>)}
             </ResizablePanelGroup>
           </div>
         </div>
