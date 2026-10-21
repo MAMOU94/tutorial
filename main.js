@@ -2260,10 +2260,8 @@ const buildAppMenu = () => {
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 1400,
-    minHeight: 800,
+    width: 1280, // Adjusted default size
+    height: 800,
     transparent: true,
     backgroundColor: '#00000000',
     autoHideMenuBar: true,
@@ -2274,8 +2272,6 @@ function createWindow() {
     },
     // icon: path.join(__dirname, 'assets', 'icon.png') // Optional: create an assets folder with icon.png
   });
-
-  mainWindow.maximize();
 
   const startUrl = process.env.ELECTRON_START_URL || url.format({
     pathname: path.join(__dirname, 'react-app/dist/index.html'),

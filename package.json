@@ -11,6 +11,7 @@
                     "test:ollama-local": "node scripts/test_local_ollama.js",
                     "package": "npm run react-build && electron-builder --dir",
                     "dist": "npm run react-build && electron-builder",
+                    "dist:appimage": "npm run react-build && electron-builder --linux AppImage",
                     "dist:deb": "npm run react-build && npm run prepare:runtime:portable && electron-builder --linux deb",
                     "prepare:runtime:portable": "bash ./scripts/prepare-portable-runtime.sh"
           },
@@ -81,7 +82,7 @@
                     },
                     "linux": {
                               "target": [
-                                        "deb"
+                                        "AppImage"
                               ],
                               "icon": "assets/icon-app.png",
                               "category": "Science",
