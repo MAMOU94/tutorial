@@ -287,8 +287,8 @@ For a consistent desktop window during development, configure the `BrowserWindow
 ```js
 width: 1440,
 height: 900,
-minWidth: 1024,
-minHeight: 700,
+minWidth: 1400,
+minHeight: 800,
 ```
 
 ```js
