@@ -12,7 +12,7 @@
                     "package": "npm run react-build && electron-builder --dir",
                     "dist": "npm run react-build && electron-builder",
                     "dist:appimage": "npm run react-build && electron-builder --linux AppImage",
-                    "dist:deb": "npm run react-build && npm run prepare:runtime:portable && electron-builder --linux deb",
+                    "dist:deb": "npm run react-build && electron-builder --linux deb",
                     "prepare:runtime:portable": "bash ./scripts/prepare-portable-runtime.sh"
           },
           "keywords": [
@@ -59,7 +59,6 @@
                               "data_transform_wrapper.R",
                               "missing_value_predictor.py",
                               "qwen_agent.py",
-                              "appimage-build/runtime/**/*",
                               "react-app/dist/**/*",
                               "node_modules/**/*",
                               "tools/**/*",

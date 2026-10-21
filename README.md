@@ -303,6 +303,16 @@ npm run dist:appimage
 
 The output is created at `dist_electron/NGR-1.3.0.AppImage`. This standard AppImage bundles Electron and the application source, but uses the host machine's R, Python, Ollama, and other system runtimes. Install those host dependencies before using the related features.
 
+### Linux Debian package
+
+Build a `.deb` package without bundled R, Python, Ollama, or portable system runtimes:
+
+```bash
+npm run dist:deb
+```
+
+The output is created at `dist_electron/ngr_1.3.0_amd64.deb`. Electron and the application JavaScript dependencies are included so the desktop application can launch; R, Python, Ollama, and their libraries must be installed on the host Linux system.
+
 ## Validation commands
 
 Run the frontend lint check:
