@@ -136,7 +136,7 @@ const EditorOpenedFilesBar = ({
                 role="tab"
                 aria-selected={isActive}
                 onClick={() => onSelectTab && onSelectTab(tab.id)}
-                className={`group relative flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-mono transition-all cursor-pointer border shadow-sm shrink-0 ${
+                className={`group relative flex items-center gap-1.5 px-2.5 py-1 rounded-none text-[11px] font-mono transition-all cursor-pointer border shadow-sm shrink-0 ${
                   isActive
                     ? 'bg-[#242424] text-zinc-100 border-[#383838] font-semibold'
                     : 'bg-[#141414] hover:bg-[#1e1e1e] text-zinc-400 hover:text-zinc-200 border-[#262626] hover:border-[#383838]'
