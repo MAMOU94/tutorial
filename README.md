@@ -264,6 +264,35 @@ Build the React renderer:
 npm run react-build
 ```
 
+### Windows and Electron layout troubleshooting
+
+The browser development server and Electron load different outputs:
+
+- `cd react-app && npm run dev` serves the current React source locally.
+- `npm start` loads the compiled renderer from `react-app/dist/`.
+
+After changing JSX or CSS, rebuild before launching Electron:
+
+```bash
+npm run react-build
+npm start
+```
+
+If Electron displays the compact column layout while the browser shows the full desktop design, maximize the Electron window first. The interface uses responsive breakpoints, and a viewport below 1024 CSS pixels intentionally switches to a more compact layout. Windows display scaling can make the Electron content area smaller than expected.
+
+For a consistent desktop window during development, configure the `BrowserWindow` in `main.js` with a minimum content size and maximize it after creation:
+
+```js
+minWidth: 1024,
+minHeight: 700,
+```
+
+```js
+mainWindow.maximize();
+```
+
+`npm run electron-dev` rebuilds the React renderer and launches Electron in one command.
+
 ## Validation commands
 
 Run the frontend lint check:
@@ -310,4 +339,3 @@ For the lower-level function and IPC reference, see [`skills/README_FUNCTIONS.md
 ## Security and data handling
 
 NGR can execute R/Python processes and connect to local or cloud AI providers. Review provider settings before use, avoid storing credentials in source files, and do not commit API keys or sensitive datasets.
-
