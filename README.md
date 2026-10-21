@@ -266,6 +266,8 @@ npm run react-build
 
 ### Windows and Electron layout troubleshooting
 
+The application works correctly on Linux with the setup described above. Linux is the primary tested desktop platform.
+
 The browser development server and Electron load different outputs:
 
 - `cd react-app && npm run dev` serves the current React source locally.
