@@ -114,7 +114,7 @@ const EditorOpenedFilesBar = ({
 
       <div
         className="flex items-center border-b border-zinc-800 px-3 py-1 select-none z-10 w-full min-w-0"
-        style={{ background: '#0b0b0b' }}
+        style={{ background: '#131313' }}
         role="tablist"
         aria-label="Opened script files"
       >

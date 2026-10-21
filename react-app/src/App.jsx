@@ -33262,7 +33262,7 @@ except Exception as _ngr_error:
 
               <div className="relative flex min-h-[260px] min-w-0 flex-1 flex-col overflow-hidden" style={{ background: '#131313' }}>
                 {/* Editor Header */}
-                <div className="flex items-center justify-between gap-2 border-b border-zinc-800 px-3.5 py-2" style={{ background: '#000000' }}>
+                <div className="flex items-center justify-between gap-2 border-b border-zinc-800 px-3.5 py-2" style={{ background: '#0b0b0b' }}>
                   <div className="flex min-w-0 items-center gap-2">
                     <div className="flex bg-[#141414] rounded-xl p-0.5 ml-1 border border-[#262626] shadow-sm" role="group" aria-label="Editor language">
                       <button
@@ -39405,7 +39405,7 @@ except Exception as _ngr_error:
                 {renderRIdeChatPanel({ responsive: false })}
 
                 <div className="relative flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden" style={{ background: '#131313' }}>
-                  <div className="flex items-center justify-between px-3.5 py-2 border-b border-zinc-800 bg-black">
+                  <div className="flex items-center justify-between px-3.5 py-2 border-b border-zinc-800 bg-[#0b0b0b]">
                     <div className="flex items-center gap-2">
                       <div className="inline-flex items-center gap-1 rounded-xl p-0.5 shadow-sm bg-[#141414] border border-[#262626]" role="group" aria-label="Editor language">
                         <button
