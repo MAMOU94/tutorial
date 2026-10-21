@@ -7,7 +7,7 @@ import ipynbFileIcon from '../assets/ipynb-file-icon.svg';
 
 /**
  * EditorOpenedFilesBar
- * Dark themed opened files tab bar matching the Script Editor header style (#131313).
+ * Dark themed opened files tab bar with a slightly deeper surface than the editor.
  * - Full width tabs container
  * - Auto-scrolls active tab into view
  * - Horizontal mouse wheel support
@@ -114,7 +114,7 @@ const EditorOpenedFilesBar = ({
 
       <div
         className="flex items-center border-b border-zinc-800 px-3 py-1 select-none z-10 w-full min-w-0"
-        style={{ background: '#131313' }}
+        style={{ background: '#0b0b0b' }}
         role="tablist"
         aria-label="Opened script files"
       >
