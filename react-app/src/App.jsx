@@ -39200,7 +39200,7 @@ except Exception as _ngr_error:
               ? 'research-model-panel-theme'
               : ''}`}
         >
-          <div className={`flex shrink-0 items-center gap-2 px-4 py-3 border-b border-[#1b1b1b] bg-[#0b0b0b] ${activeLateralPanel === 'console' ? 'justify-between' : 'justify-start'}`}>
+          <div className={`flex shrink-0 items-center gap-2 px-4 py-3 border-b border-[#111111] bg-black ${activeLateralPanel === 'console' ? 'justify-between' : 'justify-start'}`}>
             <div className="flex items-center gap-2 min-w-0">
               <ActiveLateralIcon size={15} className="text-zinc-300 shrink-0" />
               <span className="text-xs font-bold uppercase tracking-[0.14em] text-zinc-200 truncate">
