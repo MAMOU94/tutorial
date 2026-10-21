@@ -18321,7 +18321,11 @@ ${attachmentPromptContext || '(none)'}`;
         if (plainText && !suppressInternalOutput && !hasInternalSyncCode) {
           appendConsoleOutput('r', (previous) => previous + plainText);
           const activeChunkIndex = activeRChunkIndexRef.current;
-          if (editorLanguage === 'r' && activeChunkIndex !== null) {
+          // Keep inline chunk results limited to stdout. R errors and process
+          // status messages still belong in the full console, but should not
+          // be mixed into the result rendered below the code chunk.
+          const isStdout = payload?.type === 'stdout' || !payload?.type;
+          if (isStdout && editorLanguage === 'r' && activeChunkIndex !== null) {
             setRChunkOutputs((previous) => {
               const updated = {
                 ...previous,
@@ -18783,10 +18787,6 @@ except Exception as _ngr_error:
         }, 800);
       } catch (err) {
         if (inlineChunkIndex !== null) {
-          const errorOutput = `\n[Console Error] ${err.message}\n`;
-          const updated = { ...rChunkOutputsRef.current, [inlineChunkIndex]: `${rChunkOutputsRef.current[inlineChunkIndex] || ''}${errorOutput}` };
-          rChunkOutputsRef.current = updated;
-          setRChunkOutputs(updated);
           activeRChunkIndexRef.current = null;
         }
         setRConsoleOutput(prev => prev + `\n[IPC Error] ${err.message}\n`);
