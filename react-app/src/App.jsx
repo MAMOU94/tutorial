@@ -17499,7 +17499,7 @@ ${attachmentPromptContext || '(none)'}`;
       {/* ── Panel Header ── */}
       <div
         className="flex items-center justify-between gap-3 border-b px-4 py-2.5"
-        style={{ background: '#000000', borderColor: '#222' }}
+        style={{ background: '#0b0b0b', borderColor: '#222' }}
       >
         <div className="flex min-w-0 items-center gap-2.5">
           {showREditorTerminal && (
