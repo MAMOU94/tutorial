@@ -39200,7 +39200,7 @@ except Exception as _ngr_error:
               ? 'research-model-panel-theme'
               : ''}`}
         >
-          <div className={`flex shrink-0 items-center gap-2 px-4 py-3 border-b border-[#262626] ${activeLateralPanel === 'console' ? 'justify-between' : 'justify-start'}`}>
+          <div className={`flex shrink-0 items-center gap-2 px-4 py-3 border-b border-[#1b1b1b] bg-[#0b0b0b] ${activeLateralPanel === 'console' ? 'justify-between' : 'justify-start'}`}>
             <div className="flex items-center gap-2 min-w-0">
               <ActiveLateralIcon size={15} className="text-zinc-300 shrink-0" />
               <span className="text-xs font-bold uppercase tracking-[0.14em] text-zinc-200 truncate">
@@ -39214,7 +39214,7 @@ except Exception as _ngr_error:
                 setIsFilesOverlayOpen(false);
                 setIsLateralPanelOpen(false);
               }}
-              className="p-1.5 rounded-xl border border-[#262626] bg-[#141414] text-zinc-400 hover:text-zinc-200 hover:bg-[#1e1e1e] hover:border-[#383838] transition-all cursor-pointer shadow-sm"
+              className="p-1.5 rounded-xl border border-[#262626] bg-[#141414] text-zinc-400 hover:text-white hover:bg-[#3a3a3a] hover:border-[#555555] transition-all cursor-pointer shadow-sm"
               title="Close panel"
             >
               <X size={14} />
