@@ -33174,16 +33174,16 @@ except Exception as _ngr_error:
             {/* Header Bar */}
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 px-4 py-2.5" style={{ background: '#050505' }}>
               <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-none px-2.5 py-1 text-[10.5px] font-semibold tracking-wide bg-[#141414] border border-[#262626] text-zinc-300 shadow-sm">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[10.5px] font-semibold tracking-wide text-zinc-300">
                   <span className={`h-2 w-2 rounded-full animate-pulse ${isLiveConsoleActive ? 'bg-emerald-400' : 'bg-rose-500'}`} />
                   Live Console
                 </span>
                 <button
                   type="button"
                   onClick={handleDataExplorerConnectionToggle}
-                  className={`inline-flex items-center gap-1.5 rounded-none px-2.5 py-1 text-[10.5px] font-semibold tracking-wide transition-all shadow-sm cursor-pointer ${isDataExplorerConnected
-                    ? 'bg-emerald-950/30 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-950/50'
-                    : 'bg-rose-950/20 text-rose-300 border border-rose-500/25 hover:bg-rose-950/40'
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[10.5px] font-semibold tracking-wide transition-colors cursor-pointer ${isDataExplorerConnected
+                    ? 'text-emerald-300 hover:text-emerald-200'
+                    : 'text-rose-300 hover:text-rose-200'
                     }`}
                   title={isDataExplorerConnected ? "Connected to Data Explorer" : "Disconnected from Data Explorer"}
                 >
@@ -39319,16 +39319,16 @@ except Exception as _ngr_error:
             <div className="relative flex flex-col h-full overflow-hidden bg-[#131313]">
               <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 border-b border-zinc-800 bg-[#050505]">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="inline-flex items-center gap-1.5 rounded-none px-2.5 py-1 text-[10.5px] font-semibold tracking-wide bg-[#141414] border border-[#262626] text-zinc-300 shadow-sm">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[10.5px] font-semibold tracking-wide text-zinc-300">
                     <span className={`h-2 w-2 rounded-full animate-pulse ${isLiveConsoleActive ? 'bg-emerald-400' : 'bg-rose-500'}`} />
                     Live Console
                   </span>
                   <button
                     type="button"
                     onClick={handleDataExplorerConnectionToggle}
-                    className={`inline-flex items-center gap-1.5 rounded-none px-2.5 py-1 text-[10.5px] font-semibold tracking-wide transition-all shadow-sm cursor-pointer ${isDataExplorerConnected
-                      ? 'bg-emerald-950/30 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-950/50'
-                      : 'bg-rose-950/20 text-rose-300 border border-rose-500/25 hover:bg-rose-950/40'
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[10.5px] font-semibold tracking-wide transition-colors cursor-pointer ${isDataExplorerConnected
+                      ? 'text-emerald-300 hover:text-emerald-200'
+                      : 'text-rose-300 hover:text-rose-200'
                       }`}
                     title={isDataExplorerConnected ? "Connected to Data Explorer" : "Disconnected from Data Explorer"}
                   >
