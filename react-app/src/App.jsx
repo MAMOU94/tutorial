@@ -1941,7 +1941,7 @@ const Button = ({ children, onClick, disabled, isLoading, className = '', icon: 
   );
 };
 
-const ResizablePanelGroup = ({ direction = 'horizontal', responsive = false, sizes, onSizesChange, className = '', children }) => {
+const ResizablePanelGroup = ({ direction = 'horizontal', responsive = false, sizes, onSizesChange, className = '', resizeHandleIndices = null, children }) => {
   const groupRef = useRef(null);
   const resizeRef = useRef(null);
   const panelList = React.Children.toArray(children);
@@ -2041,7 +2041,7 @@ const ResizablePanelGroup = ({ direction = 'horizontal', responsive = false, siz
               minHeight: actualDirection === 'vertical' ? 0 : panel.props.style?.minHeight
             }
           })}
-          {index < panelList.length - 1 && (
+          {index < panelList.length - 1 && (!Array.isArray(resizeHandleIndices) || resizeHandleIndices.includes(index)) && (
             <div
               role="separator"
               tabIndex={0}
@@ -10494,6 +10494,7 @@ function App() {
   });
   const [isREditorAIConfigOpen, setIsREditorAIConfigOpen] = useState(false);
   const [isREditorAIBarOpen, setIsREditorAIBarOpen] = useState(false);
+  const [rEditorAIConfigLeft, setREditorAIConfigLeft] = useState(0);
   const [rEditorCloudUrl, setREditorCloudUrl] = useState(() => (
     window.localStorage.getItem(OLLAMA_CLOUD_URL_STORAGE_KEY) || ''
   ));
@@ -11438,6 +11439,7 @@ function App() {
   const lateralUploadInputRef = useRef(null);
   const consoleOutputRef = useRef(null);
   const consoleInputRef = useRef(null);
+  const rConsolePendingCommandRef = useRef('');
   const rIdeChatScrollRef = useRef(null);
   const [rIdeChatAttachments, setRIdeChatAttachments] = useState([]);
   const [rIdeChatAttachmentError, setRIdeChatAttachmentError] = useState('');
@@ -12100,6 +12102,18 @@ function App() {
     }
   }, [editorLanguage, openFileInEditor]);
   const rEditorAIConfigRef = useRef(null);
+  const rEditorAIAnchorButtonRef = useRef(null);
+  const positionREditorAIConfigPanel = useCallback(() => {
+    const root = rEditorAIConfigRef.current;
+    const anchor = rEditorAIAnchorButtonRef.current;
+    if (!root || !anchor || typeof window === 'undefined') return;
+    const rootRect = root.getBoundingClientRect();
+    const anchorRect = anchor.getBoundingClientRect();
+    const panelWidth = Math.min(420, Math.max(280, window.innerWidth - 24));
+    const maxLeft = window.innerWidth - panelWidth - 12;
+    const absoluteLeft = Math.max(12, Math.min(anchorRect.left, maxLeft));
+    setREditorAIConfigLeft(Math.max(-rootRect.left, absoluteLeft - rootRect.left));
+  }, []);
   const pendingGeminiEditorRequest = useRef(null);
   const pendingGeminiConsoleRequest = useRef(null);
   const pendingGeminiStreamRange = useRef(null);
@@ -13642,7 +13656,11 @@ ${historyContext || '(none)'}`;
           : isREditorOpenCodeSource
             ? 'opencode'
             : 'api';
-    const selectProviderGroup = (group) => {
+    const selectProviderGroup = (group, event) => {
+      if (event?.currentTarget) {
+        rEditorAIAnchorButtonRef.current = event.currentTarget;
+        positionREditorAIConfigPanel();
+      }
       const nextSource = group === 'ollama'
         ? 'local'
         : group === 'claude'
@@ -13690,11 +13708,13 @@ ${historyContext || '(none)'}`;
     }
 
     return (
-      <div className="relative inline-flex items-center gap-1.5" ref={rEditorAIConfigRef}>
+      <div className="relative z-[100] inline-flex items-center gap-5" ref={rEditorAIConfigRef}>
         {/* Button named "AI Providers" at side of sync button (without AI icon) */}
         <button
           type="button"
-          onClick={() => {
+          onClick={(event) => {
+            rEditorAIAnchorButtonRef.current = event.currentTarget;
+            positionREditorAIConfigPanel();
             setIsREditorAIBarOpen((prev) => {
               if (prev) {
                 setIsREditorAIConfigOpen(false);
@@ -13741,7 +13761,7 @@ ${historyContext || '(none)'}`;
                   type="button"
                   role="tab"
                   aria-selected={isActive}
-                  onClick={() => selectProviderGroup(id)}
+                  onClick={(event) => selectProviderGroup(id, event)}
                   className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[10.5px] font-semibold tracking-wide transition-all cursor-pointer ${isActive
                     ? 'text-zinc-100 shadow-sm'
                     : 'text-zinc-400 hover:text-zinc-200 hover:bg-[#1e1e1e]'
@@ -13944,10 +13964,11 @@ ${historyContext || '(none)'}`;
 
           return (
             <div
-              className="advanced-provider-panel absolute left-0 top-[calc(100%+8px)] z-[90] flex flex-col rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.75)] overflow-hidden backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150"
+              className="advanced-provider-panel absolute top-[calc(100%+8px)] z-[200] flex flex-col rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.75)] overflow-hidden backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150"
               style={{
                 background: '#131313',
                 border: '1px solid #282828',
+                left: `${rEditorAIConfigLeft}px`,
                 width: '420px',
                 maxWidth: 'calc(100vw - 1.5rem)',
                 maxHeight: 'min(450px, calc(100vh - 6rem))'
@@ -17437,7 +17458,12 @@ ${attachmentPromptContext || '(none)'}`;
 
   const renderRConsoleOutput = (outputText) => {
     if (!outputText) return null;
-    const lines = stripTerminalControlSequences(outputText).split('\n');
+    // The interactive process emits its own blank prompt. The input control
+    // below owns the prompt shown to the user, so do not render duplicate
+    // standalone `>` or `+` lines in the output area.
+    const lines = stripTerminalControlSequences(outputText)
+      .split('\n')
+      .filter((line) => !/^\s*(?:[>+]\s*)+$/.test(line));
     let insideError = false;
 
     return lines.map((line, index) => {
@@ -17491,15 +17517,58 @@ ${attachmentPromptContext || '(none)'}`;
     });
   };
 
-  const renderRIdeChatPanel = ({ responsive = true } = {}) => (
+  const renderRConsolePrompt = () => (
+    <div className="-ml-1 flex items-center px-2 py-1 bg-[#1e1e1e]">
+      <div className="relative flex-1 flex items-center px-0.5 py-0.5">
+        <span className="font-mono font-bold text-[13px] text-zinc-400 mr-1.5">{'>'}</span>
+        <input
+          ref={consoleInputRef}
+          value={rConsoleInput}
+          onChange={handleConsoleInputChange}
+          onKeyDown={handleConsoleKeyDown}
+          onClick={handleConsoleInputClick}
+          className="flex-1 border-none bg-transparent font-mono text-[13px] text-zinc-200 outline-none placeholder-zinc-500"
+          placeholder={editorLanguage === 'python' ? 'Type Python command...' : 'Type R command...'}
+          autoComplete="off"
+          spellCheck="false"
+        />
+        {rConsoleSuggestions.length > 0 && (
+          <div className="absolute left-0 right-0 bottom-[calc(100%+6px)] z-50 overflow-hidden rounded-xl border border-[#262626] bg-[#141414] shadow-2xl">
+            {rConsoleSuggestions.map((item, idx) => (
+              <button
+                key={item.label}
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => applyConsoleSuggestion(item)}
+                className={`flex w-full items-center justify-between px-2.5 py-1.5 text-left text-xs ${idx === rConsoleSuggestionIndex
+                  ? 'text-zinc-100 bg-[#242424]'
+                  : 'text-zinc-400 hover:bg-[#1e1e1e] hover:text-zinc-200'
+                  }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="w-4 h-4 flex items-center justify-center rounded text-[10px] bg-[#242424] text-zinc-300 font-mono">
+                    {item.label.startsWith('function') ? 'f' : item.label.startsWith('variable') ? 'v' : 'm'}
+                  </span>
+                  <span className="font-mono text-xs">{item.label}</span>
+                </div>
+                <span className="ml-2 truncate text-[10px] text-zinc-500">{item.detail}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderRIdeChatPanel = ({ responsive = true, topHeaderOffset = false } = {}) => (
     <div
-      className="flex min-h-[260px] min-w-0 flex-1 flex-col overflow-hidden"
-      style={{ background: '#101010' }}
+      className={`flex min-h-[260px] min-w-0 flex-1 flex-col overflow-hidden ${topHeaderOffset ? 'pt-[42px]' : ''}`}
+      style={{ background: '#131313' }}
     >
       {/* ── Panel Header ── */}
       <div
         className="flex items-center justify-between gap-3 border-b px-4 py-2.5"
-        style={{ background: '#0b0b0b', borderColor: '#222' }}
+        style={{ background: '#0D0E10', borderColor: '#222' }}
       >
         <div className="flex min-w-0 items-center gap-2.5">
           {showREditorTerminal && (
@@ -17565,15 +17634,6 @@ ${attachmentPromptContext || '(none)'}`;
         <div className="flex items-center gap-1.5">
           {showOllamaTerminal && (
             <>
-              <button
-                type="button"
-                onClick={handleAttachScriptToTerminal}
-                className="inline-flex items-center gap-1 rounded-xl px-2.5 py-1 text-[10.5px] font-semibold uppercase tracking-wider text-emerald-400 transition-all bg-[#141414] hover:bg-[#1e1e1e] border border-emerald-500/30 hover:border-emerald-500/50 shadow-sm cursor-pointer"
-                title="Save the current editor content as Ollama CLI file context"
-              >
-                <FileCode size={11} />
-                Attach
-              </button>
               {(cliContextPath || cliContextError) && (
                 <span
                   className={`max-w-[160px] truncate text-[9px] font-mono ${cliContextError ? 'text-rose-400' : 'text-emerald-300/70'}`}
@@ -17588,17 +17648,6 @@ ${attachmentPromptContext || '(none)'}`;
             <span className="max-w-[200px] truncate text-[9px] text-rose-400" title={clineLaunchError}>
               {clineLaunchError}
             </span>
-          )}
-          {!showOllamaTerminal && (
-            <button
-              type="button"
-              onClick={cycleRIdeChatMode}
-              className="inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-[10.5px] font-semibold tracking-wide transition-all shadow-sm cursor-pointer bg-[#141414] hover:bg-[#1e1e1e] text-zinc-400 hover:text-zinc-200 border border-[#262626] hover:border-[#383838]"
-              title={`Chat mode: ${rIdeChatModeLabel}. Click to switch between Code Gen, Discussion, and Free.`}
-            >
-              {rIdeChatFreeMode ? <Sparkles size={11} className="text-zinc-400" /> : (rIdeChatDiscussionMode ? <MessageSquare size={11} className="text-zinc-400" /> : <Code size={11} className="text-zinc-400" />)}
-              {rIdeChatModeLabel}
-            </button>
           )}
           <button
             type="button"
@@ -17629,7 +17678,7 @@ ${attachmentPromptContext || '(none)'}`;
           <div
             ref={rIdeChatScrollRef}
             className="absolute inset-0 overflow-y-auto custom-scrollbar px-3.5 py-4"
-            style={{ background: '#101010', display: 'flex', flexDirection: 'column', gap: '10px', overflowAnchor: 'none', scrollbarGutter: 'stable', scrollBehavior: 'auto' }}
+            style={{ background: '#131313', display: 'flex', flexDirection: 'column', gap: '10px', overflowAnchor: 'none', scrollbarGutter: 'stable', scrollBehavior: 'auto' }}
           >
             {/* Model switch indicator at the very top if not already shown in history */}
             {(!rIdeChatMessages.length || !rIdeChatMessages.some(m => m.switchModel)) && (
@@ -18319,7 +18368,21 @@ ${attachmentPromptContext || '(none)'}`;
 
         const hasInternalSyncCode = /(?:target_df_name|write_ok|current_sheet_object|preferred_df)/.test(plainText);
         if (plainText && !suppressInternalOutput && !hasInternalSyncCode) {
-          appendConsoleOutput('r', (previous) => previous + plainText);
+          let displayText = plainText;
+          const pendingCommand = rConsolePendingCommandRef.current;
+          if (pendingCommand && plainText.trim()) {
+            const trimmedText = plainText.trimStart();
+            const echoedText = trimmedText.replace(/^(?:>>>|>)\s*/, '');
+            const commandWasEchoed = echoedText.startsWith(pendingCommand)
+              && (echoedText.length === pendingCommand.length || echoedText[pendingCommand.length] === '\n');
+            if (commandWasEchoed) {
+              displayText = echoedText.slice(pendingCommand.length).replace(/^\n/, '');
+            }
+            const prompt = editorLanguage === 'python' ? '>>> ' : '> ';
+            displayText = `${prompt}${pendingCommand}\n${displayText}`;
+            rConsolePendingCommandRef.current = '';
+          }
+          appendConsoleOutput('r', (previous) => previous + displayText);
           const activeChunkIndex = activeRChunkIndexRef.current;
           // Keep inline chunk results limited to stdout. R errors and process
           // status messages still belong in the full console, but should not
@@ -18865,6 +18928,7 @@ except Exception as _ngr_error:
     setRConsoleHistory(prev => [...prev, code].slice(-200));
     setRConsoleHistoryIndex(-1);
     setRConsoleInput('');
+    rConsolePendingCommandRef.current = code;
     setRPromptState('busy');
     setRConsoleRunning(true);
 
@@ -19236,6 +19300,7 @@ except Exception as _ngr_error:
     setRConsoleSuggestions([]);
     setRConsoleSuggestionIndex(0);
     setRConsoleSuggestionToken(null);
+    requestAnimationFrame(() => consoleInputRef.current?.focus());
   };
 
   const isEditorSelectionContextEqual = useCallback((left, right) => {
@@ -24735,6 +24800,17 @@ except Exception as _ngr_error:
       document.removeEventListener('mousedown', handleOutsideClick);
     };
   }, [isREditorAIConfigOpen]);
+
+  useEffect(() => {
+    if (!isREditorAIConfigOpen) return undefined;
+    positionREditorAIConfigPanel();
+    window.addEventListener('resize', positionREditorAIConfigPanel);
+    window.addEventListener('scroll', positionREditorAIConfigPanel, true);
+    return () => {
+      window.removeEventListener('resize', positionREditorAIConfigPanel);
+      window.removeEventListener('scroll', positionREditorAIConfigPanel, true);
+    };
+  }, [isREditorAIConfigOpen, positionREditorAIConfigPanel]);
 
   const cleanMissingValues = async (options = {}) => {
     const supportedModes = new Set(['remove_rows', 'fill_prev5_mean', 'fill_previous', 'constant', 'ml_prediction']);
@@ -33170,10 +33246,16 @@ except Exception as _ngr_error:
     if (activeLateralPanel === 'console') {
       return (
         <div className="h-full min-h-0" style={{ background: '#131313' }}>
-          <div className="flex h-full min-h-0 flex-col overflow-hidden border border-zinc-800">
+          <div className="relative flex h-full min-h-0 flex-col overflow-hidden border border-zinc-800">
             {/* Header Bar */}
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 px-4 py-2.5" style={{ background: '#050505' }}>
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <div
+              className="absolute left-0 top-0 z-30 flex flex-nowrap items-center justify-between gap-3 overflow-visible border-b border-zinc-800 px-4 py-2.5"
+              style={{
+                background: '#0D0E10',
+                width: '100%'
+              }}
+            >
+              <div className="flex min-w-0 flex-wrap items-center gap-5">
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[10.5px] font-semibold tracking-wide text-zinc-300">
                   <span className={`h-2 w-2 rounded-full animate-pulse ${isLiveConsoleActive ? 'bg-emerald-400' : 'bg-rose-500'}`} />
                   Live Console
@@ -33240,15 +33322,15 @@ except Exception as _ngr_error:
                 )}
                 {renderREditorAIControl()}
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={clearRConsoleState}
-                  className="inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-[10.5px] font-semibold tracking-wide transition-all bg-[#141414] hover:bg-[#1e1e1e] border border-[#262626] hover:border-[#383838] text-zinc-400 hover:text-zinc-200 shadow-sm cursor-pointer"
-                  title="Clear console output and input"
-                >
-                  <Trash2 size={12} className="text-zinc-400" /> Clear
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={clearRConsoleState}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-xl px-2.5 py-1 text-[10.5px] font-semibold tracking-wide transition-all bg-[#141414] hover:bg-[#1e1e1e] border border-[#262626] hover:border-[#383838] text-zinc-400 hover:text-zinc-200 shadow-sm cursor-pointer"
+                title="Clear console output and input"
+              >
+                <Trash2 size={12} className="text-zinc-400" />
+                Clear
+              </button>
             </div>
 
             {/* Chat + Editor + Console Panels */}
@@ -33257,12 +33339,13 @@ except Exception as _ngr_error:
               responsive
               sizes={rConsolePanelSizes}
               onSizesChange={setRConsolePanelSizes}
+              resizeHandleIndices={[1]}
             >
-              {renderRIdeChatPanel()}
+              {renderRIdeChatPanel({ topHeaderOffset: true })}
 
-              <div className="relative flex min-h-[260px] min-w-0 flex-1 flex-col overflow-hidden" style={{ background: '#131313' }}>
+              <div className="relative flex min-h-[260px] min-w-0 flex-1 flex-col overflow-hidden pt-[42px]" style={{ background: '#131313' }}>
                 {/* Editor Header */}
-                <div className="flex items-center justify-between gap-2 border-b border-zinc-800 px-3.5 py-2" style={{ background: '#0b0b0b' }}>
+                <div className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-800 px-3.5 py-2" style={{ background: '#0D0E10' }}>
                   <div className="flex min-w-0 items-center gap-2">
                     <div className="flex bg-[#141414] rounded-xl p-0.5 ml-1 border border-[#262626] shadow-sm" role="group" aria-label="Editor language">
                       <button
@@ -33385,7 +33468,7 @@ except Exception as _ngr_error:
                 {!isDataMemoryOpen && renderLocalAIHint()}
                 {!isDataMemoryOpen && renderRIdeEditorApprovalPanel()}
                 {/* CodeMirror Editor - Black Background */}
-                <div className={isDataMemoryOpen ? 'hidden' : 'relative flex-1 min-h-[220px] min-w-0 w-full max-w-full overflow-auto'} style={{ background: '#131313' }}>
+                <div className={isDataMemoryOpen ? 'hidden' : 'relative flex-1 min-h-[220px] min-w-0 w-full max-w-full overflow-auto'} style={{ background: '#1e1e1e' }}>
                   {rIdePendingChange?.unifiedDiff && (
                     <div className="absolute inset-0 z-30">
                       <RIdeInCodeDiffViewer
@@ -33510,78 +33593,29 @@ except Exception as _ngr_error:
               </div>
 
               {/* Console Panel - Compact Black Table Style */}
-              <div className="flex min-h-[260px] min-w-0 flex-1 flex-col overflow-hidden" style={{ background: '#131313' }}>
+              <div className="flex min-h-[260px] min-w-0 flex-1 flex-col overflow-hidden pt-[42px]" style={{ background: '#131313' }}>
                 {/* Console Output - VS Code Terminal Style */}
-                <div ref={consoleOutputRef} className="flex-1 min-h-[220px] overflow-y-auto custom-scrollbar scroll-smooth console-output-vscode">
+                <div ref={consoleOutputRef} className="flex flex-col flex-1 min-h-[220px] overflow-y-auto custom-scrollbar scroll-smooth console-output-vscode">
                   {rConsoleOutput ? (
                     <div className="whitespace-pre-wrap leading-relaxed">
                       {renderRConsoleOutput(rConsoleOutput)}
                     </div>
                   ) : (
-                    <div className="flex h-full flex-col items-center justify-center space-y-2" style={{ color: '#666666' }}>
-                      <Terminal size={18} />
-                      <p className="text-xs font-bold tracking-wider">{editorLanguage === 'python' ? 'PYTHON INTERACTIVE SESSION READY' : 'R INTERACTIVE SESSION READY'}</p>
-                      <p className="text-[10px]" style={{ color: '#555555' }}>{editorLanguage === 'python' ? 'TRY `print("hello")` OR `import pandas as pd`' : 'TRY `SUMMARY(CARS)` OR `PLOT(RNORM(100))`'}</p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Console Input */}
-                <div className="border-t border-zinc-800 flex items-center px-3 py-2 bg-[#141414]">
-                  <div className="relative flex-1 flex items-center rounded-xl border border-[#262626] bg-[#181818] px-2.5 py-1 focus-within:border-[#383838]">
-                    <span className="font-mono font-bold text-[13px] text-zinc-400 mr-1.5">{'>'}</span>
-                    <input
-                      ref={consoleInputRef}
-                      value={rConsoleInput}
-                      onChange={handleConsoleInputChange}
-                      onKeyDown={handleConsoleKeyDown}
-                      onClick={handleConsoleInputClick}
-                      className="flex-1 border-none bg-transparent font-mono text-[13px] text-zinc-200 outline-none placeholder-zinc-500"
-                      placeholder={editorLanguage === 'python' ? 'Type Python command...' : 'Type R command...'}
-                      autoComplete="off"
-                      spellCheck="false"
-                    />
-                    {/* Suggestions Dropdown */}
-                    {rConsoleSuggestions.length > 0 && (
-                      <div className="absolute left-0 right-0 bottom-[calc(100%+6px)] z-50 overflow-hidden rounded-xl border border-[#262626] bg-[#141414] shadow-2xl">
-                        {rConsoleSuggestions.map((item, idx) => (
-                          <button
-                            key={item.label}
-                            type="button"
-                            onMouseDown={(event) => event.preventDefault()}
-                            onClick={() => applyConsoleSuggestion(item)}
-                            className={`flex w-full items-center justify-between px-2.5 py-1.5 text-left text-xs ${idx === rConsoleSuggestionIndex
-                              ? 'text-zinc-100 bg-[#242424]'
-                              : 'text-zinc-400 hover:bg-[#1e1e1e] hover:text-zinc-200'
-                              }`}
-                          >
-                            <div className="flex items-center gap-2">
-                              <span className="w-4 h-4 flex items-center justify-center rounded text-[10px] bg-[#242424] text-zinc-300 font-mono">
-                                {item.label.startsWith('function') ? 'f' : item.label.startsWith('variable') ? 'v' : 'm'}
-                              </span>
-                              <span className="font-mono text-xs">{item.label}</span>
-                            </div>
-                            <span className="ml-2 truncate text-[10px] text-zinc-500">{item.detail}</span>
-                          </button>
-                        ))}
+                    <>
+                      {renderRConsolePrompt()}
+                      <div className="flex min-h-[220px] flex-1 flex-col items-center justify-center space-y-2" style={{ color: '#666666' }}>
+                        <Terminal size={18} />
+                        <p className="text-xs font-bold tracking-wider">{editorLanguage === 'python' ? 'PYTHON INTERACTIVE SESSION READY' : 'R INTERACTIVE SESSION READY'}</p>
+                        <p className="text-[10px]" style={{ color: '#555555' }}>{editorLanguage === 'python' ? 'TRY `print("hello")` OR `import pandas as pd`' : 'TRY `SUMMARY(CARS)` OR `PLOT(RNORM(100))`'}</p>
                       </div>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={runRConsole}
-                    disabled={rConsoleRunning || !rConsoleInput.trim()}
-                    className="ml-2 inline-flex items-center gap-1.5 rounded-xl px-3 py-1 text-[10.5px] font-semibold uppercase tracking-wider transition-all bg-[#242424] hover:bg-[#2e2e2e] text-zinc-200 border border-[#383838] shadow-sm disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer shrink-0"
-                    title="Run command (Enter)"
-                  >
-                    <Play size={10} fill="currentColor" />
-                    <span>Run</span>
-                  </button>
+                    </>
+                  )}
+                  {rConsoleOutput && renderRConsolePrompt()}
                 </div>
 
                 {/* Pip Package Installer (Python) */}
                 {editorLanguage === 'python' && (
-                  <div className="border-t border-[#262626] px-3 py-1.5 flex flex-col gap-1.5" style={{ background: '#141414' }}>
+                  <div className="order-3 border-t border-[#262626] px-3 py-1.5 flex flex-col gap-1.5" style={{ background: '#141414' }}>
                     {isPipSectionMinimized ? (
                       <div className="flex items-center justify-between py-0.5">
                         <button
@@ -39221,7 +39255,7 @@ except Exception as _ngr_error:
             </button>
           </div>
           <div className={`flex-1 min-h-0 custom-scrollbar ${activeLateralPanel === 'console' || activeLateralPanel === 'plots' || activeLateralPanel === 'file_reader'
-            ? activeLateralPanel === 'file_reader' ? 'overflow-hidden p-0' : 'overflow-hidden p-3 md:p-4'
+            ? activeLateralPanel === 'file_reader' ? 'overflow-hidden p-0' : activeLateralPanel === 'console' ? 'overflow-visible p-3 md:p-4' : 'overflow-hidden p-3 md:p-4'
             : 'overflow-y-auto p-4'
             }`}>
             {isLateralPanelOpen ? renderLateralPanelContent() : null}
@@ -39316,9 +39350,9 @@ except Exception as _ngr_error:
             width={900}
             height={700}
           >
-            <div className="relative flex flex-col h-full overflow-hidden bg-[#131313]">
-              <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 border-b border-zinc-800 bg-[#050505]">
-                <div className="flex items-center gap-2 flex-wrap">
+            <div className="relative flex flex-col h-full overflow-visible bg-[#131313]">
+              <div className="relative z-40 flex flex-wrap items-center justify-between gap-3 overflow-visible px-4 py-2.5 border-b border-zinc-800 bg-[#0D0E10]">
+                <div className="flex items-center gap-5 flex-wrap">
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[10.5px] font-semibold tracking-wide text-zinc-300">
                     <span className={`h-2 w-2 rounded-full animate-pulse ${isLiveConsoleActive ? 'bg-emerald-400' : 'bg-rose-500'}`} />
                     Live Console
@@ -39405,7 +39439,7 @@ except Exception as _ngr_error:
                 {renderRIdeChatPanel({ responsive: false })}
 
                 <div className="relative flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden" style={{ background: '#131313' }}>
-                  <div className="flex items-center justify-between px-3.5 py-2 border-b border-zinc-800 bg-[#0b0b0b]">
+                  <div className="flex items-center justify-between px-3.5 py-2 border-b border-zinc-800 bg-[#0D0E10]">
                     <div className="flex items-center gap-2">
                       <div className="inline-flex items-center gap-1 rounded-xl p-0.5 shadow-sm bg-[#141414] border border-[#262626]" role="group" aria-label="Editor language">
                         <button
@@ -39646,76 +39680,25 @@ except Exception as _ngr_error:
                 </div>
 
                 <div className="flex-1 min-h-0 min-w-0 flex flex-col rounded-none border border-zinc-800 bg-[#131313] overflow-hidden shadow-[0_8px_30px_rgba(2,6,23,0.45)]">
-                  <div ref={consoleOutputRef} className="flex-1 min-h-0 p-4 font-mono text-[13px] overflow-y-auto custom-scrollbar scroll-smooth bg-[#101010]">
+                  <div ref={consoleOutputRef} className="flex flex-col flex-1 min-h-0 p-4 font-mono text-[13px] overflow-y-auto custom-scrollbar scroll-smooth bg-[#101010]">
                     {rConsoleOutput ? (
                       <div className="whitespace-pre-wrap leading-relaxed text-zinc-200">
                         {renderRConsoleOutput(rConsoleOutput)}
                       </div>
                     ) : (
-                      <div className="h-full flex flex-col items-center justify-center text-zinc-500 space-y-2 opacity-80">
-                        <Terminal size={18} className="text-zinc-600" />
-                        <p className="text-xs font-semibold tracking-wide">{editorLanguage === 'python' ? 'Python interactive session is ready' : 'R interactive session is ready'}</p>
-                        <p className="text-[11px] text-zinc-600">{editorLanguage === 'python' ? 'Try `print("hello")` or `import pandas as pd`' : 'Try `summary(cars)` or `plot(rnorm(100))`'}</p>
-                      </div>
+                      <>
+                        {renderRConsolePrompt()}
+                        <div className="flex min-h-[220px] flex-1 flex-col items-center justify-center text-zinc-500 space-y-2 opacity-80">
+                          <Terminal size={18} className="text-zinc-600" />
+                          <p className="text-xs font-semibold tracking-wide">{editorLanguage === 'python' ? 'Python interactive session is ready' : 'R interactive session is ready'}</p>
+                          <p className="text-[11px] text-zinc-600">{editorLanguage === 'python' ? 'Try `print("hello")` or `import pandas as pd`' : 'Try `summary(cars)` or `plot(rnorm(100))`'}</p>
+                        </div>
+                      </>
                     )}
+                    {rConsoleOutput && renderRConsolePrompt()}
                   </div>
 
-                  <div className="p-3 border-t border-zinc-800 bg-[#131313]">
-                    <div className="relative">
-                      <div className="flex items-center gap-2 rounded-xl border border-[#262626] bg-[#181818] px-3 py-1.5 focus-within:border-[#383838]">
-                        <span className="text-zinc-400 font-bold font-mono">{'>'}</span>
-                        {isAIConsoleLoading && (
-                          <div className="absolute right-24 top-1/2 -translate-y-1/2 flex items-center gap-2 pointer-events-none">
-                            <div className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-ping" />
-                            <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest animate-pulse">Thinking...</span>
-                          </div>
-                        )}
-                        <input
-                          ref={consoleInputRef}
-                          value={rConsoleInput}
-                          onChange={handleConsoleInputChange}
-                          onKeyDown={handleConsoleKeyDown}
-                          onClick={handleConsoleInputClick}
-                          className="flex-1 bg-transparent border-none outline-none text-zinc-200 placeholder:text-zinc-500 font-mono text-sm h-7"
-                          placeholder={editorLanguage === 'python' ? 'Type Python code and press Enter' : 'Type R code and press Enter'}
-                          autoComplete="off"
-                        />
-                        <button
-                          type="button"
-                          onClick={runRConsole}
-                          disabled={rConsoleRunning || !rConsoleInput.trim()}
-                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-[10.5px] font-semibold uppercase tracking-wider transition-all shadow-sm shrink-0 cursor-pointer ${rConsoleRunning || !rConsoleInput.trim()
-                            ? 'bg-[#141414] text-zinc-600 border border-[#262626] cursor-not-allowed'
-                            : 'bg-[#242424] hover:bg-[#2e2e2e] text-zinc-200 border border-[#383838] hover:border-[#484848]'
-                            }`}
-                          title="Run command (Enter)"
-                        >
-                          <Play size={10} fill="currentColor" /> Run
-                        </button>
-                      </div>
-                      {rConsoleSuggestions.length > 0 && (
-                        <div className="absolute left-0 right-0 bottom-[calc(100%+8px)] bg-[#141414] border border-[#262626] rounded-xl shadow-2xl overflow-hidden z-50">
-                          {rConsoleSuggestions.map((item, idx) => (
-                            <button
-                              key={item.label}
-                              type="button"
-                              onMouseDown={(event) => event.preventDefault()}
-                              onClick={() => applyConsoleSuggestion(item)}
-                              className={`w-full text-left px-3 py-2 flex items-center justify-between cursor-pointer transition-colors ${idx === rConsoleSuggestionIndex
-                                ? 'bg-[#242424] text-zinc-100'
-                                : 'text-zinc-300 hover:bg-[#1a1a1a]'
-                                }`}
-                            >
-                              <span className="font-mono text-xs">{item.label}</span>
-                              <span className="text-[10px] text-zinc-500 ml-2 truncate">{item.detail}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <p className="mt-2 text-[10px] text-zinc-500 font-medium tracking-wide">
-                      Enter to run • Tab/Enter to accept suggestion • Alt + Up/Down for history • Ctrl + Space for suggestions
-                    </p>
+                  <div className="order-3 px-3 py-1 bg-[#101010]">
 
                     {/* Pip Package Installer (Python) */}
                     {editorLanguage === 'python' && (

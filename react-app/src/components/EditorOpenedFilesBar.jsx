@@ -113,8 +113,8 @@ const EditorOpenedFilesBar = ({
       `}</style>
 
       <div
-        className="flex items-center border-b border-zinc-800 px-3 py-1 select-none z-10 w-full min-w-0"
-        style={{ background: '#131313' }}
+        className="flex shrink-0 items-center border-b border-zinc-800 px-3 py-1 select-none z-10 w-full min-w-0"
+        style={{ background: '#1e1e1e' }}
         role="tablist"
         aria-label="Opened script files"
       >
@@ -136,10 +136,10 @@ const EditorOpenedFilesBar = ({
                 role="tab"
                 aria-selected={isActive}
                 onClick={() => onSelectTab && onSelectTab(tab.id)}
-                className={`group relative flex items-center gap-1.5 px-2.5 py-1 rounded-none text-[11px] font-mono transition-all cursor-pointer border shadow-sm shrink-0 ${
+                className={`group relative flex items-center gap-1.5 px-2.5 py-1 rounded-none text-[11px] font-mono transition-all cursor-pointer shrink-0 ${
                   isActive
-                    ? 'bg-[#242424] text-zinc-100 border-[#383838] font-semibold'
-                    : 'bg-[#141414] hover:bg-[#1e1e1e] text-zinc-400 hover:text-zinc-200 border-[#262626] hover:border-[#383838]'
+                    ? 'text-white font-semibold drop-shadow-[0_0_8px_rgba(255,255,255,0.25)]'
+                    : 'text-zinc-500 hover:text-zinc-200 drop-shadow-[0_1px_2px_rgba(0,0,0,0.75)]'
                 }`}
                 title={tab.path || `${tab.name} (Unsaved)`}
               >
