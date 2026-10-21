@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="GIF file">
+  <path fill="#ededed" d="M18 3h27l15 15v36a7 7 0 0 1-7 7H18A14 14 0 0 1 4 47V17A14 14 0 0 1 18 3Z"/>
+  <path fill="#706ed4" d="M45 3v15a4 4 0 0 0 4 4h11Z"/>
+  <rect x="2" y="29" width="53" height="17" rx="6" fill="#706ed4"/>
+  <text x="29" y="41" fill="#20204f" font-family="Arial, sans-serif" font-size="12" font-weight="700" text-anchor="middle">GIF</text>
+</svg>

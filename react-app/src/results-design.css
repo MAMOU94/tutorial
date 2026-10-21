@@ -1,0 +1,303 @@
+/* Compact Dark Aesthetic - Results Design Tokens (Borderless) */
+
+:root {
+  /* Neutral Dark Color Palette matching Advanced Mode */
+  --bg-primary: #0f0f0f;
+  --bg-card: #141414;
+  --bg-card-hover: #1a1a1a;
+  --bg-header: #181818;
+  --bg-element: #181818;
+  --bg-table-header: #161616;
+  --bg-ai-panel: #141414;
+  
+  --border-subtle: transparent;
+  --border-card: transparent;
+  --border-table: transparent;
+  --border-ai: transparent;
+  
+  --text-primary: #f4f4f5;
+  --text-secondary: #e4e4e7;
+  --text-muted: #a1a1aa;
+  --text-label: #71717a;
+  --text-significant: #34d399;
+  
+  --accent-cyan: #10b981;
+  --accent-green: #34d399;
+  --accent-purple: #a855f7;
+  --accent-indigo: #818cf8;
+  
+  --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-glow-cyan: 0 2px 10px rgba(16, 185, 129, 0.25);
+}
+
+/* Card Base - Compact Dark Borderless */
+.glass-panel {
+  background: var(--bg-card) !important;
+  border: none !important;
+  border-radius: 12px !important;
+  box-shadow: var(--shadow-card) !important;
+}
+
+/* KPI Card Style */
+.kpi-card {
+  background: var(--bg-card) !important;
+  border: none !important;
+  border-radius: 12px !important;
+  padding: 16px 18px !important;
+  position: relative !important;
+  overflow: hidden !important;
+  transition: all 0.2s ease !important;
+}
+
+.kpi-card:hover {
+  background: var(--bg-card-hover) !important;
+}
+
+/* Icon Badge - Top Right Corner */
+.icon-badge {
+  width: 26px !important;
+  height: 26px !important;
+  border-radius: 6px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: #1e1e1e !important;
+  border: none !important;
+  color: #a1a1aa !important;
+}
+
+.icon-badge-green {
+  background: rgba(16, 185, 129, 0.15) !important;
+  border: none !important;
+  color: #34d399 !important;
+}
+
+.icon-badge-purple {
+  background: rgba(168, 85, 247, 0.15) !important;
+  border: none !important;
+  color: #c084fc !important;
+}
+
+.icon-badge-indigo {
+  background: rgba(99, 102, 241, 0.15) !important;
+  border: none !important;
+  color: #a5b4fc !important;
+}
+
+/* Chart Card Header */
+.chart-header {
+  background: var(--bg-header) !important;
+  border: none !important;
+  padding: 12px 18px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+}
+
+/* Table Styles - Compact Dark */
+.dark-table {
+  background: var(--bg-card) !important;
+  border: none !important;
+  border-radius: 10px !important;
+  overflow: hidden !important;
+}
+
+.dark-table thead {
+  background: var(--bg-table-header) !important;
+  border: none !important;
+}
+
+.dark-table thead th {
+  font-size: 9.5px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.08em !important;
+  color: var(--text-label) !important;
+  padding: 10px 16px !important;
+  border: none !important;
+}
+
+.dark-table tbody tr {
+  border: none !important;
+  transition: background 0.15s ease !important;
+}
+
+.dark-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+.dark-table tbody td {
+  padding: 10px 16px !important;
+  font-size: 11.5px !important;
+  color: var(--text-secondary) !important;
+  border: none !important;
+}
+
+/* Significant Value Styling */
+.text-significant {
+  color: var(--text-significant) !important;
+  font-weight: 700 !important;
+}
+
+/* Stars for Significance */
+.stars-significant {
+  color: var(--text-significant) !important;
+  font-weight: 900 !important;
+  text-shadow: 0 0 6px rgba(52, 211, 153, 0.3) !important;
+}
+
+/* AI Panel */
+.ai-panel {
+  background: var(--bg-ai-panel) !important;
+  border: none !important;
+  border-radius: 12px !important;
+  padding: 20px !important;
+}
+
+.ai-panel-header {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  margin-bottom: 16px !important;
+}
+
+.ai-panel-icon {
+  color: var(--accent-green) !important;
+}
+
+/* AI Action Buttons */
+.ai-action-btn,
+.ai-button {
+  background: #1e1e1e !important;
+  border: none !important;
+  border-radius: 10px !important;
+  padding: 8px 14px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  color: #d4d4d8 !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+}
+
+.ai-action-btn:hover,
+.ai-button:hover {
+  background: #282828 !important;
+  color: #ffffff !important;
+}
+
+/* Section Label */
+.section-label {
+  font-size: 9.5px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.12em !important;
+  color: var(--text-label) !important;
+}
+
+/* Value Display */
+.value-display {
+  font-size: 26px !important;
+  font-weight: 800 !important;
+  color: var(--text-primary) !important;
+  letter-spacing: -0.02em !important;
+}
+
+.value-description {
+  font-size: 10.5px !important;
+  color: var(--text-muted) !important;
+  line-height: 1.4 !important;
+}
+
+/* Plot Container */
+.plot-container {
+  background: #0d0d0d !important;
+  border: none !important;
+  border-radius: 10px !important;
+  overflow: hidden !important;
+}
+
+/* Card Header with Icon */
+.card-header-ngr {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  padding: 12px 18px !important;
+  border: none !important;
+  background: var(--bg-header) !important;
+}
+
+.card-header-ngr .icon {
+  color: var(--accent-green) !important;
+}
+
+.card-header-ngr .title {
+  font-size: 12.5px !important;
+  font-weight: 700 !important;
+  color: var(--text-primary) !important;
+}
+
+/* Badge/Chip */
+.badge-cyan {
+  background: rgba(16, 185, 129, 0.15) !important;
+  color: var(--accent-green) !important;
+  border: none !important;
+  padding: 3px 9px !important;
+  border-radius: 6px !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+}
+
+.badge-green {
+  background: rgba(34, 197, 94, 0.15) !important;
+  color: var(--accent-green) !important;
+  border: none !important;
+  padding: 3px 9px !important;
+  border-radius: 6px !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+}
+
+/* Action Buttons */
+.action-btn-primary {
+  background: #10b981 !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 10px !important;
+  padding: 8px 16px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  box-shadow: 0 2px 10px rgba(16, 185, 129, 0.25) !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+}
+
+.action-btn-primary:hover {
+  background: #059669 !important;
+  box-shadow: 0 2px 14px rgba(16, 185, 129, 0.4) !important;
+}
+
+.action-btn-secondary {
+  background: var(--bg-element) !important;
+  color: var(--text-secondary) !important;
+  border: none !important;
+  border-radius: 10px !important;
+  padding: 8px 16px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+}
+
+.action-btn-secondary:hover {
+  background: var(--bg-card-hover) !important;
+  color: #ffffff !important;
+}

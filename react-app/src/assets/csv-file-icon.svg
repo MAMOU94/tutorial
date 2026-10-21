@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="CSV file">
+  <path fill="#087c3e" d="M18 3h27l15 15v39a4 4 0 0 1-4 4H18A14 14 0 0 1 4 47V17A14 14 0 0 1 18 3Z"/>
+  <path fill="#056331" d="M45 3v15a4 4 0 0 0 4 4h11Z"/>
+  <rect x="2" y="27" width="60" height="16" rx="3" fill="#056331"/>
+  <text x="32" y="39" fill="#fff" font-family="Arial, sans-serif" font-size="13" font-weight="700" text-anchor="middle">CSV</text>
+</svg>

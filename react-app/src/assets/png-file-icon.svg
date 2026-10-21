@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="PNG file">
+  <path fill="#fff" d="M17 10h25l9 9v35H17Z"/>
+  <path fill="#e9e9e9" d="M42 10v9h9Z"/>
+  <path fill="#3ba8f0" d="M17 40h34v14H17Z"/>
+  <text x="34" y="51" fill="#fff" font-family="Arial, sans-serif" font-size="9" font-weight="700" text-anchor="middle">PNG</text>
+</svg>

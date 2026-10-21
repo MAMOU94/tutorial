@@ -1,0 +1,93 @@
+{
+          "name": "ngr",
+          "version": "1.3.0",
+          "description": "NGR - Next-Generation Research Platform",
+          "main": "main.js",
+          "scripts": {
+                    "start": "electron . --no-sandbox",
+                    "react-build": "cd react-app && npm run build",
+                    "electron-dev": "npm run react-build && electron . --no-sandbox",
+                    "setup:ai": "bash ./scripts/setup_ai_env.sh",
+                    "test:ollama-local": "node scripts/test_local_ollama.js",
+                    "package": "npm run react-build && electron-builder --dir",
+                    "dist": "npm run react-build && electron-builder",
+                    "dist:deb": "npm run react-build && npm run prepare:runtime:portable && electron-builder --linux deb",
+                    "prepare:runtime:portable": "bash ./scripts/prepare-portable-runtime.sh"
+          },
+          "keywords": [
+                    "Electron",
+                    "React",
+                    "Finance"
+          ],
+          "author": "NGR",
+          "license": "ISC",
+          "devDependencies": {
+                    "electron": "^28.2.0",
+                    "electron-builder": "^24.9.1"
+          },
+          "dependencies": {
+                    "electron-squirrel-startup": "^1.0.1",
+                    "node-pty": "^1.1.0",
+                    "react": "^19.2.5",
+                    "react-dom": "^19.2.5"
+          },
+          "build": {
+                    "appId": "com.ngr.app",
+                    "productName": "NGR",
+                    "asar": false,
+                    "afterPack": "./scripts/afterPack.js",
+                    "directories": {
+                              "output": "dist_electron",
+                              "buildResources": "assets"
+                    },
+                    "files": [
+                              "main.js",
+                              "preload.js",
+                              "*_preload.js",
+                              "native/**/*",
+                              "assets/**/*",
+                              "doc_agent_server.py",
+                              "requirements.txt",
+                              "AI agent/**/*",
+                              "!AI agent/.venv{,/**/*}",
+                              "!AI agent/lib{,/**/*}",
+                              "extensions/**/*",
+                              "analysis_wrapper.R",
+                              "analysis_wrapper.R.golden",
+                              "analysis_worker.R",
+                              "data_transform_wrapper.R",
+                              "missing_value_predictor.py",
+                              "qwen_agent.py",
+                              "appimage-build/runtime/**/*",
+                              "react-app/dist/**/*",
+                              "node_modules/**/*",
+                              "tools/**/*",
+                              "!tools/ecc_finder/test_samples{,/**/*}",
+                              "!tools/ecc_finder_original{,/**/*}",
+                              "!tools/ecc_finder/test_output*{,/**/*}",
+                              "!tools/micromamba-root/pkgs{,/**/*}"
+                    ],
+                    "win": {
+                              "target": "nsis",
+                              "icon": "assets/icon.ico"
+                    },
+                    "mac": {
+                              "target": "dmg",
+                              "icon": "assets/icon.icns"
+                    },
+                    "deb": {
+                              "compression": "gz",
+                              "synopsis": "Next-Generation Research Platform"
+                    },
+                    "linux": {
+                              "target": [
+                                        "deb"
+                              ],
+                              "icon": "assets/icon-app.png",
+                              "category": "Science",
+                              "executableName": "ngr",
+                              "executableArgs": ["--no-sandbox"],
+                              "maintainer": "NGR <ngr@ngr.app>"
+                    }
+          }
+}

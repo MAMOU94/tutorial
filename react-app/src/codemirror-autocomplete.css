@@ -1,0 +1,117 @@
+
+/* CodeMirror Autocomplete Suggestions Styling */
+
+/* Main autocomplete panel */
+.cm-tooltip.cm-tooltip-autocomplete {
+  background: rgba(15, 23, 42, 0.96);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 12px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5),
+              0 0 0 1px rgba(56, 189, 248, 0.1);
+  backdrop-filter: blur(12px);
+  max-width: 320px;
+  overflow: hidden;
+}
+
+/* Autocomplete item */
+.cm-completionIcon {
+  color: #38bdf8;
+  margin-right: 8px;
+  width: 16px;
+  height: 16px;
+}
+
+.cm-completionLabel {
+  color: #e2e8f0;
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.cm-completionDetail {
+  color: #94a3b8;
+  font-size: 11px;
+  margin-left: 8px;
+}
+
+.cm-completionIcon.cm-completionIcon-function,
+.cm-completionIcon.cm-completionIcon-method {
+  color: #f472b6;
+}
+
+.cm-completionIcon.cm-completionIcon-class,
+.cm-completionIcon.cm-completionIcon-interface {
+  color: #34d399;
+}
+
+.cm-completionIcon.cm-completionIcon-variable {
+  color: #fbbf24;
+}
+
+.cm-completionIcon.cm-completionIcon-constant {
+  color: #a78bfa;
+}
+
+.cm-completionIcon.cm-completionIcon-property {
+  color: #60a5fa;
+}
+
+/* Selected item */
+.cm-completionSelected {
+  background: rgba(56, 189, 248, 0.15);
+  border-left: 3px solid #38bdf8;
+}
+
+.cm-completionSelected .cm-completionLabel {
+  color: #38bdf8;
+}
+
+.cm-completionSelected .cm-completionDetail {
+  color: #cbd5e1;
+}
+
+/* Scrollbar */
+.cm-tooltip-autocomplete ul::-webkit-scrollbar {
+  width: 8px;
+}
+
+.cm-tooltip-autocomplete ul::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.cm-tooltip-autocomplete ul::-webkit-scrollbar-thumb {
+  background: rgba(56, 189, 248, 0.3);
+  border-radius: 4px;
+}
+
+.cm-tooltip-autocomplete ul::-webkit-scrollbar-thumb:hover {
+  background: rgba(56, 189, 248, 0.5);
+}
+
+/* Light mode support */
+html:not(.dark) .cm-tooltip.cm-tooltip-autocomplete {
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(37, 99, 235, 0.3);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25),
+              0 0 0 1px rgba(37, 99, 235, 0.1);
+}
+
+html:not(.dark) .cm-completionLabel {
+  color: #1e293b;
+}
+
+html:not(.dark) .cm-completionDetail {
+  color: #64748b;
+}
+
+html:not(.dark) .cm-completionSelected {
+  background: rgba(37, 99, 235, 0.1);
+  border-left: 3px solid #3b82f6;
+}
+
+html:not(.dark) .cm-completionSelected .cm-completionLabel {
+  color: #2563eb;
+}
+
+html:not(.dark) .cm-completionSelected .cm-completionDetail {
+  color: #475569;
+}

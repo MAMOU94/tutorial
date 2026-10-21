@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Markdown file">
+  <defs>
+    <linearGradient id="md-bg" x1="0" x2="1">
+      <stop offset="0" stop-color="#24466a"/>
+      <stop offset="1" stop-color="#6dc0df"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#md-bg)" d="M18 4h25l13 13v31H18a12 12 0 0 1-12-12V16A12 12 0 0 1 18 4Z"/>
+  <path fill="#5da9ca" d="M43 4v13h13Z"/>
+  <path fill="#24466a" d="M5 39h54v13a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4Z"/>
+  <text x="32" y="50" fill="#fff" font-family="Arial, sans-serif" font-size="13" font-weight="700" text-anchor="middle">MD</text>
+</svg>

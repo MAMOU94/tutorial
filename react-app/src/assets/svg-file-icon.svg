@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="SVG file">
+  <path fill="#ef4618" d="M18 3h27l15 15v37a6 6 0 0 1-6 6H18A14 14 0 0 1 4 47V17A14 14 0 0 1 18 3Z"/>
+  <path fill="#f8a08b" d="M18 3v13a6 6 0 0 1-6 6H4Z"/>
+  <rect x="8" y="29" width="48" height="17" rx="3" fill="#7f2f1b"/>
+  <text x="32" y="41" fill="#fff" font-family="Georgia, serif" font-size="12" font-weight="700" text-anchor="middle">SVG</text>
+</svg>
