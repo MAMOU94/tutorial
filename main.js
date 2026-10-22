@@ -6089,6 +6089,13 @@ app.whenReady().then(() => {
     });
   });
 
+  ipcMain.handle('opencode-cancel-request', async () => {
+    if (!openCodeActiveProcess) return { success: false, error: 'No active OpenCode request.' };
+    try { openCodeActiveProcess.kill('SIGTERM'); } catch (_) { }
+    openCodeActiveProcess = null;
+    return { success: true };
+  });
+
   ipcMain.handle('fix-r-code', async (event, code, output, model) => {
     try {
       const ready = await ensureActiveAiEndpointReady();

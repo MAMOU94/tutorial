@@ -5,7 +5,7 @@
  * Supports:
  *   • Local Ollama (http://localhost:11434) with model picker
  *   • Remote / cloud Ollama-compatible API (custom URL + API key)
- *   • Claude Code and Codex through authenticated subscription sessions
+ *   • Claude Code, Codex, OpenCode, and Antigravity through authenticated sessions
  *   • OpenAI-compatible streaming (text/event-stream + ndjson)
  *
  * The agent receives the current dataset as context and can respond with:
@@ -22,7 +22,7 @@ import React, {
   useState,
   useMemo
 } from 'react';
-import { Check, ChevronRight, Copy } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Copy, Database, MessageSquare, Paperclip, Send, Sparkles, Square, Trash2 } from 'lucide-react';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -284,6 +284,11 @@ const NVIDIA_DEFAULT_MODEL = 'meta/llama-3.1-nemotron-70b-instruct';
 const CODEX_MODEL_STORAGE_KEY = 'my-stats.data-explorer.codex-model';
 const CODEX_REASONING_EFFORT_STORAGE_KEY = 'my-stats.data-explorer.codex-reasoning-effort';
 const CODEX_DEFAULT_REASONING_EFFORT = 'medium';
+const OPENCODE_MODEL_STORAGE_KEY = 'my-stats.r-editor.opencode-model';
+const OPENCODE_DEFAULT_MODEL = 'deepseek-v4-pro';
+const ANTIGRAVITY_MODEL_STORAGE_KEY = 'my-stats.r-editor.antigravity-model';
+const ANTIGRAVITY_EFFORT_STORAGE_KEY = 'my-stats.r-editor.antigravity-effort';
+const ANTIGRAVITY_DEFAULT_EFFORT = 'medium';
 
 const providerDefinitions = {
   openai: {
@@ -337,6 +342,23 @@ const providerDefinitions = {
     models: ['gpt-oss-120b:free', 'deepseek-v3.1:free', 'qwen3-coder:free', 'gemini-2.5-flash:free'],
   }
 };
+
+const PROVIDER_GROUPS = [
+  { id: 'ollama', label: 'Ollama' },
+  { id: 'claude', label: 'Claude' },
+  { id: 'codex', label: 'Codex' },
+  { id: 'opencode', label: 'OpenCode' },
+  { id: 'antigravity', label: 'Antigravity' },
+  { id: 'api', label: 'API' }
+];
+
+const API_SUB_PROVIDERS = [
+  { id: 'openai', label: 'OpenAI' },
+  { id: 'anthropic', label: 'Anthropic' },
+  { id: 'nvidia', label: 'NVIDIA' },
+  { id: 'openrouter', label: 'OpenRouter' },
+  { id: 'unorouter', label: 'UnoRouter' }
+];
 
 const apiProviderIds = ['openai', 'anthropic', 'nvidia', 'openrouter', 'unorouter'];
 
@@ -578,11 +600,12 @@ const formatAgentTimestamp = (value) => {
 };
 
 const MessageBubble = ({ message, onApplyAction, appliedActions, onDismissAction, isRTheme, isStreaming }) => {
-  const { role, content, actions, imageName, id: msgId } = message;
+  const { role, content, actions, imageName, imageDataUrl, id: msgId } = message;
   const isUser = role === 'user';
   const isSystem = role === 'system';
   const displayContent = actions && actions.length > 0 ? stripActionBlocks(content) : content;
   const [copied, setCopied] = useState(false);
+  const [thoughtExpanded, setThoughtExpanded] = useState(false);
   const copyMessage = async () => {
     if (!displayContent) return;
     try {
@@ -592,26 +615,45 @@ const MessageBubble = ({ message, onApplyAction, appliedActions, onDismissAction
     } catch { /* Clipboard access can be unavailable in packaged environments. */ }
   };
 
+  if (isUser) {
+    return (
+      <div className="ai-agent-message user select-text">
+        <div className="ai-agent-bubble select-text whitespace-pre-wrap break-words">
+          {displayContent}
+          {imageDataUrl && <img src={imageDataUrl} alt={imageName || 'Attached table'} className="ai-agent-image-attachment" />}
+          {imageName && !imageDataUrl && <div className="ai-agent-attachment-label">Photo attached: {imageName}</div>}
+        </div>
+      </div>
+    );
+  }
+
+  if (isSystem) {
+    return (
+      <div className="ai-agent-message system">
+        <div className="ai-agent-bubble whitespace-pre-wrap break-words">{displayContent}</div>
+      </div>
+    );
+  }
+
   return (
-    <div className={`ai-agent-message ${isUser ? 'user' : isSystem ? 'system' : 'assistant'}`}>
+    <div className="ai-agent-message assistant select-text">
       <div className="ai-agent-bubble">
-        {!isUser && !isSystem && (
-          <div className="ai-agent-thought-row">
-            <span>Thought for {message.thoughtDuration || '1.0s'}</span>
-            <ChevronRight size={13} aria-hidden="true" />
-          </div>
-        )}
-        {displayContent && (
-          <p className="ai-agent-bubble-text" style={{ whiteSpace: 'pre-wrap' }}>
-            {displayContent}
-          </p>
-        )}
-        {!isUser && !isSystem && !displayContent && isStreaming && (
+        <button
+          type="button"
+          className="ai-agent-thought-row"
+          onClick={() => setThoughtExpanded((previous) => !previous)}
+          aria-expanded={thoughtExpanded}
+        >
+          <span>Thought for {message.thoughtDuration || '1.0s'}</span>
+          <ChevronRight size={13} className={thoughtExpanded ? 'is-expanded' : ''} aria-hidden="true" />
+        </button>
+        {thoughtExpanded && <div className="ai-agent-thought-detail">{message.thought || 'Analyzed the current dataset and prepared the response.'}</div>}
+        {displayContent ? (
+          <p className="ai-agent-bubble-text" style={{ whiteSpace: 'pre-wrap' }}>{displayContent}</p>
+        ) : isStreaming ? (
           <p className="ai-agent-bubble-text ai-agent-thinking-text">Thinking<span className="animate-pulse">…</span></p>
-        )}
-        {imageName && (
-          <div className="ai-agent-attachment-label">Photo attached: {imageName}</div>
-        )}
+        ) : null}
+        {imageName && <div className="ai-agent-attachment-label">Photo attached: {imageName}</div>}
         {actions && actions.length > 0 && (
           <div className="ai-agent-actions-list">
             {actions.map((action, idx) => {
@@ -629,7 +671,7 @@ const MessageBubble = ({ message, onApplyAction, appliedActions, onDismissAction
             })}
           </div>
         )}
-        {!isUser && !isSystem && displayContent && (
+        {displayContent && (
           <div className="ai-agent-message-footer">
             <button type="button" onClick={copyMessage} title={copied ? 'Copied' : 'Copy response'}>
               {copied ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
@@ -679,7 +721,8 @@ export default function DataExplorerAIAgent({
   defaultApiKey = '',
   isRTheme = false,
   theme = 'ayu-dark',
-  floating = false
+  floating = false,
+  clearRef = null
 }) {
   const isAyuTheme = theme === 'ayu-dark';
 
@@ -710,6 +753,17 @@ export default function DataExplorerAIAgent({
   const [codexModelsLoading, setCodexModelsLoading] = useState(false);
   const [codexModelsError, setCodexModelsError] = useState('');
   const [codexReasoningEffort, setCodexReasoningEffort] = useState(() => readStoredValue(CODEX_REASONING_EFFORT_STORAGE_KEY, CODEX_DEFAULT_REASONING_EFFORT));
+  const [openCodeAuthStatus, setOpenCodeAuthStatus] = useState({ loading: true, connected: false, error: '' });
+  const [openCodeModel, setOpenCodeModel] = useState(() => readStoredValue(OPENCODE_MODEL_STORAGE_KEY, OPENCODE_DEFAULT_MODEL));
+  const [openCodeModels, setOpenCodeModels] = useState([]);
+  const [openCodeModelsLoading, setOpenCodeModelsLoading] = useState(false);
+  const [openCodeModelsError, setOpenCodeModelsError] = useState('');
+  const [antigravityAuthStatus, setAntigravityAuthStatus] = useState({ loading: true, connected: false, message: '' });
+  const [antigravityModel, setAntigravityModel] = useState(() => readStoredValue(ANTIGRAVITY_MODEL_STORAGE_KEY, ''));
+  const [antigravityModels, setAntigravityModels] = useState([]);
+  const [antigravityModelsLoading, setAntigravityModelsLoading] = useState(false);
+  const [antigravityModelsError, setAntigravityModelsError] = useState('');
+  const [antigravityEffort, setAntigravityEffort] = useState(() => readStoredValue(ANTIGRAVITY_EFFORT_STORAGE_KEY, ANTIGRAVITY_DEFAULT_EFFORT));
 
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -718,6 +772,12 @@ export default function DataExplorerAIAgent({
   const [error, setError] = useState(null);
   const [appliedActions, setAppliedActions] = useState({});
   const [dismissedActions, setDismissedActions] = useState({});
+  const [chatMode, setChatMode] = useState('agent'); // 'agent' | 'free'
+
+  const chatModeLabel = chatMode === 'free' ? 'Free Chat' : 'Data Agent';
+  const cycleMode = useCallback(() => {
+    setChatMode((prev) => (prev === 'agent' ? 'free' : 'agent'));
+  }, []);
 
   const scrollRef = useRef(null);
   const scrollFrameRef = useRef(null);
@@ -752,12 +812,56 @@ export default function DataExplorerAIAgent({
     }
   }, []);
 
+  const loadOpenCodeModels = useCallback(async () => {
+    setOpenCodeModelsLoading(true);
+    setOpenCodeModelsError('');
+    try {
+      const result = await window.electronAPI?.getOpenCodeModels?.();
+      const models = Array.isArray(result?.models) ? result.models.map(String).filter(Boolean) : [];
+      if (!result?.success || models.length === 0) throw new Error(result?.error || 'No OpenCode models returned.');
+      setOpenCodeModels(models);
+      setOpenCodeModel((previous) => {
+        const next = previous && models.includes(previous) ? previous : models[0];
+        try { window.localStorage.setItem(OPENCODE_MODEL_STORAGE_KEY, next); } catch { /* Ignore storage failures. */ }
+        return next;
+      });
+    } catch (error) {
+      setOpenCodeModelsError(error?.message || 'Could not detect OpenCode models.');
+    } finally {
+      setOpenCodeModelsLoading(false);
+    }
+  }, []);
+
+  const loadAntigravityModels = useCallback(async () => {
+    setAntigravityModelsLoading(true);
+    setAntigravityModelsError('');
+    try {
+      const result = await window.electronAPI?.antigravityModels?.();
+      const models = Array.isArray(result?.models) ? result.models.map(String).filter(Boolean) : [];
+      if (!result?.success || models.length === 0) throw new Error(result?.error || 'No Antigravity models returned.');
+      setAntigravityModels(models);
+      setAntigravityAuthStatus({ loading: false, connected: true, message: 'Connected to Antigravity' });
+      setAntigravityModel((previous) => {
+        const next = previous && models.includes(previous) ? previous : models[0];
+        try { window.localStorage.setItem(ANTIGRAVITY_MODEL_STORAGE_KEY, next); } catch { /* Ignore storage failures. */ }
+        return next;
+      });
+    } catch (error) {
+      setAntigravityModelsError(error?.message || 'Could not detect Antigravity models.');
+      setAntigravityAuthStatus((previous) => ({ ...previous, loading: false, connected: false, message: error?.message || 'Sign in to Antigravity first.' }));
+    } finally {
+      setAntigravityModelsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     const loadSubscriptionAuthStatus = async () => {
-      const [claudeResult, codexResult] = await Promise.allSettled([
+      const [claudeResult, codexResult, openCodeResult, antigravityResult] = await Promise.allSettled([
         window.electronAPI?.claudeCodeAuthStatus?.(),
-        window.electronAPI?.codexAuthStatus?.()
+        window.electronAPI?.codexAuthStatus?.(),
+        window.electronAPI?.getOpenCodeAuthStatus?.(),
+        window.electronAPI?.antigravityAuthStatus?.()
       ]);
       if (cancelled) return;
       if (claudeResult.status === 'fulfilled' && claudeResult.value) {
@@ -771,10 +875,24 @@ export default function DataExplorerAIAgent({
       } else {
         setCodexAuthStatus((previous) => ({ ...previous, loading: false, message: 'Codex subscription status unavailable.' }));
       }
+      if (openCodeResult.status === 'fulfilled' && openCodeResult.value) {
+        const connected = Boolean(openCodeResult.value.connected);
+        setOpenCodeAuthStatus({ loading: false, connected, error: openCodeResult.value.error || '' });
+        if (connected) loadOpenCodeModels();
+      } else {
+        setOpenCodeAuthStatus((previous) => ({ ...previous, loading: false, error: 'OpenCode status unavailable.' }));
+      }
+      if (antigravityResult.status === 'fulfilled' && antigravityResult.value) {
+        const connected = Boolean(antigravityResult.value.connected);
+        setAntigravityAuthStatus({ loading: false, connected, message: antigravityResult.value.message || '' });
+        if (connected) loadAntigravityModels();
+      } else {
+        setAntigravityAuthStatus((previous) => ({ ...previous, loading: false, message: 'Antigravity status unavailable.' }));
+      }
     };
     loadSubscriptionAuthStatus();
     return () => { cancelled = true; };
-  }, [loadCodexModels]);
+  }, [loadAntigravityModels, loadCodexModels, loadOpenCodeModels]);
 
   const nextId = () => {
     msgIdCounter.current += 1;
@@ -909,10 +1027,13 @@ export default function DataExplorerAIAgent({
     if (scrollFrameRef.current) cancelAnimationFrame(scrollFrameRef.current);
   }, []);
 
-  const buildApiMessages = useCallback((history, userQuestion, attachment = null) => {
-    const datasetCtx = buildDatasetContext(columns, fullData, selectedRowIndices, allColumns);
-    const systemContent = `${SYSTEM_PROMPT}\n\n--- CURRENT DATASET CONTEXT ---\n${datasetCtx}\n\nUse the current selection by default. If the user explicitly names a column or row, apply the requested action to that explicit target in the active dataset. Do not refuse a valid Data Explorer operation merely because the target is outside the current visual selection.`;
-    const apiMsgs = [{ role: 'system', content: systemContent }];
+  const buildApiMessages = useCallback((history, userQuestion, attachment = null, isFreeMode = false) => {
+    const apiMsgs = [];
+    if (!isFreeMode) {
+      const datasetCtx = buildDatasetContext(columns, fullData, selectedRowIndices, allColumns);
+      const systemContent = `${SYSTEM_PROMPT}\n\n--- CURRENT DATASET CONTEXT ---\n${datasetCtx}\n\nUse the current selection by default. If the user explicitly names a column or row, apply the requested action to that explicit target in the active dataset. Do not refuse a valid Data Explorer operation merely because the target is outside the current visual selection.`;
+      apiMsgs.push({ role: 'system', content: systemContent });
+    }
     history.forEach((m) => {
       if (m.role === 'user' || m.role === 'assistant') {
         apiMsgs.push({ role: m.role, content: m.content });
@@ -962,10 +1083,11 @@ export default function DataExplorerAIAgent({
   }, []);
 
   const handleSend = useCallback(async () => {
+    const isFreeMode = chatMode === 'free';
     const q = input.trim() || (imageAttachment ? 'Extract the table from this photo and create a data sheet.' : '');
     if (!q || isStreaming) return;
     const activeSettings = providerSettings[providerId] || {};
-    const isSubscriptionProvider = providerId === 'claude' || providerId === 'codex';
+    const isSubscriptionProvider = providerId === 'claude' || providerId === 'codex' || providerId === 'opencode' || providerId === 'antigravity';
     const activeOllamaModel = selectedModel || localModels[0] || '';
     const activeModel = providerId === 'ollama'
       ? activeOllamaModel
@@ -973,6 +1095,10 @@ export default function DataExplorerAIAgent({
         ? codexModel
         : providerId === 'claude'
           ? 'Claude subscription'
+          : providerId === 'opencode'
+            ? openCodeModel
+            : providerId === 'antigravity'
+              ? antigravityModel
         : activeSettings.model;
     if (!activeModel) {
       setError('Please select a model first (open the AI provider menu).');
@@ -988,6 +1114,14 @@ export default function DataExplorerAIAgent({
     }
     if (providerId === 'codex' && !codexAuthStatus.loggedIn) {
       setError('Sign in with your ChatGPT subscription in the Codex provider panel first.');
+      return;
+    }
+    if (providerId === 'opencode' && !openCodeAuthStatus.connected) {
+      setError('Sign in with OpenCode first, then refresh its models in the OpenCode provider panel.');
+      return;
+    }
+    if (providerId === 'antigravity' && !antigravityAuthStatus.connected) {
+      setError('Sign in with the Antigravity desktop app first, then refresh its models.');
       return;
     }
     if (isSubscriptionProvider && imageAttachment) {
@@ -1010,7 +1144,8 @@ export default function DataExplorerAIAgent({
       role: 'user',
       content: q,
       createdAt: Date.now(),
-      imageName: attachmentForRequest?.name || ''
+      imageName: attachmentForRequest?.name || '',
+      imageDataUrl: attachmentForRequest?.dataUrl || ''
     };
     const assistantMsg = { id: nextId(), role: 'assistant', content: '', actions: [], createdAt: Date.now(), thoughtDuration: '1.0s' };
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
@@ -1022,11 +1157,11 @@ export default function DataExplorerAIAgent({
       ? normalizeOllamaApiUrl(ollamaMode === 'cloud' ? ollamaCloudUrl : defaultOllamaUrl)
       : providerId === 'anthropic'
         ? normalizeAnthropicMessagesUrl(activeSettings.host)
-        : providerId === 'claude' || providerId === 'codex'
+      : providerId === 'claude' || providerId === 'codex' || providerId === 'opencode' || providerId === 'antigravity'
           ? ''
           : normalizeOpenAIChatUrl(activeSettings.host);
     const activeKey = providerId === 'ollama' ? ollamaCloudApiKey : activeSettings.apiKey;
-    const apiMessages = buildApiMessages([...messages, userMsg], q, attachmentForRequest);
+    const apiMessages = buildApiMessages([...messages, userMsg], q, attachmentForRequest, isFreeMode);
     const subscriptionPrompt = buildSubscriptionPrompt(apiMessages);
     const controller = new AbortController();
     abortRef.current = controller;
@@ -1051,10 +1186,14 @@ export default function DataExplorerAIAgent({
 
     try {
       let fullText = '';
-      if (providerId === 'claude' || providerId === 'codex') {
+      if (providerId === 'claude' || providerId === 'codex' || providerId === 'opencode' || providerId === 'antigravity') {
         const result = providerId === 'claude'
           ? await window.electronAPI?.claudeCodeChatRequest?.({ prompt: subscriptionPrompt })
-          : await window.electronAPI?.codexChatRequest?.({ mode: 'data-agent', model: codexModel, reasoningEffort: codexReasoningEffort, prompt: subscriptionPrompt });
+          : providerId === 'codex'
+            ? await window.electronAPI?.codexChatRequest?.({ mode: 'data-agent', model: codexModel, reasoningEffort: codexReasoningEffort, prompt: subscriptionPrompt })
+            : providerId === 'opencode'
+              ? await window.electronAPI?.openCodeChatRequest?.({ model: openCodeModel, prompt: subscriptionPrompt })
+              : await window.electronAPI?.antigravityChatRequest?.({ model: antigravityModel, effort: antigravityEffort, prompt: subscriptionPrompt });
         if (!result?.success) throw new Error(result?.error || `${providerId} subscription request failed.`);
         fullText = String(result.text || '');
         setMessages((prev) => {
@@ -1155,7 +1294,7 @@ export default function DataExplorerAIAgent({
       setIsStreaming(false);
       abortRef.current = null;
     }
-  }, [buildApiMessages, buildSubscriptionPrompt, claudeCodeAuthStatus.loggedIn, codexAuthStatus.loggedIn, codexModel, codexReasoningEffort, columns, defaultOllamaUrl, fullData, imageAttachment, input, isStreaming, localModels, messages, ollamaCloudApiKey, ollamaCloudUrl, ollamaMode, onCreateDataset, providerId, providerSettings, selectedModel]);
+  }, [antigravityAuthStatus.connected, antigravityEffort, antigravityModel, buildApiMessages, buildSubscriptionPrompt, chatMode, claudeCodeAuthStatus.loggedIn, codexAuthStatus.loggedIn, codexModel, codexReasoningEffort, columns, defaultOllamaUrl, fullData, imageAttachment, input, isStreaming, localModels, messages, ollamaCloudApiKey, ollamaCloudUrl, ollamaMode, onCreateDataset, openCodeAuthStatus.connected, openCodeModel, providerId, providerSettings, selectedModel]);
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
@@ -1166,6 +1305,8 @@ export default function DataExplorerAIAgent({
     abortRef.current = null;
     if (providerId === 'claude') window.electronAPI?.claudeCodeCancelRequest?.().catch?.(() => { });
     if (providerId === 'codex') window.electronAPI?.codexCancelRequest?.().catch?.(() => { });
+    if (providerId === 'opencode') window.electronAPI?.openCodeCancelRequest?.().catch?.(() => { });
+    if (providerId === 'antigravity') window.electronAPI?.antigravityCancelRequest?.().catch?.(() => { });
     setIsStreaming(false);
   }, [providerId]);
 
@@ -1175,6 +1316,10 @@ export default function DataExplorerAIAgent({
     autoAppliedActionKeysRef.current.clear();
     directlyAppliedActionKeysRef.current.clear();
   }, []);
+
+  useEffect(() => {
+    if (clearRef) clearRef.current = handleClear;
+  }, [clearRef, handleClear]);
 
   const handleApplyAction = useCallback(async (action, actionKey) => {
     try {
@@ -1317,8 +1462,12 @@ export default function DataExplorerAIAgent({
     ? 'ollama'
     : providerId === 'claude'
       ? 'claude'
-      : providerId === 'codex'
-        ? 'codex'
+        : providerId === 'codex'
+          ? 'codex'
+          : providerId === 'opencode'
+            ? 'opencode'
+            : providerId === 'antigravity'
+              ? 'antigravity'
         : 'api';
   const activeModelLabel = providerId === 'ollama'
     ? (activeOllamaModel || (isModelsLoading ? 'Detecting model…' : 'Choose model'))
@@ -1326,6 +1475,10 @@ export default function DataExplorerAIAgent({
         ? 'Claude subscription'
       : providerId === 'codex'
         ? `${codexModel || 'No model detected'} · ${codexReasoningEffort}`
+        : providerId === 'opencode'
+          ? openCodeModel || 'No model detected'
+          : providerId === 'antigravity'
+            ? `${antigravityModel || 'No model detected'} · ${antigravityEffort}`
         : activeProviderSettings.model;
   const activeProviderLabel = providerId === 'ollama'
     ? 'Ollama'
@@ -1333,9 +1486,17 @@ export default function DataExplorerAIAgent({
       ? 'Claude Code'
       : providerId === 'codex'
         ? 'Codex'
+        : providerId === 'opencode'
+          ? 'OpenCode'
+          : providerId === 'antigravity'
+            ? 'Antigravity'
         : activeProviderDefinition?.label || 'API';
   const activeModelList = providerId === 'ollama'
     ? localModels
+    : providerId === 'opencode'
+      ? openCodeModels
+      : providerId === 'antigravity'
+        ? antigravityModels
     : (detectedProviderModels[providerId]?.length > 0
       ? detectedProviderModels[providerId]
       : (activeProviderDefinition?.models || []));
@@ -1363,13 +1524,32 @@ export default function DataExplorerAIAgent({
     try { window.localStorage.setItem(CODEX_REASONING_EFFORT_STORAGE_KEY, nextEffort); } catch { /* Ignore storage failures. */ }
   };
 
+  const selectOpenCodeModel = (nextModel) => {
+    setOpenCodeModel(nextModel);
+    try { window.localStorage.setItem(OPENCODE_MODEL_STORAGE_KEY, nextModel); } catch { /* Ignore storage failures. */ }
+  };
+
+  const selectAntigravityModel = (nextModel) => {
+    setAntigravityModel(nextModel);
+    try { window.localStorage.setItem(ANTIGRAVITY_MODEL_STORAGE_KEY, nextModel); } catch { /* Ignore storage failures. */ }
+  };
+
+  const selectAntigravityEffort = (nextEffort) => {
+    setAntigravityEffort(nextEffort);
+    try { window.localStorage.setItem(ANTIGRAVITY_EFFORT_STORAGE_KEY, nextEffort); } catch { /* Ignore storage failures. */ }
+  };
+
   const selectProviderGroup = (group) => {
     const nextProviderId = group === 'ollama'
       ? 'ollama'
       : group === 'claude'
         ? 'claude'
-        : group === 'codex'
+      : group === 'codex'
           ? 'codex'
+          : group === 'opencode'
+            ? 'opencode'
+            : group === 'antigravity'
+              ? 'antigravity'
           : (apiProviderIds.includes(providerId) ? providerId : 'openai');
     selectProvider(nextProviderId);
     setConfigOpen(true);
@@ -1392,85 +1572,56 @@ export default function DataExplorerAIAgent({
   const themeClass = isRTheme ? 'r-theme' : isAyuTheme ? 'ayu-theme' : 'std-theme';
 
   return (
-    <div className={`de-ai-agent ${themeClass} ${floating ? 'de-ai-agent-floating' : ''}`}>
-      {/* Header */}
-      <div className="de-ai-header relative">
-        <div className="de-ai-header-left">
-          <div>
-            <p className="de-ai-title">AI Data Agent</p>
-            <p className="de-ai-subtitle">
-              {activeModelLabel || 'No model selected'} &middot; {activeProviderLabel}
-            </p>
-          </div>
-        </div>
-        <div className="de-ai-header-right">
-          <button type="button" className="de-ai-text-btn" title="Clear chat" onClick={handleClear}>
-            Clear chat
-          </button>
-        </div>
-        {configOpen && (
-          <div className="de-ai-provider-panel absolute left-0 top-[calc(100%+8px)] z-[90] flex max-h-[480px] w-[504px] max-w-[calc(100vw-2rem)] origin-top-left flex-col overflow-hidden rounded-xl border border-zinc-700/80 bg-[#161616] shadow-2xl">
-            <div className="de-ai-source-bar">
-              <span className="de-ai-source-label">Source</span>
-              <div className="de-ai-src-toggle" role="tablist" aria-label="AI Data Agent source">
-                {[
-                  { id: 'ollama', label: 'Ollama' },
-                  { id: 'claude', label: 'Claude Code' },
-                  { id: 'codex', label: 'Codex' },
-                  { id: 'api', label: 'API' }
-                ].map(({ id, label }) => (
+    <div className={`de-ai-agent ${themeClass} ${floating ? 'de-ai-agent-floating' : ''}`} style={{ position: 'relative' }}>
+
+      {/* Provider config dropdown – anchored to top of panel */}
+      {configOpen && (
+        <div className="de-ai-provider-panel absolute left-0 right-0 top-0 z-[90] flex max-h-[420px] w-full flex-col overflow-hidden border-b border-zinc-700/80 bg-[#161616] shadow-2xl">
+          <div className="de-ai-source-bar">
+            <div className="de-ai-src-toggle" role="tablist" aria-label="AI Assistant source">
+              {PROVIDER_GROUPS.map(({ id, label }) => {
+                const isActive = activeProviderGroup === id;
+                return (
                   <button
                     key={id}
                     type="button"
                     role="tab"
-                    aria-selected={activeProviderGroup === id}
+                    aria-selected={isActive}
                     onClick={() => selectProviderGroup(id)}
-                    className={`de-ai-src-btn ${activeProviderGroup === id ? 'active' : ''}`}
+                    title={label}
+                    className={`de-ai-src-btn ${isActive ? 'active' : ''}`}
                   >
-                    {label}
+                    <span>{label}</span>
                   </button>
-                ))}
-              </div>
+                );
+              })}
             </div>
-            <div className="flex min-h-0 flex-1 overflow-hidden">
-              <div className="flex w-[124px] shrink-0 flex-col gap-1 border-r border-zinc-800/90 bg-[#121212] p-2.5">
-              <span className="px-2 pb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-400">Provider</span>
-              <div className="mt-1 border-t border-zinc-800/90 pt-1.5">
-                <span className="block px-2 pb-1 text-[9px] font-bold uppercase tracking-[0.12em] text-zinc-500">
-                  {activeProviderGroup === 'api' ? 'API Provider' : 'Provider'}
-                </span>
-                {activeProviderGroup === 'ollama' && (
-                  <button type="button" onClick={() => selectProvider('ollama')} className="flex w-full items-center justify-between rounded-lg border border-zinc-600 bg-zinc-800 px-2.5 py-2 text-left text-[11px] font-semibold text-zinc-100 shadow-sm">
-                    <span>Ollama</span><span className="h-2 w-2 rounded-full bg-zinc-300" />
-                  </button>
-                )}
-                {activeProviderGroup === 'claude' && (
-                  <button type="button" onClick={() => selectProvider('claude')} className="flex w-full items-center justify-between rounded-lg border border-zinc-600 bg-zinc-800 px-2.5 py-2 text-left text-[11px] font-semibold text-zinc-100 shadow-sm">
-                    <span>Claude Code</span><span className="h-2 w-2 rounded-full bg-zinc-300" />
-                  </button>
-                )}
-                {activeProviderGroup === 'codex' && (
-                  <button type="button" onClick={() => selectProvider('codex')} className="flex w-full items-center justify-between rounded-lg border border-zinc-600 bg-zinc-800 px-2.5 py-2 text-left text-[11px] font-semibold text-zinc-100 shadow-sm">
-                    <span>Codex</span><span className="h-2 w-2 rounded-full bg-zinc-300" />
-                  </button>
-                )}
-                {activeProviderGroup === 'api' && apiProviderIds.map((id) => (
+          </div>
+
+          {/* API Provider Sub-Tabs when API group is active */}
+          {activeProviderGroup === 'api' && (
+            <div className="flex items-center gap-1 border-b border-zinc-800/90 bg-[#121212] px-2.5 py-1.5 overflow-x-auto custom-scrollbar shrink-0">
+              {API_SUB_PROVIDERS.map(({ id, label }) => {
+                const isSelected = providerId === id;
+                return (
                   <button
                     key={id}
                     type="button"
                     onClick={() => selectProvider(id)}
-                    className={`mb-1 flex w-full items-center justify-between rounded-lg border px-2.5 py-2 text-left text-[11px] font-semibold tracking-[0.02em] transition-all ${providerId === id
-                      ? 'border-zinc-600 bg-zinc-800 text-zinc-100 shadow-sm'
-                      : 'border-transparent text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200'}`}
+                    className={`inline-flex items-center rounded-md px-2 py-0.5 text-[9px] font-semibold transition-all cursor-pointer ${
+                      isSelected
+                        ? 'border border-zinc-600 bg-zinc-800 text-zinc-100 shadow-sm'
+                        : 'border border-transparent text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200'
+                    }`}
                   >
-                    <span>{providerDefinitions[id].label}</span>
-                    {providerId === id && <span className="h-2 w-2 rounded-full bg-zinc-300" />}
+                    <span>{label}</span>
                   </button>
-                ))}
-              </div>
-              </div>
+                );
+              })}
+            </div>
+          )}
 
-              <div className="max-h-[460px] min-h-0 flex-1 space-y-3 overflow-y-auto p-3 custom-scrollbar">
+          <div className="max-h-[380px] min-h-0 flex-1 space-y-2.5 overflow-y-auto p-3 custom-scrollbar">
               {providerId === 'ollama' ? (
                 <>
                   <div className="flex gap-1.5">
@@ -1497,7 +1648,7 @@ export default function DataExplorerAIAgent({
                           try { window.localStorage.setItem(OLLAMA_CLOUD_URL_STORAGE_KEY, event.target.value); } catch { /* Ignore storage failures. */ }
                         }}
                         placeholder="Cloud URL (e.g. https://api...)"
-                        className="w-full rounded-md border border-zinc-700/80 bg-zinc-900 px-3 py-2 text-xs font-mono text-zinc-200 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none"
+                        className="w-full rounded-md border border-zinc-700/80 bg-zinc-900 px-2.5 py-1.5 text-[11px] font-mono text-zinc-200 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none"
                       />
                       <input
                         type="password"
@@ -1507,7 +1658,7 @@ export default function DataExplorerAIAgent({
                           try { window.localStorage.setItem(OLLAMA_CLOUD_API_KEY_STORAGE_KEY, event.target.value); } catch { /* Ignore storage failures. */ }
                         }}
                         placeholder="Access token"
-                        className="w-full rounded-md border border-zinc-700/80 bg-zinc-900 px-3 py-2 text-xs font-mono text-zinc-200 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none"
+                        className="w-full rounded-md border border-zinc-700/80 bg-zinc-900 px-2.5 py-1.5 text-[11px] font-mono text-zinc-200 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none"
                       />
                     </div>
                   )}
@@ -1520,7 +1671,7 @@ export default function DataExplorerAIAgent({
                     {isModelsLoading ? 'Detecting Models...' : 'Detect Models from Host'}
                   </button>
                   <div>
-                    <div className="mb-2 flex items-center justify-between">
+                    <div className="mb-1.5 flex items-center justify-between">
                       <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">{ollamaMode === 'cloud' ? 'Cloud Models' : 'Local Models'}</span>
                       <span className="text-[10px] font-mono text-zinc-400">{isModelsLoading ? 'Loading…' : `${filteredModelList.length} shown`}</span>
                     </div>
@@ -1529,7 +1680,7 @@ export default function DataExplorerAIAgent({
                         <input value={modelFilterQuery} onChange={(event) => setModelFilterQuery(event.target.value)} placeholder="Filter Ollama models..." className="w-full rounded-md border border-zinc-800 bg-zinc-900/90 px-3 py-1.5 text-[10px] font-mono text-zinc-200 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none" />
                       </div>
                     )}
-                    <div className="max-h-32 space-y-1 overflow-y-auto pr-0.5 custom-scrollbar">
+                    <div className="max-h-24 space-y-0.5 overflow-y-auto pr-0.5 custom-scrollbar">
                       {filteredModelList.length > 0 ? filteredModelList.map((model) => (
                         <button key={model} type="button" onClick={() => selectOllamaModel(model)} className={`flex w-full items-center justify-between rounded-md border px-3 py-1.5 text-left text-[10px] font-mono tracking-tight transition-colors ${selectedModel === model ? 'border-zinc-600 bg-zinc-800 font-semibold text-zinc-100' : 'border-transparent text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200'}`}>
                           <span className="truncate">{model}</span>
@@ -1623,7 +1774,7 @@ export default function DataExplorerAIAgent({
                           {codexModelsLoading ? 'Detecting…' : 'Refresh'}
                         </button>
                       </div>
-                      <div className="max-h-28 space-y-1 overflow-y-auto pr-0.5 custom-scrollbar">
+                      <div className="max-h-20 space-y-0.5 overflow-y-auto pr-0.5 custom-scrollbar">
                         {codexModels.length > 0 ? codexModels.map((model) => (
                           <button key={model} type="button" onClick={() => selectCodexModel(model)} className={`flex w-full items-center justify-between rounded-md border px-3 py-1.5 text-left text-[10px] font-mono tracking-tight transition-colors ${codexModel === model ? 'border-zinc-600 bg-zinc-800 font-semibold text-zinc-100' : 'border-transparent text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200'}`}>
                             <span className="truncate">{model}</span>
@@ -1651,15 +1802,102 @@ export default function DataExplorerAIAgent({
                     </div>
                   </div>
                 </>
+              ) : providerId === 'opencode' ? (
+                <>
+                  <div className="rounded-lg border border-zinc-700 bg-zinc-800/60 p-2.5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-200">OpenCode account</div>
+                        <p className="mt-1 text-[10px] leading-relaxed text-zinc-500">Uses the authenticated OpenCode CLI session. No API key is required here.</p>
+                      </div>
+                      <span className={`shrink-0 rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider ${openCodeAuthStatus.connected ? 'border-emerald-800/70 bg-emerald-950/40 text-emerald-300' : 'border-zinc-700 bg-zinc-900 text-zinc-400'}`}>
+                        {openCodeAuthStatus.loading ? 'Checking…' : openCodeAuthStatus.connected ? 'Connected' : 'Not connected'}
+                      </span>
+                    </div>
+                    <div className="mt-2.5 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const status = await window.electronAPI?.getOpenCodeAuthStatus?.();
+                          const nextStatus = { loading: false, connected: Boolean(status?.connected), error: status?.error || '' };
+                          setOpenCodeAuthStatus(nextStatus);
+                          if (nextStatus.connected) await loadOpenCodeModels();
+                        }}
+                        className="flex-1 rounded-md border border-zinc-700/80 bg-zinc-800 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.06em] text-zinc-200 transition-colors hover:bg-zinc-700"
+                      >
+                        Refresh Status
+                      </button>
+                      <button type="button" onClick={loadOpenCodeModels} disabled={openCodeModelsLoading} className="rounded-md border border-zinc-800 px-3 py-2 text-[10px] font-semibold text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50">
+                        {openCodeModelsLoading ? 'Loading…' : 'Models'}
+                      </button>
+                    </div>
+                    {!openCodeAuthStatus.connected && (openCodeAuthStatus.error || !openCodeAuthStatus.loading) && (
+                      <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">Run <span className="font-mono text-zinc-300">opencode auth login</span> from Advanced Mode, then refresh this panel.</p>
+                    )}
+                  </div>
+                  <div>
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">OpenCode models</span>
+                      <span className="text-[10px] font-mono text-zinc-400">{filteredModelList.length} shown</span>
+                    </div>
+                    <div className="relative mb-2"><input value={modelFilterQuery} onChange={(event) => setModelFilterQuery(event.target.value)} placeholder="Filter OpenCode models..." className="w-full rounded-md border border-zinc-800 bg-zinc-900/90 px-3 py-1.5 text-[10px] font-mono text-zinc-200 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none" /></div>
+                    <div className="max-h-24 space-y-0.5 overflow-y-auto pr-0.5 custom-scrollbar">
+                      {filteredModelList.length > 0 ? filteredModelList.map((model) => (
+                        <button key={model} type="button" onClick={() => selectOpenCodeModel(model)} className={`flex w-full items-center justify-between rounded-md border px-3 py-1.5 text-left text-[10px] font-mono tracking-tight transition-colors ${openCodeModel === model ? 'border-zinc-600 bg-zinc-800 font-semibold text-zinc-100' : 'border-transparent text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200'}`}>
+                          <span className="truncate">{model}</span>{openCodeModel === model && <span className="ml-1.5 shrink-0 text-zinc-300">Selected</span>}
+                        </button>
+                      )) : <div className="rounded-md border border-dashed border-zinc-800 px-3 py-3 text-center text-[10px] font-medium text-zinc-500">{openCodeModelsError || 'No models detected'}</div>}
+                    </div>
+                    <div className="mt-2.5"><span className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-zinc-300">Active Model ID</span><input value={openCodeModel} onChange={(event) => selectOpenCodeModel(event.target.value)} placeholder={OPENCODE_DEFAULT_MODEL} className="w-full rounded-md border border-zinc-700/80 bg-zinc-900 px-2.5 py-1.5 text-[11px] font-mono text-zinc-200 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none" /></div>
+                  </div>
+                </>
+              ) : providerId === 'antigravity' ? (
+                <>
+                  <div className="rounded-lg border border-zinc-700 bg-zinc-800/60 p-2.5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-200">Antigravity desktop account</div>
+                        <p className="mt-1 text-[10px] leading-relaxed text-zinc-500">Uses the account signed in through the Antigravity desktop app. No API key is required.</p>
+                      </div>
+                      <span className={`shrink-0 rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider ${antigravityAuthStatus.connected ? 'border-emerald-800/70 bg-emerald-950/40 text-emerald-300' : 'border-zinc-700 bg-zinc-900 text-zinc-400'}`}>
+                        {antigravityAuthStatus.loading ? 'Checking…' : antigravityAuthStatus.connected ? 'Connected' : 'Not connected'}
+                      </span>
+                    </div>
+                    <div className="mt-2.5 flex gap-2">
+                      <button type="button" onClick={async () => { const result = await window.electronAPI?.antigravityLogin?.(); setAntigravityAuthStatus((previous) => ({ ...previous, message: result?.success ? 'Finish sign-in, then refresh models.' : (result?.error || 'Could not start Antigravity sign-in.') })); }} className="flex-1 rounded-md border border-zinc-700/80 bg-zinc-800 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.06em] text-zinc-200 transition-colors hover:bg-zinc-700">{antigravityAuthStatus.connected ? 'Sign in another account' : 'Sign in with Antigravity'}</button>
+                      <button type="button" onClick={loadAntigravityModels} disabled={antigravityModelsLoading} className="rounded-md border border-zinc-800 px-3 py-2 text-[10px] font-semibold text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50">{antigravityModelsLoading ? 'Loading…' : 'Refresh'}</button>
+                    </div>
+                    {antigravityAuthStatus.connected && <button type="button" onClick={async () => { const result = await window.electronAPI?.antigravityLogout?.(); if (result?.success) { setAntigravityAuthStatus({ loading: false, connected: false, message: 'Signed out of Antigravity.' }); setAntigravityModels([]); setAntigravityModel(''); } }} className="mt-2 w-full rounded-md border border-zinc-800 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200">Log out / Change account</button>}
+                    {antigravityAuthStatus.message && !antigravityAuthStatus.connected && <p className="mt-2 text-[10px] leading-relaxed text-rose-300">{antigravityAuthStatus.message}</p>}
+                  </div>
+                  <div>
+                    <div className="mb-1.5 flex items-center justify-between"><span className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">Antigravity models</span><span className="text-[10px] font-mono text-zinc-400">{filteredModelList.length} shown</span></div>
+                    <div className="relative mb-2"><input value={modelFilterQuery} onChange={(event) => setModelFilterQuery(event.target.value)} placeholder="Filter Antigravity models..." className="w-full rounded-md border border-zinc-800 bg-zinc-900/90 px-3 py-1.5 text-[10px] font-mono text-zinc-200 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none" /></div>
+                    <div className="max-h-24 space-y-0.5 overflow-y-auto pr-0.5 custom-scrollbar">
+                      {filteredModelList.length > 0 ? filteredModelList.map((model) => (
+                        <button key={model} type="button" onClick={() => selectAntigravityModel(model)} className={`flex w-full items-center justify-between rounded-md border px-3 py-1.5 text-left text-[10px] font-mono tracking-tight transition-colors ${antigravityModel === model ? 'border-zinc-600 bg-zinc-800 font-semibold text-zinc-100' : 'border-transparent text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200'}`}>
+                          <span className="truncate">{model}</span>{antigravityModel === model && <span className="ml-1.5 shrink-0 text-zinc-300">Selected</span>}
+                        </button>
+                      )) : <div className="rounded-md border border-dashed border-zinc-800 px-3 py-3 text-center text-[10px] font-medium text-zinc-500">{antigravityModelsError || 'No models detected'}</div>}
+                    </div>
+                    <div className="mt-2.5"><span className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-zinc-300">Active Model ID</span><input value={antigravityModel} onChange={(event) => selectAntigravityModel(event.target.value)} placeholder="Choose a detected model" className="w-full rounded-md border border-zinc-700/80 bg-zinc-900 px-2.5 py-1.5 text-[11px] font-mono text-zinc-200 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none" /></div>
+                  </div>
+                  <div>
+                    <div className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-zinc-300">Execution effort</div>
+                    <div className="flex gap-1.5" role="group" aria-label="Antigravity execution effort">
+                      {['low', 'medium', 'high'].map((effort) => <button key={effort} type="button" onClick={() => selectAntigravityEffort(effort)} className={`flex-1 rounded-md border px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] transition-colors ${antigravityEffort === effort ? 'border-zinc-600 bg-zinc-700 text-zinc-100 shadow-sm' : 'border-zinc-800 text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200'}`}>{effort}</button>)}
+                    </div>
+                  </div>
+                </>
               ) : (
                 <>
                   <div>
                     <div className="mb-1.5 flex items-center justify-between"><span className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">Host / Endpoint</span></div>
-                    <input value={activeProviderSettings.host || ''} onChange={(event) => updateProviderSetting(providerId, 'host', event.target.value)} placeholder={activeProviderDefinition?.defaultHost} className="w-full rounded-md border border-zinc-700/80 bg-zinc-900 px-3 py-2 text-xs font-mono text-zinc-200 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none" />
+                    <input value={activeProviderSettings.host || ''} onChange={(event) => updateProviderSetting(providerId, 'host', event.target.value)} placeholder={activeProviderDefinition?.defaultHost} className="w-full rounded-md border border-zinc-700/80 bg-zinc-900 px-2.5 py-1.5 text-[11px] font-mono text-zinc-200 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none" />
                   </div>
                   <div>
                     <span className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-zinc-300">API Key</span>
-                    <input type="password" value={activeProviderSettings.apiKey || ''} onChange={(event) => updateProviderSetting(providerId, 'apiKey', event.target.value)} placeholder={activeProviderDefinition?.keyPlaceholder} className="w-full rounded-md border border-zinc-700/80 bg-zinc-900 px-3 py-2 text-xs font-mono text-zinc-200 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none" />
+                    <input type="password" value={activeProviderSettings.apiKey || ''} onChange={(event) => updateProviderSetting(providerId, 'apiKey', event.target.value)} placeholder={activeProviderDefinition?.keyPlaceholder} className="w-full rounded-md border border-zinc-700/80 bg-zinc-900 px-2.5 py-1.5 text-[11px] font-mono text-zinc-200 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none" />
                   </div>
                   <div>
                     <button
@@ -1680,782 +1918,393 @@ export default function DataExplorerAIAgent({
                   <div>
                     <div className="mb-1.5 flex items-center justify-between"><span className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">{detectedProviderModels[providerId]?.length ? 'Detected Models' : 'Models (Quick Pick)'}</span><span className="text-[10px] font-mono text-zinc-400">{filteredModelList.length} shown</span></div>
                     <div className="relative mb-2"><input value={modelFilterQuery} onChange={(event) => setModelFilterQuery(event.target.value)} placeholder={`Filter ${activeProviderLabel} models...`} className="w-full rounded-md border border-zinc-800 bg-zinc-900/90 px-3 py-1.5 text-[10px] font-mono text-zinc-200 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none" /></div>
-                    <div className="max-h-48 space-y-1 overflow-y-auto pr-0.5 custom-scrollbar">
+                    <div className="max-h-28 space-y-0.5 overflow-y-auto pr-0.5 custom-scrollbar">
                       {filteredModelList.map((model) => (
                         <button key={model} type="button" onClick={() => updateProviderSetting(providerId, 'model', model)} className={`flex w-full items-center justify-between rounded-md border px-3 py-1.5 text-left text-[10px] font-mono tracking-tight transition-colors ${activeProviderSettings.model === model ? 'border-zinc-600 bg-zinc-800 font-semibold text-zinc-100' : 'border-transparent text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200'}`}>
                           <span className="truncate pr-1.5">{model}</span>{activeProviderSettings.model === model && <span className="shrink-0 text-zinc-300">Selected</span>}
                         </button>
                       ))}
                     </div>
-                    <div className="mt-2.5"><span className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-zinc-300">Active Model ID</span><input value={activeProviderSettings.model || ''} onChange={(event) => updateProviderSetting(providerId, 'model', event.target.value)} placeholder={activeProviderDefinition?.defaultModel} className="w-full rounded-md border border-zinc-700/80 bg-zinc-900 px-3 py-2 text-xs font-mono text-zinc-200 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none" /></div>
+                    <div className="mt-2.5"><span className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-zinc-300">Active Model ID</span><input value={activeProviderSettings.model || ''} onChange={(event) => updateProviderSetting(providerId, 'model', event.target.value)} placeholder={activeProviderDefinition?.defaultModel} className="w-full rounded-md border border-zinc-700/80 bg-zinc-900 px-2.5 py-1.5 text-[11px] font-mono text-zinc-200 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none" /></div>
                   </div>
                 </>
               )}
-              <button type="button" onClick={() => setConfigOpen(false)} className="w-full rounded-md border border-zinc-700/80 bg-zinc-800 px-3 py-2 text-xs font-semibold uppercase tracking-[0.06em] text-zinc-200 transition-colors hover:bg-zinc-700">Done</button>
-              </div>
+              <button type="button" onClick={() => setConfigOpen(false)} className="w-full rounded-md border border-zinc-700/80 bg-zinc-800 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.06em] text-zinc-200 transition-colors hover:bg-zinc-700 cursor-pointer">Done</button>
             </div>
           </div>
         )}
-      </div>
 
-      {/* Error */}
+      {/* ── Error banner ── */}
       {error && (
-        <div className="de-ai-error">
-          <span>{error}</span>
-          <button type="button" onClick={() => setError(null)}>Dismiss</button>
+        <div
+          className="flex items-center gap-2 px-4 py-2 text-[11px] flex-shrink-0"
+          style={{ background: 'rgba(220,38,38,0.07)', color: '#f87171', borderBottom: '1px solid rgba(220,38,38,0.15)' }}
+        >
+          <span className="flex-1">{error}</span>
+          <button type="button" onClick={() => setError(null)} className="opacity-60 hover:opacity-100">Dismiss</button>
         </div>
       )}
 
-      {/* Messages */}
-      <div className="de-ai-messages" ref={scrollRef}>
-        {messages.length === 0 && (
-          <div className="de-ai-empty">
-            <p className="de-ai-empty-title">AI Data Agent</p>
-            <p className="de-ai-empty-sub">Ask me to explore, clean, transform, or modify your dataset. I can apply changes in real time.</p>
-            <div className="de-ai-suggestions">
-              {suggestions.map((s) => (
-                <button key={s} type="button" className="de-ai-sug-btn" onClick={() => { setInput(s); inputRef.current?.focus(); }}>{s}</button>
-              ))}
+      {/* ── Messages Area – exact Advanced Mode ── */}
+      <div className="flex-1 min-h-0 relative overflow-hidden">
+        <div
+          ref={scrollRef}
+          className="absolute inset-0 overflow-y-auto custom-scrollbar px-3.5 py-4"
+          style={{
+            background: '#131313',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px',
+            overflowAnchor: 'none',
+            scrollbarGutter: 'stable',
+            scrollBehavior: 'auto'
+          }}
+        >
+          {/* Empty state – opacity-25, centered, single line */}
+          {messages.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full gap-3 select-none" style={{ opacity: 0.25 }}>
+              <span className="text-[11px] font-medium tracking-wide text-zinc-400">
+                {chatMode === 'free'
+                  ? 'Chat freely with the AI — no data context sent…'
+                  : 'Ask the AI to explore, clean, or transform your data…'
+                }
+              </span>
+              <div className="flex flex-wrap gap-1.5 justify-center">
+                {suggestions.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => { setInput(s); inputRef.current?.focus(); }}
+                    className="px-2.5 py-1 rounded-lg border border-zinc-700 bg-zinc-800/60 text-[10px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-all cursor-pointer"
+                    style={{ opacity: 1 }}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {messages.map((msg) => (
-          <MessageBubble
-            key={msg.id}
-            message={{ ...msg, actions: (msg.actions || []).filter((_, idx) => !dismissedActions[`${msg.id}::${idx}`]) }}
-            isRTheme={isRTheme}
-            isStreaming={isStreaming && msg.id === messages[messages.length - 1]?.id}
-            appliedActions={appliedActions}
-            onApplyAction={handleApplyAction}
-            onDismissAction={handleDismissAction}
-          />
-        ))}
+          {/* Messages rendered with existing MessageBubble (preserves action badges) */}
+          {messages.map((msg) => (
+            <MessageBubble
+              key={msg.id}
+              message={{ ...msg, actions: (msg.actions || []).filter((_, idx) => !dismissedActions[`${msg.id}::${idx}`]) }}
+              isRTheme={isRTheme}
+              isStreaming={isStreaming && msg.id === messages[messages.length - 1]?.id}
+              appliedActions={appliedActions}
+              onApplyAction={handleApplyAction}
+              onDismissAction={handleDismissAction}
+            />
+          ))}
 
-        {isStreaming && (
-          <div className="de-ai-typing">
-            <span>Thinking...</span>
-          </div>
-        )}
+          {/* Active thinking indicator when no messages yet */}
+          {isStreaming && messages.every((m) => m.role !== 'assistant') && (
+            <div className="flex flex-col items-start w-full text-left py-1 mb-2">
+              <div className="inline-flex items-center gap-2 text-[12px] text-zinc-400 font-sans">
+                <span className="inline-block h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
+                <span>Thinking…</span>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Input */}
-      <div className="de-ai-input-area">
-        <input
-          ref={imageInputRef}
-          type="file"
-          accept="image/*"
-          className="sr-only"
-          onChange={handleImageSelection}
-        />
+      {/* ── Input Area – exact Advanced Mode ── */}
+      <div
+        className="border-t px-3.5 py-3 flex-shrink-0"
+        style={{ background: '#131313', borderColor: '#222' }}
+      >
+        <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelection} />
+
+        {/* Attachment preview */}
         {imageAttachment && (
-          <div className="de-ai-attachment-preview">
-            <img src={imageAttachment.dataUrl} alt="Selected table preview" />
-            <span title={imageAttachment.name}>{imageAttachment.name}</span>
-            <button type="button" onClick={() => setImageAttachment(null)} disabled={isStreaming} title="Remove photo">×</button>
-          </div>
-        )}
-        <div className="de-ai-composer-box">
-          <div className="de-ai-composer-input-row">
-            <textarea
-              ref={inputRef}
-              className="de-ai-textarea"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={!activeModelLabel ? 'Select a model in the AI provider menu first...' : 'Ask the agent to explore or modify your data...'}
-              rows={1}
-              disabled={isStreaming}
-            />
-            <div className="de-ai-send-col">
-              {isStreaming ? (
-                <button type="button" className="de-ai-stop-btn" onClick={handleStop} title="Interrupt request" aria-label="Interrupt request">×</button>
-              ) : (
-                <button type="button" className="de-ai-send-btn" onClick={handleSend} disabled={(!input.trim() && !imageAttachment) || !activeModelLabel} title="Send (Enter)" aria-label="Send">↑</button>
-              )}
+          <div className="flex flex-wrap gap-1.5 border-b border-zinc-800/60 px-1 pb-2 pt-1 mb-2">
+            <div className="inline-flex max-w-[220px] items-center gap-1.5 rounded-lg border border-zinc-700/70 bg-zinc-900/70 px-1.5 py-1 text-[10px] text-zinc-300">
+              <img src={imageAttachment.dataUrl} alt="" className="h-7 w-7 rounded object-cover" />
+              <span className="truncate">{imageAttachment.name}</span>
+              <button
+                type="button"
+                onClick={() => setImageAttachment(null)}
+                className="rounded p-0.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+                title="Remove"
+              >
+                ×
+              </button>
             </div>
           </div>
-          <div className="de-ai-composer-footer">
-            <div className="de-ai-composer-actions">
+        )}
+
+        {/* Textarea card – rounded-2xl */}
+        <div
+          className="relative rounded-2xl overflow-hidden transition-all duration-150"
+          style={{ background: '#1c1c1c', border: '1px solid #2e2e2e' }}
+          onFocusCapture={(e) => { e.currentTarget.style.borderColor = '#484848'; }}
+          onBlurCapture={(e) => { e.currentTarget.style.borderColor = '#2e2e2e'; }}
+        >
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            rows={2}
+            disabled={isStreaming}
+            className="w-full resize-none bg-transparent px-3.5 pt-3 pb-1.5 text-[13px] font-sans outline-none placeholder-zinc-500 text-zinc-100"
+            style={{
+              background: 'transparent',
+              backgroundColor: 'transparent',
+              backgroundImage: 'none',
+              boxShadow: 'none',
+              border: 'none',
+              outline: 'none',
+              lineHeight: '1.5',
+              color: '#f4f4f5'
+            }}
+            placeholder={
+              !activeModelLabel
+                ? 'Click the model pill to select a provider & model…'
+                : chatMode === 'free'
+                ? 'Chat freely with the AI…  (no data context sent)'
+                : 'Ask the data assistant to explore or modify your data…'
+            }
+          />
+
+          {/* Bottom action row */}
+          <div className="flex items-center justify-between px-3 pb-2 pt-1 border-t border-zinc-800/60">
+            <div className="min-w-0 flex items-center gap-2">
               <button
                 type="button"
-                className="de-ai-provider-toggle"
-                onClick={() => setConfigOpen((previous) => !previous)}
-                title="Choose AI provider and model"
-                aria-label="Choose AI provider and model"
-              >
-                <span className="truncate">{activeProviderLabel} · {activeModelLabel || 'Choose model'}</span>
-                <span className={`de-ai-provider-chevron ${configOpen ? 'is-open' : ''}`}>⌄</span>
-              </button>
-              <span className="de-ai-mode-pill" aria-label="Data Agent mode">Data Agent</span>
-              <button
-                type="button"
-                className="de-ai-attach-btn"
                 onClick={() => imageInputRef.current?.click()}
                 disabled={isStreaming}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium text-zinc-400 transition-all hover:bg-zinc-800/80 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
                 title="Attach a photo of a table"
-                aria-label="Attach a photo"
               >
-                +
+                <Paperclip size={11} />
+                Attach
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfigOpen((prev) => !prev)}
+                className="truncate text-[10px] font-medium tracking-wide rounded-md px-2 py-0.5 text-zinc-400 bg-zinc-800/80 border border-zinc-700/50 hover:border-zinc-500 hover:text-zinc-200 transition-all cursor-pointer inline-flex items-center gap-1"
+                title={`Provider: ${activeProviderLabel} · Model: ${activeModelLabel || 'None'} — click to change`}
+              >
+                <span>{activeModelLabel ? `${activeProviderLabel} · ${activeModelLabel}` : 'No model'}</span>
+                <ChevronDown size={9} className="text-zinc-500 shrink-0" />
+              </button>
+              <button
+                type="button"
+                onClick={cycleMode}
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium transition-all cursor-pointer border ${
+                  chatMode === 'free'
+                    ? 'bg-violet-950/40 text-violet-300 border-violet-500/35 hover:bg-violet-950/60'
+                    : 'bg-zinc-800/80 text-zinc-400 border-zinc-700/50 hover:text-zinc-200 hover:border-zinc-500'
+                }`}
+                title={chatMode === 'free' ? 'Free Chat mode — click to switch to Data Agent' : 'Data Agent mode — click to switch to Free Chat'}
+              >
+                {chatMode === 'free'
+                  ? <><Sparkles size={10} /><span>Free Chat</span></>
+                  : <><Database size={10} /><span>Data Agent</span></>
+                }
+              </button>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={isStreaming ? handleStop : handleSend}
+                disabled={!isStreaming && ((!input.trim() && !imageAttachment) || !activeModelLabel)}
+                className="inline-flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-[11px] font-semibold transition-all hover:opacity-90 active:scale-95 cursor-pointer"
+                style={
+                  isStreaming
+                    ? { background: '#2a1010', color: '#f87171', border: '1px solid #4a1a1a' }
+                    : (!input.trim() && !imageAttachment) || !activeModelLabel
+                    ? { background: '#242424', color: '#555', cursor: 'not-allowed', border: '1px solid #2e2e2e' }
+                    : { background: '#383838', color: '#f0f0f0', border: '1px solid #484848' }
+                }
+                title={isStreaming ? 'Stop the current request' : 'Send message (Enter)'}
+              >
+                {isStreaming
+                  ? <><span className="h-1.5 w-1.5 rounded-sm bg-current" /><span>Stop</span></>
+                  : <><Send size={11} /><span>Send</span></>
+                }
               </button>
             </div>
           </div>
         </div>
-        <p className="de-ai-hint"><kbd>Enter</kbd> to send &nbsp;&middot;&nbsp; <kbd>Shift+Enter</kbd> for new line</p>
       </div>
-
       <style>{`
+        /* ── Root shell ── */
         .de-ai-agent {
-          position: relative; display: flex; flex-direction: column; height: 100%; min-height: 0;
-          overflow: hidden; font-family: 'Inter', system-ui, sans-serif;
-        }
-        .floating-tool-window-ai .floating-tool-window-body {
-          display: flex; min-height: 0; padding: 0; overflow: hidden;
-        }
-        .de-ai-agent-floating { width: 100%; min-height: 0; }
-        .de-ai-agent-floating .de-ai-header {
-          justify-content: flex-end; padding: 6px 10px;
-        }
-        .de-ai-agent-floating .de-ai-header-left { display: none; }
-
-        /* HEADER */
-        .de-ai-header {
-          display: flex; align-items: center; justify-content: space-between;
-          gap: 8px; padding: 10px 14px; border-bottom: 1px solid; flex-shrink: 0;
-        }
-        .std-theme .de-ai-header  { border-color: #e2e8f0; background: linear-gradient(135deg,#f8fafc,#f1f5f9); }
-        .r-theme   .de-ai-header  { border-color: rgba(6,182,212,.2); background: linear-gradient(135deg,#050e1c,#0a1628); }
-        .ayu-theme .de-ai-header  { border-color: rgba(255,255,255,.06); background: #111; }
-
-        .de-ai-header-left { display: flex; align-items: center; gap: 10px; }
-        .de-ai-provider-slot { flex-shrink: 0; margin-right: auto; }
-        .de-ai-header-left { min-width: 0; }
-        .de-ai-icon {
-          width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0;
-          display: flex; align-items: center; justify-content: center;
-        }
-        .std-theme .de-ai-icon { background: linear-gradient(135deg,#6366f1,#8b5cf6); color: #fff; }
-        .r-theme   .de-ai-icon { background: linear-gradient(135deg,#0891b2,#06b6d4); color: #fff; }
-        .ayu-theme .de-ai-icon { background: rgba(0,245,255,.08); color: #00f5ff; border: 1px solid rgba(0,245,255,.2); }
-
-        .de-ai-title { font-size: 12px; font-weight: 700; margin: 0; }
-        .std-theme .de-ai-title { color: #0f172a; }
-        .r-theme   .de-ai-title { color: #e0f7fa; }
-        .ayu-theme .de-ai-title { color: #e9feff; }
-
-        .de-ai-subtitle { font-size: 10px; margin: 0; }
-        .std-theme .de-ai-subtitle { color: #64748b; }
-        .r-theme   .de-ai-subtitle { color: rgba(207,250,254,.55); }
-        .ayu-theme .de-ai-subtitle { color: #555; }
-
-        .de-ai-header-right { display: flex; align-items: center; gap: 5px; }
-
-        .de-ai-source-bar {
-          display: flex; flex: 0 0 auto; align-items: center; gap: 6px;
-          min-width: 0; padding: 8px 10px; border-bottom: 1px solid #252528;
-          position: relative; z-index: 1; background: #161616;
-        }
-        .de-ai-source-label {
-          display: none;
-        }
-        .de-ai-source-bar .de-ai-src-toggle {
-          display: flex; flex: 1 1 auto; flex-wrap: nowrap; justify-content: stretch;
-          width: 100%; min-width: 0; min-height: 28px; overflow: hidden; gap: 2px; padding: 2px;
-          border: 1px solid rgba(63,63,70,.8); border-radius: 8px; background: #181818;
-        }
-
-        .de-ai-provider-panel > .de-ai-source-bar + div { min-height: 0; }
-        .de-ai-provider-panel > .de-ai-source-bar .de-ai-src-btn { visibility: visible; }
-
-        .de-ai-text-btn {
-          border: 1px solid rgba(161,161,170,.7); border-radius: 6px; background: #181818;
-          color: #d4d4d8; padding: 6px 9px; font-size: 10px; font-weight: 700;
-          cursor: pointer; transition: background .15s, border-color .15s, color .15s;
-        }
-        .de-ai-text-btn:hover { background: #242424; border-color: #71717a; color: #fff; }
-
-        /* Source toggle */
-        .de-ai-src-toggle {
-          display: flex; flex-wrap: wrap; justify-content: flex-end; max-width: 100%;
-          padding: 2px; border-radius: 6px; gap: 2px;
-        }
-        .std-theme .de-ai-src-toggle { background: rgba(0,0,0,.06); }
-        .r-theme   .de-ai-src-toggle { background: rgba(6,182,212,.1); }
-        .ayu-theme .de-ai-src-toggle { background: rgba(255,255,255,.05); }
-
-        .de-ai-src-btn {
-          display: flex; flex: 1 1 0; min-width: 0; align-items: center; justify-content: center;
-          gap: 3px; padding: 5px 6px; border-radius: 5px; border: none;
-          font-size: 9px; font-weight: 700; letter-spacing: .06em; cursor: pointer;
-          overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: all .15s;
-        }
-        .std-theme .de-ai-src-btn          { background: transparent; color: #64748b; }
-        .std-theme .de-ai-src-btn.active   { background: #fff; color: #4f46e5; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
-        .r-theme   .de-ai-src-btn          { background: transparent; color: rgba(207,250,254,.5); }
-        .r-theme   .de-ai-src-btn.active   { background: rgba(6,182,212,.25); color: #e0f7fa; }
-        .ayu-theme .de-ai-src-btn          { background: transparent; color: #555; }
-        .ayu-theme .de-ai-src-btn.active   { background: rgba(0,245,255,.1); color: #00f5ff; }
-        .de-ai-source-bar .de-ai-src-btn,
-        .de-ai-source-bar .de-ai-src-btn.active {
-          display: inline-flex; align-items: center; justify-content: center;
-          border: 1px solid transparent; border-radius: 6px; padding: 6px 10px;
-          background: transparent; color: #71717a; box-shadow: none;
-          font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
-        }
-        .de-ai-source-bar .de-ai-src-btn.active {
-          border-color: #52525b; background: #27272a; color: #f4f4f5; box-shadow: 0 1px 2px rgba(0,0,0,.28);
-        }
-        .de-ai-source-bar .de-ai-src-btn:hover { background: #232326; color: #e4e4e7; }
-
-        .de-ai-icon-btn {
-          display: flex; align-items: center; justify-content: center;
-          width: 26px; height: 26px; border: none; border-radius: 5px; cursor: pointer;
-          transition: all .15s;
-        }
-        .std-theme .de-ai-icon-btn          { background: transparent; color: #64748b; }
-        .std-theme .de-ai-icon-btn:hover    { background: #f1f5f9; color: #0f172a; }
-        .r-theme   .de-ai-icon-btn          { background: transparent; color: rgba(207,250,254,.5); }
-        .r-theme   .de-ai-icon-btn:hover    { background: rgba(6,182,212,.12); color: #e0f7fa; }
-        .ayu-theme .de-ai-icon-btn          { background: transparent; color: #555; }
-        .ayu-theme .de-ai-icon-btn:hover    { background: #1a1a1a; color: #e9feff; }
-
-        /* Config */
-        .de-ai-config {
-          padding: 12px 14px; border-bottom: 1px solid;
-          flex-shrink: 0; display: flex; flex-direction: column; gap: 8px;
-        }
-        .std-theme .de-ai-config { border-color: #e2e8f0; background: #f8fafc; }
-        .r-theme   .de-ai-config { border-color: rgba(6,182,212,.15); background: #050e1c; }
-        .ayu-theme .de-ai-config { border-color: rgba(255,255,255,.05); background: #111; }
-
-        .de-ai-cfg-row { display: flex; flex-direction: column; gap: 3px; }
-        .de-ai-cfg-label {
-          font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .07em;
-        }
-        .std-theme .de-ai-cfg-label { color: #64748b; }
-        .r-theme   .de-ai-cfg-label { color: rgba(207,250,254,.5); }
-        .ayu-theme .de-ai-cfg-label { color: #555; }
-
-        .de-ai-cfg-input, .de-ai-cfg-select {
-          flex: 1; padding: 5px 8px; font-size: 11px; border-radius: 5px;
-          border: 1px solid; outline: none; font-family: inherit;
-        }
-        .std-theme .de-ai-cfg-input, .std-theme .de-ai-cfg-select { border-color: #cbd5e1; background: #fff; color: #0f172a; }
-        .r-theme   .de-ai-cfg-input, .r-theme   .de-ai-cfg-select { border-color: rgba(255,255,255,.1); background: #1a1a1a; color: #f4f4f5; }
-        .ayu-theme .de-ai-cfg-input, .ayu-theme .de-ai-cfg-select { border-color: rgba(255,255,255,.1); background: #1a1a1a; color: #e9feff; }
-
-        .de-ai-refresh-btn {
-          padding: 5px 8px; border-radius: 5px; border: 1px solid;
-          cursor: pointer; display: flex; align-items: center;
-        }
-        .std-theme .de-ai-refresh-btn { border-color: #cbd5e1; background: #fff; color: #64748b; }
-        .r-theme   .de-ai-refresh-btn { border-color: rgba(255,255,255,.1); background: #1a1a1a; color: #a1a1aa; }
-        .ayu-theme .de-ai-refresh-btn { border-color: rgba(255,255,255,.1); background: #1a1a1a; color: #555; }
-
-        .de-ai-cfg-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 2px; }
-        .de-ai-cfg-save, .de-ai-cfg-cancel {
-          display: flex; align-items: center; gap: 4px;
-          padding: 5px 12px; border-radius: 5px; border: none;
-          font-size: 11px; font-weight: 700; cursor: pointer; transition: all .15s;
-        }
-        .std-theme .de-ai-cfg-save   { background: #4f46e5; color: #fff; }
-        .r-theme   .de-ai-cfg-save   { background: rgba(6,182,212,.25); color: #e0f7fa; border: 1px solid rgba(6,182,212,.35); }
-        .ayu-theme .de-ai-cfg-save   { background: rgba(0,245,255,.12); color: #00f5ff; border: 1px solid rgba(0,245,255,.25); }
-        .de-ai-cfg-cancel             { background: transparent; }
-        .std-theme .de-ai-cfg-cancel  { color: #64748b; }
-        .r-theme   .de-ai-cfg-cancel  { color: rgba(207,250,254,.5); }
-        .ayu-theme .de-ai-cfg-cancel  { color: #555; }
-
-        @media (max-width: 430px) {
-          .de-ai-header { align-items: flex-start; flex-wrap: wrap; }
-          .de-ai-header-right { width: 100%; justify-content: flex-end; }
-          .de-ai-src-toggle { flex: 1 1 auto; justify-content: flex-start; }
-          .de-ai-src-btn { flex: 1 1 auto; justify-content: center; }
-        }
-
-        /* Error */
-        .de-ai-error {
-          display: flex; align-items: center; gap: 6px;
-          padding: 7px 14px; font-size: 11px; flex-shrink: 0;
-        }
-        .std-theme .de-ai-error { background: #fef2f2; color: #dc2626; border-bottom: 1px solid #fecaca; }
-        .r-theme   .de-ai-error { background: rgba(220,38,38,.08); color: #fca5a5; border-bottom: 1px solid rgba(220,38,38,.2); }
-        .ayu-theme .de-ai-error { background: rgba(220,38,38,.07); color: #f87171; border-bottom: 1px solid rgba(220,38,38,.15); }
-        .de-ai-error button { margin-left: auto; background: none; border: none; cursor: pointer; display: flex; opacity: .6; }
-
-        /* Messages */
-        .de-ai-messages {
-          flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px;
-          display: flex; flex-direction: column; gap: 10px; scroll-behavior: smooth;
-        }
-        .de-ai-messages::-webkit-scrollbar { width: 4px; }
-        .std-theme .de-ai-messages::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-        .r-theme   .de-ai-messages::-webkit-scrollbar-thumb { background: rgba(6,182,212,.3); border-radius: 4px; }
-        .ayu-theme .de-ai-messages::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
-
-        /* Empty state */
-        .de-ai-empty {
-          flex: 1; display: flex; flex-direction: column; align-items: center;
-          justify-content: center; gap: 8px; padding: 24px 16px; text-align: center;
-        }
-        .de-ai-empty-icon {
-          width: 48px; height: 48px; border-radius: 14px;
-          display: flex; align-items: center; justify-content: center; margin-bottom: 4px;
-        }
-        .std-theme .de-ai-empty-icon { background: linear-gradient(135deg,#eef2ff,#ede9fe); color: #6366f1; }
-        .r-theme   .de-ai-empty-icon { background: rgba(6,182,212,.1); color: #22d3ee; border: 1px solid rgba(6,182,212,.2); }
-        .ayu-theme .de-ai-empty-icon { background: rgba(0,245,255,.06); color: #00f5ff; border: 1px solid rgba(0,245,255,.15); }
-        .de-ai-empty-title { font-size: 13px; font-weight: 700; margin: 0; }
-        .std-theme .de-ai-empty-title { color: #0f172a; }
-        .r-theme   .de-ai-empty-title { color: #e0f7fa; }
-        .ayu-theme .de-ai-empty-title { color: #e9feff; }
-        .de-ai-empty-sub { font-size: 11px; line-height: 1.55; max-width: 280px; margin: 0; }
-        .std-theme .de-ai-empty-sub { color: #64748b; }
-        .r-theme   .de-ai-empty-sub { color: rgba(207,250,254,.55); }
-        .ayu-theme .de-ai-empty-sub { color: #555; }
-
-        .de-ai-suggestions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 6px; }
-        .de-ai-sug-btn {
-          padding: 5px 10px; border-radius: 20px; border: 1px solid;
-          font-size: 10px; font-weight: 600; cursor: pointer; transition: all .15s;
-        }
-        .std-theme .de-ai-sug-btn { border-color: #c7d2fe; background: #eef2ff; color: #4338ca; }
-        .std-theme .de-ai-sug-btn:hover { background: #e0e7ff; }
-        .r-theme   .de-ai-sug-btn { border-color: rgba(6,182,212,.25); background: rgba(6,182,212,.07); color: #67e8f9; }
-        .r-theme   .de-ai-sug-btn:hover { background: rgba(6,182,212,.14); }
-        .ayu-theme .de-ai-sug-btn { border-color: rgba(0,245,255,.15); background: rgba(0,245,255,.05); color: #00f5ff; }
-        .ayu-theme .de-ai-sug-btn:hover { background: rgba(0,245,255,.1); }
-
-        /* Message bubbles */
-        .ai-agent-message {
-          display: flex; gap: 8px; max-width: 100%;
-          animation: ai-msg-in .2s ease-out;
-        }
-        @keyframes ai-msg-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-        .ai-agent-message.user { flex-direction: row-reverse; }
-        .ai-agent-message.system { justify-content: center; }
-
-        .ai-agent-avatar {
-          width: 24px; height: 24px; border-radius: 6px;
-          display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px;
-        }
-        .std-theme .ai-agent-avatar { background: linear-gradient(135deg,#6366f1,#8b5cf6); color: #fff; }
-        .r-theme   .ai-agent-avatar { background: rgba(6,182,212,.2); color: #22d3ee; border: 1px solid rgba(6,182,212,.3); }
-        .ayu-theme .ai-agent-avatar { background: rgba(0,245,255,.08); color: #00f5ff; border: 1px solid rgba(0,245,255,.2); }
-
-        .ai-agent-bubble {
-          max-width: 85%; border-radius: 10px; padding: 9px 12px; border: 1px solid;
-        }
-        .ai-agent-message.user      .ai-agent-bubble { border-radius: 10px 2px 10px 10px; }
-        .ai-agent-message.assistant .ai-agent-bubble { border-radius: 2px 10px 10px 10px; }
-
-        .std-theme .ai-agent-message.user      .ai-agent-bubble { background: linear-gradient(135deg,#4f46e5,#6366f1); color: #fff; border-color: transparent; }
-        .std-theme .ai-agent-message.assistant .ai-agent-bubble { background: #fff; color: #0f172a; border-color: #e2e8f0; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
-        .std-theme .ai-agent-message.system    .ai-agent-bubble { background: #f8fafc; color: #64748b; border-color: #e2e8f0; font-style: italic; }
-        .r-theme   .ai-agent-message.user      .ai-agent-bubble { background: linear-gradient(135deg,rgba(6,182,212,.3),rgba(14,165,233,.25)); color: #e0f7fa; border-color: rgba(6,182,212,.3); }
-        .r-theme   .ai-agent-message.assistant .ai-agent-bubble { background: rgba(255,255,255,.04); color: #cffafe; border-color: rgba(6,182,212,.15); }
-        .r-theme   .ai-agent-message.system    .ai-agent-bubble { background: transparent; color: rgba(207,250,254,.4); border-color: rgba(6,182,212,.1); }
-        .ayu-theme .ai-agent-message.user      .ai-agent-bubble { background: rgba(0,245,255,.12); color: #e9feff; border-color: rgba(0,245,255,.2); }
-        .ayu-theme .ai-agent-message.assistant .ai-agent-bubble { background: #1a1a1a; color: #e9feff; border-color: rgba(255,255,255,.07); }
-        .ayu-theme .ai-agent-message.system    .ai-agent-bubble { background: transparent; color: #555; border-color: rgba(255,255,255,.05); }
-
-        .ai-agent-bubble-text { font-size: 12px; line-height: 1.6; margin: 0; }
-        .ai-agent-attachment-label { margin-top: 5px; font-size: 10px; opacity: .72; }
-
-        /* Action badges */
-        .ai-agent-actions-list { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
-        .ai-agent-action-badge {
-          display: flex; align-items: center; justify-content: space-between;
-          gap: 8px; padding: 6px 10px; border-radius: 7px; border: 1px dashed; font-size: 11px;
-        }
-        .std-theme .ai-agent-action-badge           { border-color: #818cf8; background: #eef2ff; color: #3730a3; }
-        .std-theme .ai-agent-action-badge.applied   { border-color: #86efac; background: #f0fdf4; color: #15803d; }
-        .r-theme   .ai-agent-action-badge           { border-color: rgba(6,182,212,.35); background: rgba(6,182,212,.07); color: #67e8f9; }
-        .r-theme   .ai-agent-action-badge.applied   { border-color: rgba(34,197,94,.35); background: rgba(34,197,94,.07); color: #86efac; }
-        .ayu-theme .ai-agent-action-badge           { border-color: rgba(0,245,255,.2); background: rgba(0,245,255,.04); color: #00f5ff; }
-        .ayu-theme .ai-agent-action-badge.applied   { border-color: rgba(34,197,94,.25); background: rgba(34,197,94,.05); color: #86efac; }
-
-        .ai-agent-action-label { font-weight: 600; flex: 1; }
-        .ai-agent-action-buttons { display: flex; align-items: center; gap: 4px; }
-
-        .ai-agent-action-apply {
-          display: flex; align-items: center; gap: 3px; padding: 3px 8px;
-          border-radius: 4px; border: none; font-size: 10px; font-weight: 700;
-          cursor: pointer; transition: all .15s;
-        }
-        .std-theme .ai-agent-action-apply  { background: #4f46e5; color: #fff; }
-        .std-theme .ai-agent-action-apply:hover { background: #4338ca; }
-        .r-theme   .ai-agent-action-apply  { background: rgba(6,182,212,.25); color: #e0f7fa; border: 1px solid rgba(6,182,212,.35); }
-        .ayu-theme .ai-agent-action-apply  { background: rgba(0,245,255,.12); color: #00f5ff; border: 1px solid rgba(0,245,255,.25); }
-
-        .ai-agent-action-done {
-          display: flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700; opacity: .75;
-        }
-        .ai-agent-action-dismiss {
-          display: flex; align-items: center; padding: 2px; border: none;
-          background: transparent; cursor: pointer; opacity: .5; transition: opacity .15s; border-radius: 3px;
-        }
-        .ai-agent-action-dismiss:hover { opacity: 1; }
-
-        .de-ai-typing {
-          display: flex; align-items: center; gap: 6px; font-size: 11px; padding: 4px 0; opacity: .6;
-        }
-        .std-theme .de-ai-typing { color: #64748b; }
-        .r-theme   .de-ai-typing { color: rgba(207,250,254,.5); }
-        .ayu-theme .de-ai-typing { color: #555; }
-
-        /* Input */
-        .de-ai-input-area {
-          flex-shrink: 0; padding: 10px 14px; border-top: 1px solid;
-        }
-        .std-theme .de-ai-input-area { border-color: #e2e8f0; background: #f8fafc; }
-        .r-theme   .de-ai-input-area { border-color: rgba(255,255,255,.08); background: #141414; }
-        .ayu-theme .de-ai-input-area { border-color: rgba(255,255,255,.06); background: #111; }
-
-        .de-ai-attachment-preview {
-          display: flex; align-items: center; gap: 6px; margin-bottom: 6px; min-width: 0;
-          font-size: 10px; opacity: .8;
-        }
-        .de-ai-attachment-preview img { width: 28px; height: 28px; object-fit: cover; border-radius: 4px; border: 1px solid currentColor; }
-        .de-ai-attachment-preview span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .de-ai-attachment-preview button { border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 16px; line-height: 1; opacity: .7; }
-        .de-ai-attach-btn {
-          height: 36px; padding: 0 8px; border: 1px solid; border-radius: 8px;
-          cursor: pointer; font-size: 10px; font-weight: 700; transition: all .15s;
-        }
-        .de-ai-attach-btn:disabled { opacity: .35; cursor: not-allowed; }
-        .std-theme .de-ai-attach-btn { border-color: #cbd5e1; background: #fff; color: #475569; }
-        .std-theme .de-ai-attach-btn:hover:not(:disabled) { background: #f1f5f9; }
-        .r-theme .de-ai-attach-btn { border-color: rgba(255,255,255,.1); background: #1e1e1e; color: #d4d4d8; }
-        .ayu-theme .de-ai-attach-btn { border-color: rgba(255,255,255,.1); background: #1a1a1a; color: #d4d4d8; }
-
-        .de-ai-input-row { display: flex; gap: 8px; align-items: flex-end; }
-
-        .de-ai-textarea {
-          flex: 1; resize: none; padding: 8px 10px; border-radius: 8px; border: 1px solid;
-          font-size: 12px; font-family: inherit; line-height: 1.5; outline: none; transition: border-color .15s;
-        }
-        .std-theme .de-ai-textarea          { border-color: #cbd5e1; background: #fff; color: #0f172a; }
-        .std-theme .de-ai-textarea:focus    { border-color: #6366f1; }
-        .r-theme   .de-ai-textarea          { border-color: rgba(255,255,255,.1); background: #1e1e1e; color: #f4f4f5; }
-        .r-theme   .de-ai-textarea:focus    { border-color: #52525b; }
-        .r-theme   .de-ai-textarea::placeholder { color: #71717a; }
-        .ayu-theme .de-ai-textarea          { border-color: rgba(255,255,255,.08); background: #1a1a1a; color: #e9feff; }
-        .ayu-theme .de-ai-textarea:focus    { border-color: rgba(0,245,255,.35); }
-        .ayu-theme .de-ai-textarea::placeholder { color: #444; }
-
-        .de-ai-send-col { display: flex; flex-direction: column; justify-content: flex-end; }
-
-        .de-ai-send-btn, .de-ai-stop-btn {
-          width: 36px; height: 36px; border-radius: 8px; border: none;
-          cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .15s;
-        }
-        .de-ai-send-btn:disabled { opacity: .35; cursor: not-allowed; }
-        .std-theme .de-ai-send-btn       { background: linear-gradient(135deg,#4f46e5,#6366f1); color: #fff; }
-        .std-theme .de-ai-send-btn:not(:disabled):hover { background: linear-gradient(135deg,#4338ca,#4f46e5); }
-        .r-theme   .de-ai-send-btn       { background: linear-gradient(135deg,rgba(6,182,212,.35),rgba(14,165,233,.3)); color: #e0f7fa; border: 1px solid rgba(6,182,212,.4); }
-        .ayu-theme .de-ai-send-btn       { background: rgba(0,245,255,.15); color: #00f5ff; border: 1px solid rgba(0,245,255,.3); }
-        .std-theme .de-ai-stop-btn       { background: #fee2e2; color: #dc2626; }
-        .r-theme   .de-ai-stop-btn       { background: rgba(220,38,38,.1); color: #fca5a5; border: 1px solid rgba(220,38,38,.2); }
-        .ayu-theme .de-ai-stop-btn       { background: rgba(220,38,38,.08); color: #f87171; border: 1px solid rgba(220,38,38,.2); }
-
-        .de-ai-hint {
-          font-size: 9px; margin: 5px 0 0; display: flex; align-items: center; gap: 4px; opacity: .45;
-        }
-        .std-theme .de-ai-hint { color: #64748b; }
-        .r-theme   .de-ai-hint { color: rgba(207,250,254,.4); }
-        .ayu-theme .de-ai-hint { color: #444; }
-        .de-ai-hint kbd {
-          font-family: monospace; padding: 1px 4px; border-radius: 3px;
-          font-size: 9px; border: 1px solid currentColor; opacity: .7;
-        }
-
-        @keyframes de-ai-provider-slide-right {
-          from { opacity: 0; transform: translateX(-18px); }
-          to { opacity: 1; transform: translateX(0); }
-        }
-        .de-ai-provider-panel { animation: de-ai-provider-slide-right .18s ease-out; }
-        .de-ai-provider-panel,
-        .de-ai-provider-panel input,
-        .de-ai-provider-panel button {
-          font-family: Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-          -webkit-font-smoothing: antialiased;
-          -moz-osx-font-smoothing: grayscale;
-          text-rendering: optimizeLegibility;
-        }
-        .de-ai-provider-panel input {
-          font-size: 13px;
-          line-height: 1.45;
-          color: #f4f4f5;
-        }
-        .de-ai-provider-panel input::placeholder {
-          color: #71717a;
-          opacity: 1;
-        }
-        .de-ai-provider-panel button { line-height: 1.35; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .spin { animation: spin 1s linear infinite; }
-
-        /* Keep the chat surface in the same restrained zinc style as the provider panel. */
-        .de-ai-agent .de-ai-header,
-        .de-ai-agent .de-ai-input-area { border-color: #3f3f46; background: #161616; }
-        .de-ai-agent .de-ai-title,
-        .de-ai-agent .de-ai-subtitle,
-        .de-ai-agent .de-ai-empty-title { color: #e4e4e7; }
-        .de-ai-agent .de-ai-messages { background: #161616; }
-        .de-ai-agent .de-ai-message .ai-agent-bubble { border-color: #3f3f46; box-shadow: none; }
-        .de-ai-agent .ai-agent-message.user .ai-agent-bubble { background: #27272a; color: #f4f4f5; }
-        .de-ai-agent .ai-agent-message.assistant .ai-agent-bubble,
-        .de-ai-agent .ai-agent-message.system .ai-agent-bubble { background: #1f1f23; color: #e4e4e7; }
-        .de-ai-agent .de-ai-empty-sub,
-        .de-ai-agent .de-ai-hint,
-        .de-ai-agent .de-ai-typing { color: #a1a1aa; }
-        .de-ai-agent .de-ai-textarea { border-color: #52525b; background: #161616; color: #f4f4f5; }
-        .de-ai-agent .de-ai-textarea:focus { border-color: #71717a; }
-        .de-ai-agent .de-ai-textarea::placeholder { color: #71717a; }
-        .de-ai-agent .de-ai-send-btn,
-        .de-ai-agent .de-ai-stop-btn { border: 1px solid #71717a; background: #71717a; color: #18181b; font-size: 10px; font-weight: 700; }
-        .de-ai-agent .de-ai-send-btn:not(:disabled):hover,
-        .de-ai-agent .de-ai-stop-btn:hover { border-color: #a1a1aa; background: #a1a1aa; color: #18181b; }
-        .de-ai-agent .de-ai-error { border-color: #52525b; background: #27272a; color: #d4d4d8; }
-        .de-ai-agent .de-ai-error button { color: #a1a1aa; }
-        .de-ai-agent .de-ai-sug-btn { border-color: #52525b; background: #27272a; color: #d4d4d8; }
-        .de-ai-agent .de-ai-sug-btn:hover { background: #3f3f46; }
-        .de-ai-agent .ai-agent-action-badge { border-color: #52525b; background: #27272a; color: #d4d4d8; }
-        .de-ai-agent .ai-agent-action-badge.applied { border-color: #3f3f46; background: #1f1f23; color: #a1a1aa; }
-        .de-ai-agent .ai-agent-action-apply { background: #3f3f46; color: #f4f4f5; }
-        .de-ai-agent .ai-agent-action-apply:hover { background: #52525b; }
-        .de-ai-agent .ai-agent-action-dismiss { color: #a1a1aa; }
-
-        /* Sharper, more readable typography for the compact agent panel. */
-        .de-ai-agent {
-          font-family: Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-          -webkit-font-smoothing: antialiased;
-          -moz-osx-font-smoothing: grayscale;
-          text-rendering: optimizeLegibility;
-        }
-        .de-ai-agent .de-ai-title { font-size: 14px; letter-spacing: 0.01em; }
-        .de-ai-agent .de-ai-subtitle { font-size: 11px; }
-        .de-ai-agent .ai-agent-bubble-text { font-size: 13px; line-height: 1.65; }
-        .de-ai-agent .de-ai-textarea { font-size: 13px; line-height: 1.55; }
-        .de-ai-agent .de-ai-hint { font-size: 10px; }
-        .de-ai-agent .de-ai-send-btn,
-        .de-ai-agent .de-ai-stop-btn { font-size: 11px; letter-spacing: 0.01em; }
-
-        /* Keep the composer usable inside the narrow floating agent window. */
-        .de-ai-agent .de-ai-input-area {
-          padding: 8px 10px 6px;
-          border-top: 1px solid #2e2e31;
-          background: #111111;
-        }
-        .de-ai-agent .de-ai-header { position: static; }
-        .de-ai-agent .de-ai-provider-panel {
-          position: absolute;
-          top: auto !important;
-          right: auto !important;
-          bottom: 82px !important;
-          left: 10px !important;
-          width: min(504px, calc(100% - 20px));
-          max-width: calc(100% - 20px);
-          margin: 0;
-          z-index: 90;
-          height: min(430px, calc(100% - 100px));
-          max-height: min(430px, calc(100% - 100px));
-          min-height: 0;
-          border-color: #3f3f46 !important;
-          background: #151515 !important;
-          background-image: none !important;
-          backdrop-filter: none !important;
-          -webkit-backdrop-filter: none !important;
-        }
-        .de-ai-agent .de-ai-composer-box {
+          position: relative;
           display: flex;
           flex-direction: column;
-          min-height: 62px;
-          padding: 3px 5px 4px;
-          border: 1px solid #3f3f46 !important;
-          border-radius: 6px;
-          background: #151515 !important;
-          background-image: none !important;
-          box-shadow: none !important;
-          backdrop-filter: none !important;
-          -webkit-backdrop-filter: none !important;
+          height: 100%;
+          min-height: 0;
+          overflow: hidden;
+          font-family: Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
         }
-        .de-ai-agent .de-ai-composer-box:focus-within {
-          border: 1px solid #3f3f46 !important;
-          background: #151515 !important;
-          background-image: none !important;
-          box-shadow: none !important;
-        }
-        .de-ai-agent .de-ai-composer-input-row {
+        .floating-tool-window-ai .floating-tool-window-body {
           display: flex;
+          min-height: 0;
+          padding: 0;
+          overflow: hidden;
+        }
+        .de-ai-agent-floating { width: 100%; min-height: 0; }
+
+        /* ── Provider config panel styles ── */
+        .de-ai-agent .de-ai-source-bar {
+          display: flex;
+          flex: 0 0 auto;
           align-items: center;
-          gap: 6px;
+          width: 100%;
           min-width: 0;
+          padding: 6px 8px;
+          border-bottom: 1px solid #252528;
+          position: relative;
+          z-index: 1;
+          background: #161616;
         }
-        .de-ai-agent .de-ai-textarea {
-          flex: 1 1 auto;
-          width: auto;
-          min-width: 0;
-          min-height: 34px;
-          max-height: 68px;
-          padding: 6px 8px 2px;
-          border: none !important;
-          border-radius: 5px;
-          background: #151515 !important;
-          background-image: none !important;
-          box-shadow: none !important;
-          color: #f4f4f5;
-          font-size: 11px;
-          line-height: 1.35;
-          box-sizing: border-box;
-          overflow-y: auto;
-        }
-        .de-ai-agent .de-ai-textarea:focus {
-          border: none !important;
-          border-color: transparent !important;
-          outline: none !important;
-          background: #151515 !important;
-          background-image: none !important;
-          box-shadow: none !important;
-        }
-        .de-ai-agent .de-ai-textarea::placeholder { color: #71717a; }
-        .de-ai-agent .de-ai-composer-footer {
+        .de-ai-agent .de-ai-source-label { display: none; }
+        .de-ai-agent .de-ai-src-toggle {
           display: flex;
+          flex: 1 1 auto;
+          flex-wrap: nowrap;
           align-items: center;
           justify-content: space-between;
-          gap: 8px;
-          min-height: 28px;
-          padding: 1px 2px 0;
-        }
-        .de-ai-agent .de-ai-composer-actions {
-          display: flex;
-          flex-direction: row;
-          align-items: center;
-          gap: 6px;
-          min-width: 0;
           width: 100%;
-          justify-content: flex-start;
-        }
-        .de-ai-agent .de-ai-provider-toggle {
-          display: inline-flex;
-          align-items: center;
-          gap: 4px;
-          max-width: 180px;
           min-width: 0;
-          height: 22px;
-          padding: 0 6px;
-          border: none;
-          border-radius: 4px;
-          background: transparent;
-          color: #a1a1aa;
-          font-size: 10px;
-          font-weight: 600;
-          text-align: left;
-        }
-        .de-ai-agent .de-ai-provider-toggle:hover { background: #27272a; color: #f4f4f5; }
-        .de-ai-agent .de-ai-provider-chevron { transition: transform 0.15s ease; }
-        .de-ai-agent .de-ai-provider-chevron.is-open { transform: rotate(180deg); }
-        .de-ai-agent .de-ai-composer-model {
-          max-width: 180px;
+          min-height: 28px;
           overflow: hidden;
-          color: #a1a1aa;
-          font-size: 10px;
-          font-weight: 600;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+          gap: 3px;
+          padding: 2.5px;
+          border: 1px solid rgba(63,63,70,.8);
+          border-radius: 8px;
+          background: #141414;
         }
-        .de-ai-agent .de-ai-attach-btn {
-          width: 24px;
-          min-width: 24px;
-          height: 22px;
-          padding: 0;
-          border: none;
-          border-radius: 4px;
-          background: transparent;
-          color: #a1a1aa;
-          font-size: 15px;
-          line-height: 1;
-          order: -1;
-        }
-        .de-ai-agent .de-ai-attach-btn:hover:not(:disabled) { background: #27272a; color: #f4f4f5; }
-        .de-ai-agent .de-ai-send-col {
-          flex: 0 0 26px;
-          min-width: 26px;
-        }
-        .de-ai-agent .de-ai-send-btn,
-        .de-ai-agent .de-ai-stop-btn {
+        .de-ai-agent .de-ai-src-btn {
           display: inline-flex;
+          flex: 1 1 0;
+          min-width: 0;
           align-items: center;
           justify-content: center;
-          width: 26px;
-          min-width: 26px;
-          height: 26px;
-          min-height: 26px;
-          padding: 0;
-          border: none !important;
-          border-radius: 999px;
-          background: #e4e4e7 !important;
-          color: #18181b !important;
+          padding: 3px 4px;
+          border-radius: 5px;
+          border: 1px solid transparent;
+          font-size: 9px;
+          font-weight: 600;
+          letter-spacing: 0.02em;
+          cursor: pointer;
+          overflow: hidden;
+          text-overflow: ellipsis;
           white-space: nowrap;
-          font-size: 16px;
-          line-height: 1;
+          transition: all .15s ease;
+          background: transparent;
+          color: #a1a1aa;
         }
-        .de-ai-agent .de-ai-send-btn:not(:disabled):hover {
-          background: #ffffff !important;
+        .de-ai-agent .de-ai-src-btn.active {
+          border-color: #52525b;
+          background: #27272a;
+          color: #ffffff;
+          box-shadow: 0 1px 3px rgba(0,0,0,.35);
         }
-        .de-ai-agent .de-ai-send-btn:disabled {
-          opacity: 0.35;
+        .de-ai-agent .de-ai-src-btn:hover {
+          background: #202024;
+          color: #f4f4f5;
         }
-        .de-ai-agent .de-ai-stop-btn {
-          background: #3f3f46 !important;
-          color: #f4f4f5 !important;
-        }
-        .de-ai-agent .de-ai-hint {
-          display: none;
+        .de-ai-agent .de-ai-provider-panel { animation: de-ai-provider-slide-down .15s ease-out; }
+        @keyframes de-ai-provider-slide-down {
+          from { opacity: 0; transform: translateY(-8px); }
+          to   { opacity: 1; transform: translateY(0); }
         }
 
-        /* Match Advanced Mode chat: quiet assistant text, neutral user pills,
-           and the same zinc provider surfaces. */
-        .de-ai-agent .de-ai-header {
-          padding: 10px 14px;
-          background: #131313 !important;
-          border-color: #262626 !important;
-        }
-        .de-ai-agent .de-ai-messages {
-          padding: 18px 14px 16px;
-          gap: 14px;
-          background: #101010 !important;
-        }
+        /* ── MessageBubble Advanced Mode overrides ── */
+        /* User message – right-aligned pill */
         .de-ai-agent .ai-agent-message {
           width: 100%;
           animation: none;
+          display: flex;
+          gap: 0;
         }
-        .de-ai-agent .ai-agent-message.user { margin: 4px 0 8px; }
-        .de-ai-agent .ai-agent-message.assistant { margin-bottom: 4px; }
-        .de-ai-agent .ai-agent-bubble { max-width: 85%; border-radius: 14px; padding: 9px 13px; }
+        .de-ai-agent .ai-agent-message.user { justify-content: flex-end; margin: 0 0 3px; }
+        .de-ai-agent .ai-agent-message.assistant { flex-direction: column; margin-bottom: 4px; }
+        .de-ai-agent .ai-agent-avatar { display: none; }
+
+        /* User bubble */
         .de-ai-agent .ai-agent-message.user .ai-agent-bubble {
+          max-width: 85%;
           border-radius: 16px;
+          padding: 9px 16px;
           background: #262626 !important;
-          border: 1px solid rgba(255,255,255,.06) !important;
+          border: 1px solid rgba(255,255,255,0.06) !important;
           color: #f4f4f5 !important;
+          box-shadow: none;
+          font-size: 12px;
+          line-height: 1.5;
+          white-space: pre-wrap;
+          word-break: break-words;
         }
+
+        /* Assistant bubble – transparent, no border */
         .de-ai-agent .ai-agent-message.assistant .ai-agent-bubble {
           max-width: 100%;
-          padding: 2px 0;
+          padding: 0;
           background: transparent !important;
           border: 0 !important;
+          box-shadow: none;
           color: #f4f4f5 !important;
         }
-        .de-ai-agent .ai-agent-thought-row {
-          display: flex;
-          align-items: center;
-          gap: 2px;
-          margin-bottom: 10px;
-          color: #a1a1aa;
+        .de-ai-agent .ai-agent-bubble-text {
           font-size: 12px;
-          line-height: 1.3;
+          line-height: 1.6;
+          color: #e4e4e7;
+          white-space: pre-wrap;
+          word-break: break-words;
         }
+
+        /* System message */
+        .de-ai-agent .ai-agent-message.system .ai-agent-bubble {
+          width: 100%;
+          border-radius: 12px;
+          padding: 12px;
+          background: #141414 !important;
+          border: 1px solid #262626 !important;
+          color: #a1a1aa !important;
+          font-size: 11px;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+          white-space: pre-wrap;
+          overflow-x: auto;
+        }
+
+        /* Thought collapsible row */
+        .de-ai-agent .ai-agent-thought-row {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 0;
+          border: 0;
+          background: transparent;
+          cursor: pointer;
+          color: #71717a;
+          font-size: 12px;
+          margin-bottom: 6px;
+          transition: color .15s;
+        }
+        .de-ai-agent .ai-agent-thought-row:hover { color: #e4e4e7; }
+        .de-ai-agent .ai-agent-thought-row svg { transition: transform .2s ease; }
+        .de-ai-agent .ai-agent-thought-row svg.is-expanded { transform: rotate(90deg); }
+        .de-ai-agent .ai-agent-thought-detail {
+          margin: 0 0 10px;
+          padding: 10px 12px;
+          border: 1px solid #262626;
+          border-radius: 12px;
+          background: #141414;
+          color: #d4d4d8;
+          font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+          white-space: pre-wrap;
+        }
+
+        /* Message footer (copy + timestamp) */
         .de-ai-agent .ai-agent-message-footer {
           display: flex;
           align-items: center;
@@ -2481,100 +2330,82 @@ export default function DataExplorerAIAgent({
           background: #27272a;
           color: #d4d4d8;
         }
-        .de-ai-agent .ai-agent-thinking-text { color: #71717a; }
-        .de-ai-agent .de-ai-typing { display: none; }
-        .de-ai-agent .ai-agent-message.system .ai-agent-bubble {
-          background: #141414 !important;
-          border-color: #262626 !important;
+
+        /* Action badges */
+        .de-ai-agent .ai-agent-actions-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+        .de-ai-agent .ai-agent-action-badge {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          padding: 7px 11px;
+          border-radius: 8px;
+          border: 1px dashed #3f3f46;
+          background: #1c1c1c;
+          color: #d4d4d8;
+          font-size: 11px;
         }
-        .de-ai-agent .ai-agent-bubble-text { font-size: 13.5px; line-height: 1.65; }
-        .de-ai-agent .de-ai-sug-btn {
-          border-color: #3f3f46 !important;
-          border-radius: 10px;
-          background: #1c1c1c !important;
-          color: #a1a1aa !important;
+        .de-ai-agent .ai-agent-action-badge.applied {
+          border-color: rgba(34,197,94,.3);
+          background: rgba(34,197,94,.05);
+          color: #86efac;
         }
-        .de-ai-agent .de-ai-sug-btn:hover {
-          background: #27272a !important;
-          border-color: #52525b !important;
-          color: #f4f4f5 !important;
-        }
-        .de-ai-agent .de-ai-input-area { background: #111111 !important; border-color: #262626 !important; }
-        .de-ai-agent .de-ai-composer-box {
-          border-color: #262626 !important;
-          min-height: 104px;
-          padding: 7px 9px 8px;
-          border-radius: 18px;
-          background: #1c1c1c !important;
-        }
-        .de-ai-agent .de-ai-composer-input-row { min-height: 58px; }
-        .de-ai-agent .de-ai-textarea {
-          min-height: 50px;
-          padding: 8px 6px 4px;
-          font-size: 13px;
-          line-height: 1.5;
-        }
-        .de-ai-agent .de-ai-composer-footer {
-          min-height: 28px;
-          padding: 2px 2px 0;
-          border-top: 0;
-        }
-        .de-ai-agent .de-ai-provider-toggle,
-        .de-ai-agent .de-ai-mode-pill {
+        .de-ai-agent .ai-agent-action-label { font-weight: 600; flex: 1; }
+        .de-ai-agent .ai-agent-action-buttons { display: flex; align-items: center; gap: 4px; }
+        .de-ai-agent .ai-agent-action-apply {
           display: inline-flex;
           align-items: center;
-          gap: 4px;
-          height: 23px;
-          padding: 0 8px;
-          border: 1px solid #303034;
-          border-radius: 7px;
-          background: #27272a;
-          color: #a1a1aa;
+          gap: 3px;
+          padding: 4px 10px;
+          border-radius: 6px;
+          border: 1px solid #484848;
+          background: #383838;
+          color: #f0f0f0;
           font-size: 10px;
-          font-weight: 600;
+          font-weight: 700;
+          cursor: pointer;
+          transition: all .15s;
         }
-        .de-ai-agent .de-ai-provider-toggle:hover {
-          background: #303034;
-          color: #f4f4f5;
+        .de-ai-agent .ai-agent-action-apply:hover { background: #484848; color: #fff; }
+        .de-ai-agent .ai-agent-action-done { font-size: 10px; font-weight: 700; opacity: .7; }
+        .de-ai-agent .ai-agent-action-dismiss {
+          display: inline-flex;
+          align-items: center;
+          padding: 2px 4px;
+          border: none;
+          background: transparent;
+          cursor: pointer;
+          opacity: .5;
+          transition: opacity .15s;
+          border-radius: 3px;
+          color: #a1a1aa;
+          font-size: 14px;
+          line-height: 1;
         }
-        .de-ai-agent .de-ai-mode-pill { color: #a1a1aa; }
-        .de-ai-agent .de-ai-send-btn,
-        .de-ai-agent .de-ai-stop-btn {
-          width: 28px;
-          height: 28px;
-          margin: 4px;
-          border: 1px solid #383838 !important;
+        .de-ai-agent .ai-agent-action-dismiss:hover { opacity: 1; }
+        .de-ai-agent .ai-agent-thinking-text { color: #71717a; }
+
+        /* Image attachment in messages */
+        .de-ai-agent .ai-agent-image-attachment {
+          display: block;
+          width: 64px;
+          height: 64px;
+          margin-top: 8px;
+          border: 1px solid rgba(255,255,255,.1);
           border-radius: 8px;
-          background: #242424 !important;
-          color: #d4d4d8 !important;
+          object-fit: cover;
         }
-        .de-ai-agent .de-ai-send-btn:not(:disabled):hover,
-        .de-ai-agent .de-ai-stop-btn:hover {
-          border-color: #52525b !important;
-          background: #2e2e2e !important;
-          color: #fff !important;
+        .de-ai-agent .ai-agent-attachment-label {
+          margin-top: 5px;
+          font-size: 10px;
+          opacity: .72;
         }
-        .de-ai-agent .de-ai-provider-panel {
-          border-color: #282828 !important;
-          border-radius: 14px;
-          background: #131313 !important;
-          box-shadow: 0 20px 50px rgba(0,0,0,.75);
-        }
-        .de-ai-agent .de-ai-provider-panel .de-ai-source-bar { background: #161616; border-color: #282828; }
-        .de-ai-agent .de-ai-provider-panel .de-ai-src-toggle { background: #181818; border-color: #3f3f46; }
-        .de-ai-agent .de-ai-provider-panel .de-ai-src-btn.active {
-          background: #27272a;
-          border-color: #52525b;
-          color: #f4f4f5;
-        }
-        .de-ai-agent .de-ai-provider-panel .de-ai-src-btn:hover { background: #232326; color: #e4e4e7; }
-        @media (max-width: 400px) {
-          .de-ai-agent .de-ai-input-area { padding-left: 6px; padding-right: 6px; }
-          .de-ai-agent .de-ai-attach-btn { width: 24px; min-width: 24px; }
-          .de-ai-agent .de-ai-send-col,
-          .de-ai-agent .de-ai-send-btn,
-          .de-ai-agent .de-ai-stop-btn { min-width: 26px; }
-        }
+
+        /* Scrollbar */
+        .de-ai-agent .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .de-ai-agent .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .de-ai-agent .custom-scrollbar::-webkit-scrollbar-thumb { background: #2e2e2e; border-radius: 4px; }
+        .de-ai-agent .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
       `}</style>
     </div>
   );

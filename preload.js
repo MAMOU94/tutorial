@@ -138,6 +138,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getOpenCodeModels: (cwd) => ipcRenderer.invoke('get-opencode-models', cwd),
   getOpenCodeAuthStatus: () => ipcRenderer.invoke('get-opencode-auth-status'),
   openCodeChatRequest: (payload) => ipcRenderer.invoke('opencode-chat-request', payload),
+  openCodeCancelRequest: () => ipcRenderer.invoke('opencode-cancel-request'),
   onOpenCodeResponseChunk: (callback) => {
     const listener = (event, data) => callback(data);
     ipcRenderer.on('opencode-response-chunk', listener);
