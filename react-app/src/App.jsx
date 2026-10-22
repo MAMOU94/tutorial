@@ -16887,7 +16887,19 @@ ${groundedExecutionClause}`)));
           .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`)
           .join('\n\n');
 
-        let onlinePrompt = `${onlineSystemPreamble}
+        let onlinePrompt = rIdeChatFreeMode
+          ? `${freePersona}
+
+---
+
+USER REQUEST: ${nextInstruction}
+
+CONVERSATION_HISTORY (maintain context from this ongoing discussion):
+${chatConversationHistory || '(no prior conversation)'}
+
+ATTACHED_FILES_AND_IMAGES:
+${attachmentPromptContext || '(none)'}`
+          : `${onlineSystemPreamble}
 
 ---
 
