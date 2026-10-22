@@ -7,7 +7,7 @@ import RichTextEditor from './components/ui/RichTextEditor';
 import {
   Activity, Moon, Sun, Table as TableIcon, Trash2, X, Plus, Save, FileText,
   AlertCircle, CheckCircle, CheckCircle2, Check, HelpCircle, ChevronRight, ChevronDown, Copy, Undo2,
-  Filter, Download, Package, Maximize2, Minimize2, RefreshCw, Wrench, Cpu,
+  Filter, Download, Package, Maximize2, Minimize2, Minus, Square, RefreshCw, Wrench, Cpu,
   PieChart, TrendingUp, Network, Search, Calendar, DollarSign, Clock,
   ArrowUp, ArrowDown, ExternalLink, Zap, Key, Layout, Settings, LogIn, LogOut, User, Users,
   BarChart as ChartBarIcon, Bot, Send, BookOpen, Shield, ShieldCheck, Sparkles, FlaskConical,
@@ -38990,6 +38990,36 @@ except Exception as _ngr_error:
     <div
       className="app-shell min-h-screen flex flex-col transition-colors duration-500 font-sans relative overflow-x-hidden bg-[#202020] text-gray-900 dark:text-gray-100"
     >
+      <div className="app-window-controls" role="group" aria-label="Window controls">
+        <button
+          type="button"
+          className="app-window-control"
+          aria-label="Minimize window"
+          title="Minimize"
+          onClick={() => window.electronAPI?.minimizeWindow?.()}
+        >
+          <Minus size={12} strokeWidth={2.1} />
+        </button>
+        <button
+          type="button"
+          className="app-window-control"
+          aria-label="Maximize window"
+          title="Maximize"
+          onClick={() => window.electronAPI?.toggleMaximizeWindow?.()}
+        >
+          <Square size={10} strokeWidth={1.9} />
+        </button>
+        <button
+          type="button"
+          className="app-window-control"
+          aria-label="Close window"
+          title="Close"
+          onClick={() => window.electronAPI?.closeWindow?.()}
+        >
+          <X size={11} strokeWidth={2.2} />
+        </button>
+      </div>
+
       {showSplash && (
         <div
           className={`fixed inset-0 z-[9999] flex items-center justify-center transition-opacity duration-500 ${splashFading ? 'opacity-0' : 'opacity-100'

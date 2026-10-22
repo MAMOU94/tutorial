@@ -2262,6 +2262,7 @@ function createWindow() {
   const mainWindow = new BrowserWindow({
     width: 1280, // Adjusted default size
     height: 800,
+    frame: false,
     transparent: true,
     backgroundColor: '#00000000',
     autoHideMenuBar: true,
@@ -2771,6 +2772,20 @@ app.whenReady().then(() => {
 
   ipcMain.on('log-message', (event, payload) => {
     console.log(`[Extension Debug]: [${payload.source || 'Preload'}] ${payload.message}`);
+  });
+
+  ipcMain.on('window-minimize', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.minimize();
+  });
+
+  ipcMain.on('window-toggle-maximize', (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (window?.isMaximized()) window.unmaximize();
+    else window?.maximize();
+  });
+
+  ipcMain.on('window-close', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.close();
   });
 
   ipcMain.handle('check-for-prompt', (event) => {

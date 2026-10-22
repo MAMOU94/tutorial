@@ -8997,7 +8997,7 @@ export default function DataExplorer({
         .data-explorer-floating-layer {
           position: absolute;
           inset: 0;
-          z-index: 48;
+          z-index: 1000;
           pointer-events: none;
           overflow: hidden;
         }
@@ -9199,6 +9199,7 @@ export default function DataExplorer({
         .floating-tool-window-ai {
           max-height: none;
           max-width: none;
+          z-index: 1001 !important;
           border-top-left-radius: 0;
           border-top-right-radius: 0;
         }
