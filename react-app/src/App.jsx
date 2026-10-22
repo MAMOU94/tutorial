@@ -2052,6 +2052,9 @@ const ResizablePanelGroup = ({ direction = 'horizontal', responsive = false, siz
               className={`group relative shrink-0 transition-colors z-20 ${actualDirection === 'horizontal' ? 'w-px cursor-col-resize' : 'h-px cursor-row-resize'} bg-[#383838] hover:bg-zinc-400 focus-visible:bg-zinc-400`}
               style={{ touchAction: 'none' }}
               onPointerDown={(event) => handlePointerDown(index, event)}
+              onPointerUp={stopResize}
+              onPointerCancel={stopResize}
+              onLostPointerCapture={stopResize}
               onKeyDown={(event) => handleKeyDown(index, event)}
               title="Drag to resize panels"
             >
