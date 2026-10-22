@@ -2052,9 +2052,6 @@ const ResizablePanelGroup = ({ direction = 'horizontal', responsive = false, siz
               className={`group relative shrink-0 transition-colors z-20 ${actualDirection === 'horizontal' ? 'w-px cursor-col-resize' : 'h-px cursor-row-resize'} bg-[#383838] hover:bg-zinc-400 focus-visible:bg-zinc-400`}
               style={{ touchAction: 'none' }}
               onPointerDown={(event) => handlePointerDown(index, event)}
-              onPointerUp={stopResize}
-              onPointerCancel={stopResize}
-              onLostPointerCapture={stopResize}
               onKeyDown={(event) => handleKeyDown(index, event)}
               title="Drag to resize panels"
             >
@@ -4963,8 +4960,14 @@ const AIDocumentAssistant = ({ isOpen, onClose, activeCode = '', cloudUrl = '', 
     const editorCode = rConsoleEditorRef.current
       ? rConsoleEditorRef.current.state.doc.toString()
       : '';
-    const datasetCtx = isDataExplorerConnected && activeSheetName
-      ? `\n\nACTIVE DATASET: "${activeSheetName}"${Array.isArray(columns) && columns.length > 0 ? `\nColumns: ${columns.join(', ')}` : ''}`
+    const connectedDataFrameName = isDataExplorerConnected
+      ? sanitizeRIdentifier(activeSheetName || file?.name || 'dataset')
+      : '';
+    const connectedSourceFile = isDataExplorerConnected
+      ? String(file?.path || file?.name || '').trim()
+      : '';
+    const datasetCtx = isDataExplorerConnected && (activeSheetName || file?.name)
+      ? `\n\nACTIVE DATA EXPLORER SHEET: "${activeSheetName || file?.name}"\nREUSE THIS ${lang === 'R' ? 'R DATAFRAME OBJECT' : 'DATAFRAME OBJECT'}: ${connectedDataFrameName || 'dataset'}\nSOURCE FILE: "${file?.name || '(created/in-memory dataset)'}"\nSOURCE FILE PATH: "${connectedSourceFile || '(not available)'}"\nWhen code uses connected data, use ${connectedDataFrameName || 'dataset'} instead of inventing a generic df/data name. The sheet name is not proof that an R object already exists. If the user asks to upload/import/reload the original file, read SOURCE FILE PATH and select the ACTIVE DATA EXPLORER SHEET, then assign it to ${connectedDataFrameName || 'dataset'} (for example: ${connectedDataFrameName || 'dataset'} <- readxl::read_excel(SOURCE_FILE_PATH, sheet = "${activeSheetName || 'active_sheet'}")).${Array.isArray(columns) && columns.length > 0 ? `\nColumns: ${columns.join(', ')}` : ''}`
       : '';
     const codeCtx = editorCode.trim()
       ? `\n\nCURRENT EDITOR SCRIPT (${lang}):\n\`\`\`${lang.toLowerCase()}\n${editorCode.slice(0, 6000)}\n\`\`\``
@@ -15051,11 +15054,20 @@ ${historyContext || '(none)'}`;
       ? columns.map((columnName) => String(columnName || '').trim()).filter(Boolean)
       : [];
     const datasetRows = includeDataExplorerContext && Array.isArray(fullData) ? fullData : [];
+    const activeDataExplorerSheetName = includeDataExplorerContext
+      ? String(activeSheetName || '').trim()
+      : '';
+    const sourceDataExplorerFileName = includeDataExplorerContext
+      ? String(file?.name || '').trim()
+      : '';
+    const sourceDataExplorerFilePath = includeDataExplorerContext
+      ? String(file?.path || '').trim()
+      : '';
     const datasetName = includeDataExplorerContext
-      ? (String(activeSheetName || file?.name || 'In-memory data frame').trim() || 'In-memory data frame')
+      ? (activeDataExplorerSheetName || sourceDataExplorerFileName || 'In-memory data frame')
       : '';
     const preferredDataFrameName = includeDataExplorerContext
-      ? sanitizeRIdentifier(activeSheetName || file?.name || 'dataset')
+      ? sanitizeRIdentifier(activeDataExplorerSheetName || sourceDataExplorerFileName || 'dataset')
       : '';
     const typeSampleRows = datasetRows.slice(0, 1200);
     const schemaColumns = datasetColumns.slice(0, 60);
@@ -15119,7 +15131,11 @@ ${historyContext || '(none)'}`;
     const datasetContextMeta = includeDataExplorerContext
       ? [
         `dataset_name: ${datasetName}`,
+        `active_sheet_name: ${activeDataExplorerSheetName || '(none)'}`,
+        `source_file_name: ${sourceDataExplorerFileName || '(created/in-memory Data Explorer dataset)'}`,
+        `source_file_path: ${sourceDataExplorerFilePath || '(not available; use source_file_name if an explicit import is requested)'}`,
         `preferred_r_dataframe_name: ${preferredDataFrameName || 'dataset'}`,
+        `data_explorer_code_rule: when using connected Data Explorer data, reuse the active sheet as the dataframe object named ${preferredDataFrameName || 'dataset'}; do not invent a generic df/data name. The active sheet name is a worksheet label, not proof that an R object already exists. If upload/import/reload is explicitly requested, read source_file_path/source_file_name, select active_sheet_name when the source is an Excel workbook, and assign the result to ${preferredDataFrameName || 'dataset'} before transforming it. Do not solve an import request with only exists("${preferredDataFrameName || 'dataset'}").`,
         `row_count: ${datasetRows.length}`,
         `column_count: ${datasetColumns.length}`,
         `schema_columns_included: ${schemaColumns.length}`,
@@ -15171,7 +15187,11 @@ ${historyContext || '(none)'}`;
         datasetContextMeta,
         datasetSchema,
         datasetPreview,
-        datasetSelectedColumns: selectedColumnsSnapshot.join(', ')
+        datasetSelectedColumns: selectedColumnsSnapshot.join(', '),
+        activeDataExplorerSheetName,
+        sourceDataExplorerFileName,
+        sourceDataExplorerFilePath,
+        preferredDataFrameName
       }
     };
   };
@@ -16890,19 +16910,7 @@ ${groundedExecutionClause}`)));
           .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`)
           .join('\n\n');
 
-        let onlinePrompt = rIdeChatFreeMode
-          ? `${freePersona}
-
----
-
-USER REQUEST: ${nextInstruction}
-
-CONVERSATION_HISTORY (maintain context from this ongoing discussion):
-${chatConversationHistory || '(no prior conversation)'}
-
-ATTACHED_FILES_AND_IMAGES:
-${attachmentPromptContext || '(none)'}`
-          : `${onlineSystemPreamble}
+        let onlinePrompt = `${onlineSystemPreamble}
 
 ---
 
@@ -29135,6 +29143,10 @@ except Exception as _ngr_error:
   };
 
   const handleAddSheet = () => {
+    if (file?.path && /\.csv$/i.test(String(file.name || file.path))) {
+      setViewerNotice({ type: 'error', text: 'CSV files contain one table and cannot have additional sheets.' });
+      return;
+    }
     const knownSheets = normalizeSheetNames(datasetSheetsRef.current);
     const usedNames = new Set(knownSheets.map((name) => String(name).trim().toLowerCase()));
     let index = 1;

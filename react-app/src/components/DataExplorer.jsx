@@ -27,6 +27,7 @@ import {
   Minimize2,
   RotateCcw,
   Bot,
+  Sparkles,
   Calculator,
   GripVertical,
   AlignLeft,
@@ -46,7 +47,7 @@ const FLOATING_TOOL_PRESETS = {
   select: { width: 720, minWidth: 560, defaultX: 28, defaultY: 240, minHeight: 260 },
   clean: { width: 760, minWidth: 360, defaultX: 372, defaultY: 240, minHeight: 220 },
   columns: { width: 840, minWidth: 480, defaultX: 28, defaultY: 240, minHeight: 360 },
-  ai: { width: 728, minWidth: 624, defaultX: 0, defaultY: 150, minHeight: 500, defaultHeight: 640 },
+  ai: { width: 480, minWidth: 360, defaultX: 0, defaultY: 0, minHeight: 500, defaultHeight: null },
   summary: { width: 720, minWidth: 440, defaultX: 72, defaultY: 180, minHeight: 420, defaultHeight: 560 }
 };
 const FLOATING_TOOL_TRANSITION_MS = 300;
@@ -961,19 +962,23 @@ function FloatingToolWindow({
   icon: Icon,
   width,
   isRTheme,
+  showIcon = true,
+  showSubtitle = true,
+  keepMounted = false,
   className = '',
   onClose,
   onFocus,
   onDragStart,
   onResizeStart,
+  headerActions,
   children
 }) {
   const { isMounted, isVisible } = useAnimatedPresence(Boolean(state?.open), FLOATING_TOOL_TRANSITION_MS);
-  if (!state || !isMounted) return null;
+  if (!state || (!isMounted && !keepMounted)) return null;
   const preset = FLOATING_TOOL_PRESETS[toolKey] || DEFAULT_FLOATING_TOOL_PRESET;
 
   return (
-    <section
+      <section
       ref={panelRef}
       role="dialog"
       aria-label={title}
@@ -981,10 +986,12 @@ function FloatingToolWindow({
       className={`floating-tool-window ${className} ${isRTheme ? 'is-r-theme' : ''} ${isVisible ? 'is-open' : 'is-closing'}`}
       style={{
         width: `${state.width || width}px`,
-        height: Number.isFinite(state.height) ? `${state.height}px` : undefined,
+        height: toolKey === 'ai' && !Number.isFinite(state.height)
+          ? `calc(100% - ${Math.max(0, Number(state.y) || 0)}px - 1cm)`
+          : (Number.isFinite(state.height) ? `${state.height}px` : undefined),
         minWidth: `${preset.minWidth}px`,
         minHeight: `${preset.minHeight}px`,
-        transform: `translate3d(${state.x + (isVisible ? 0 : -24)}px, ${state.y}px, 0) scale(${isVisible ? 1 : 0.985})`,
+        transform: `translate3d(${state.x}px, ${state.y + (isVisible ? 0 : -24)}px, 0) scale(${isVisible ? 1 : 0.985})`,
         opacity: isVisible ? 1 : 0,
         pointerEvents: isVisible ? 'auto' : 'none',
         zIndex: state.z
@@ -996,16 +1003,19 @@ function FloatingToolWindow({
         onPointerDown={(event) => onDragStart(toolKey, event)}
       >
         <div className="floating-tool-window-heading">
-          <span className="floating-tool-window-icon">
-            <Icon size={14} />
-          </span>
+          {showIcon && Icon ? (
+            <span className="floating-tool-window-icon">
+              <Icon size={14} />
+            </span>
+          ) : null}
           <div className="floating-tool-window-copy">
             <strong>{title}</strong>
-            {subtitle ? <span>{subtitle}</span> : null}
+            {showSubtitle && subtitle ? <span>{subtitle}</span> : null}
           </div>
         </div>
         <div className="floating-tool-window-actions">
           <span className="floating-tool-window-grip" aria-hidden="true" />
+          {headerActions}
           <button
             type="button"
             onPointerDown={(event) => event.stopPropagation()}
@@ -2065,6 +2075,8 @@ export default function DataExplorer({
   const pendingCellCommitRef = useRef('');
   const cellColorPickerInputRef = useRef(null);
   const cellColorPaletteRef = useRef(null);
+  const aiClearRef = useRef(null);
+  const [aiChatMode, setAiChatMode] = useState('agent');
   const [isResizingColumn, setIsResizingColumn] = useState(false);
   const [cellColors, setCellColors] = useState(() => {
     const saved = DATA_EXPLORER_SHEET_CELL_COLORS[initialSheetSourceKey];
@@ -4822,10 +4834,14 @@ export default function DataExplorer({
     if (toolKey === 'ai') {
       const panelWidth = widthOverride || preset.width;
       const commandSurface = shellNode.querySelector('.data-explorer-command-surface');
+      const dataExplorerHeader = shellNode.querySelector('.data-explorer-topbar');
       const commandRect = commandSurface?.getBoundingClientRect?.();
-      nextX = shellRect.width - panelWidth - 16;
+      const headerRect = dataExplorerHeader?.getBoundingClientRect?.();
+      nextX = shellRect.width - panelWidth;
       nextY = commandRect
-        ? commandRect.bottom - shellRect.top + 12
+        ? commandRect.bottom - shellRect.top - 8
+        : headerRect
+          ? headerRect.bottom - shellRect.top
         : preset.defaultY;
     } else if (toolKey === 'summary') {
       const panelWidth = widthOverride || preset.width;
@@ -5716,6 +5732,8 @@ export default function DataExplorer({
 
   const isShellFullscreen = !embedded && isFullscreen;
   const normalizedSheetNames = useMemo(() => normalizeSheetNamesList(sheetNames), [sheetNames]);
+  const canCreateSheet = typeof handleAddSheet === 'function'
+    && (isVirtualSource || !/\.csv$/i.test(String(sourceFileName || '').trim()));
   const safeActiveSheetName = String(activeSheetName || '').trim();
   const activeSheetValue = normalizedSheetNames.includes(safeActiveSheetName)
     ? safeActiveSheetName
@@ -5890,7 +5908,7 @@ export default function DataExplorer({
                         )}
                       </span>
                     )}
-                    {typeof handleAddSheet === 'function' && (
+                    {canCreateSheet && (
                       <button
                         type="button"
                         className="sheet-add-btn"
@@ -5992,7 +6010,7 @@ export default function DataExplorer({
                     {/* AI Agent Tab */}
                     <button
                       onClick={() => toggleFloatingTool('ai')}
-                      title="AI Data Agent"
+                      title="AI Assistant"
                       aria-expanded={floatingTools.ai?.open ? 'true' : 'false'}
                       data-active={floatingTools.ai?.open ? 'true' : 'false'}
                       className={`p-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${floatingTools.ai?.open
@@ -6316,18 +6334,54 @@ export default function DataExplorer({
               toolKey="ai"
               panelRef={(node) => { floatingToolRefs.current.ai = node; }}
               state={floatingTools.ai}
-              title="AI Data Agent"
-              subtitle="Explore and transform the current dataset."
+              title="AI Assistant"
+              subtitle={null}
               icon={Bot}
+              showIcon={false}
+              showSubtitle={false}
+              keepMounted
               width={FLOATING_TOOL_PRESETS.ai.width}
               isRTheme={isRTheme}
               className="floating-tool-window-ai"
+              headerActions={
+                <>
+                  <button
+                    type="button"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setAiChatMode((previous) => (previous === 'agent' ? 'free' : 'agent'));
+                    }}
+                    className="floating-tool-window-mode-toggle"
+                    aria-label={aiChatMode === 'free' ? 'Switch to Data Agent' : 'Switch to Free Chat'}
+                    title={aiChatMode === 'free' ? 'Free Chat mode — click to switch to Data Agent' : 'Data Agent mode — click to switch to Free Chat'}
+                  >
+                    {aiChatMode === 'free'
+                      ? <><Sparkles size={11} /><span>Free Chat</span></>
+                      : <><Database size={11} /><span>Data Agent</span></>}
+                  </button>
+                  <button
+                    type="button"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      aiClearRef.current?.();
+                    }}
+                    className="floating-tool-window-close"
+                    aria-label="Clear conversation"
+                    title="Clear conversation"
+                  >
+                    <Trash2 size={13} strokeWidth={2} />
+                  </button>
+                </>
+              }
               onClose={closeFloatingTool}
               onFocus={bringFloatingToolToFront}
               onDragStart={startFloatingToolDrag}
               onResizeStart={startFloatingToolResize}
             >
               <DataExplorerAIAgent
+                clearRef={aiClearRef}
                 fullData={fullData}
                 columns={effectiveSelectedColumns}
                 allColumns={columns}
@@ -6337,6 +6391,7 @@ export default function DataExplorer({
                 defaultOllamaUrl={aiAgentDefaultOllamaUrl}
                 defaultApiKey={aiAgentDefaultApiKey}
                 floating
+                chatMode={aiChatMode}
                 onShowSummary={(request) => openSummaryWindow(request)}
                 onAddColumn={(name, value) => {
                   if (typeof handleAddColumn !== 'function') return false;
@@ -8855,6 +8910,8 @@ export default function DataExplorer({
           flex-wrap: wrap;
         }
         .data-explorer-command-surface {
+          position: relative;
+          z-index: 49;
           border-radius: 0;
           border: 0;
           background: linear-gradient(180deg, rgba(8, 13, 26, 0.95), rgba(4, 8, 18, 0.98));
@@ -9139,6 +9196,12 @@ export default function DataExplorer({
           -webkit-font-smoothing: antialiased;
           -moz-osx-font-smoothing: grayscale;
         }
+        .floating-tool-window-ai {
+          max-height: none;
+          max-width: none;
+          border-top-left-radius: 0;
+          border-top-right-radius: 0;
+        }
         .floating-tool-window[data-dragging="true"] {
           transition: none;
           box-shadow:
@@ -9255,6 +9318,27 @@ export default function DataExplorer({
           align-items: center;
           gap: 0.5rem;
           flex-shrink: 0;
+        }
+        .floating-tool-window-mode-toggle {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.35rem;
+          min-height: 28px;
+          padding: 0 0.55rem;
+          border: 1px solid var(--floating-window-border);
+          border-radius: 0.42rem;
+          background: rgba(255, 255, 255, 0.03);
+          color: var(--floating-window-muted);
+          font-size: 0.68rem;
+          font-weight: 600;
+          white-space: nowrap;
+          transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+        }
+        .floating-tool-window-mode-toggle:hover {
+          border-color: var(--floating-window-border-strong);
+          background: var(--floating-window-hover);
+          color: var(--floating-window-text);
         }
         .floating-tool-window-grip {
           width: 24px;
@@ -13361,6 +13445,10 @@ export default function DataExplorer({
           backdrop-filter: blur(16px) !important;
           overflow: hidden !important;
           transition: transform 120ms ease-out, box-shadow 120ms ease-out, opacity 120ms ease-out !important;
+        }
+        .data-explorer-ayu-theme .data-explorer-floating-layer .floating-tool-window-ai {
+          border-top-left-radius: 0 !important;
+          border-top-right-radius: 0 !important;
         }
         .data-explorer-ayu-theme .data-explorer-floating-layer .floating-tool-window-body {
           background: #1F1F22 !important;

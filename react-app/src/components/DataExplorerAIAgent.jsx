@@ -22,7 +22,7 @@ import React, {
   useState,
   useMemo
 } from 'react';
-import { Check, ChevronDown, ChevronRight, Copy, Database, MessageSquare, Paperclip, Send, Sparkles, Square, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, Copy, MessageSquare, Paperclip, Send, Square, Trash2 } from 'lucide-react';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -605,7 +605,6 @@ const MessageBubble = ({ message, onApplyAction, appliedActions, onDismissAction
   const isSystem = role === 'system';
   const displayContent = actions && actions.length > 0 ? stripActionBlocks(content) : content;
   const [copied, setCopied] = useState(false);
-  const [thoughtExpanded, setThoughtExpanded] = useState(false);
   const copyMessage = async () => {
     if (!displayContent) return;
     try {
@@ -638,16 +637,6 @@ const MessageBubble = ({ message, onApplyAction, appliedActions, onDismissAction
   return (
     <div className="ai-agent-message assistant select-text">
       <div className="ai-agent-bubble">
-        <button
-          type="button"
-          className="ai-agent-thought-row"
-          onClick={() => setThoughtExpanded((previous) => !previous)}
-          aria-expanded={thoughtExpanded}
-        >
-          <span>Thought for {message.thoughtDuration || '1.0s'}</span>
-          <ChevronRight size={13} className={thoughtExpanded ? 'is-expanded' : ''} aria-hidden="true" />
-        </button>
-        {thoughtExpanded && <div className="ai-agent-thought-detail">{message.thought || 'Analyzed the current dataset and prepared the response.'}</div>}
         {displayContent ? (
           <p className="ai-agent-bubble-text" style={{ whiteSpace: 'pre-wrap' }}>{displayContent}</p>
         ) : isStreaming ? (
@@ -722,7 +711,8 @@ export default function DataExplorerAIAgent({
   isRTheme = false,
   theme = 'ayu-dark',
   floating = false,
-  clearRef = null
+  clearRef = null,
+  chatMode = 'agent'
 }) {
   const isAyuTheme = theme === 'ayu-dark';
 
@@ -772,13 +762,6 @@ export default function DataExplorerAIAgent({
   const [error, setError] = useState(null);
   const [appliedActions, setAppliedActions] = useState({});
   const [dismissedActions, setDismissedActions] = useState({});
-  const [chatMode, setChatMode] = useState('agent'); // 'agent' | 'free'
-
-  const chatModeLabel = chatMode === 'free' ? 'Free Chat' : 'Data Agent';
-  const cycleMode = useCallback(() => {
-    setChatMode((prev) => (prev === 'agent' ? 'free' : 'agent'));
-  }, []);
-
   const scrollRef = useRef(null);
   const scrollFrameRef = useRef(null);
   const inputRef = useRef(null);
@@ -1147,7 +1130,7 @@ export default function DataExplorerAIAgent({
       imageName: attachmentForRequest?.name || '',
       imageDataUrl: attachmentForRequest?.dataUrl || ''
     };
-    const assistantMsg = { id: nextId(), role: 'assistant', content: '', actions: [], createdAt: Date.now(), thoughtDuration: '1.0s' };
+    const assistantMsg = { id: nextId(), role: 'assistant', content: '', actions: [], createdAt: Date.now() };
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
     setInput('');
     setImageAttachment(null);
@@ -1165,24 +1148,60 @@ export default function DataExplorerAIAgent({
     const subscriptionPrompt = buildSubscriptionPrompt(apiMessages);
     const controller = new AbortController();
     abortRef.current = controller;
-    let streamTimer = null;
-    let pendingStreamText = null;
+    let typingTimer = null;
+    let pendingStreamText = '';
+    let displayedStreamText = '';
+    let removeProviderStream = null;
     const flushAssistantText = () => {
-      streamTimer = null;
-      if (pendingStreamText === null) return;
-      const nextText = pendingStreamText;
-      pendingStreamText = null;
+      typingTimer = null;
+      if (displayedStreamText === pendingStreamText) return;
+      const remaining = pendingStreamText.length - displayedStreamText.length;
+      const nextLength = displayedStreamText.length + Math.max(1, Math.min(4, Math.ceil(remaining / 4)));
+      displayedStreamText = pendingStreamText.slice(0, nextLength);
       setMessages((prev) => {
         const next = [...prev];
         const last = next[next.length - 1];
-        if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: nextText };
+        if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: displayedStreamText };
         return next;
       });
+      typingTimer = setTimeout(flushAssistantText, 18);
     };
     const queueAssistantText = (text) => {
-      pendingStreamText = text;
-      if (!streamTimer) streamTimer = setTimeout(flushAssistantText, 55);
+      pendingStreamText = String(text || '');
+      if (!typingTimer) flushAssistantText();
     };
+    const drainAssistantText = () => new Promise((resolve) => {
+      const check = () => {
+        if (!typingTimer && displayedStreamText === pendingStreamText) {
+          resolve();
+          return;
+        }
+        setTimeout(check, 20);
+      };
+      check();
+    });
+
+    if (isSubscriptionProvider) {
+      let providerStreamText = '';
+      const onProviderChunk = (chunk = {}) => {
+        const incomingText = String(chunk?.text || '');
+        if (!incomingText) return;
+        if (providerId === 'opencode' && incomingText.startsWith(providerStreamText)) {
+          providerStreamText = incomingText;
+        } else {
+          providerStreamText += incomingText;
+        }
+        queueAssistantText(providerStreamText);
+      };
+      const subscribe = providerId === 'claude'
+        ? window.electronAPI?.onClaudeResponseChunk
+        : providerId === 'codex'
+          ? window.electronAPI?.onCodexResponseChunk
+          : providerId === 'opencode'
+            ? window.electronAPI?.onOpenCodeResponseChunk
+            : window.electronAPI?.onAntigravityResponseChunk;
+      removeProviderStream = subscribe?.(onProviderChunk) || null;
+    }
 
     try {
       let fullText = '';
@@ -1196,12 +1215,7 @@ export default function DataExplorerAIAgent({
               : await window.electronAPI?.antigravityChatRequest?.({ model: antigravityModel, effort: antigravityEffort, prompt: subscriptionPrompt });
         if (!result?.success) throw new Error(result?.error || `${providerId} subscription request failed.`);
         fullText = String(result.text || '');
-        setMessages((prev) => {
-          const next = [...prev];
-          const last = next[next.length - 1];
-          if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: fullText };
-          return next;
-        });
+        queueAssistantText(fullText);
       } else if (providerId === 'ollama' && ollamaMode === 'local' && window.electronAPI?.requestAIAgent) {
         const result = await window.electronAPI.requestAIAgent({
           url: activeUrl,
@@ -1210,12 +1224,7 @@ export default function DataExplorerAIAgent({
         });
         if (!result?.success) throw new Error(result?.error || 'Local AI request failed.');
         fullText = String(result.text || '');
-        setMessages((prev) => {
-          const next = [...prev];
-          const last = next[next.length - 1];
-          if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: fullText };
-          return next;
-        });
+        queueAssistantText(fullText);
       } else {
         const headers = { 'Content-Type': 'application/json' };
         if (providerId === 'anthropic') {
@@ -1259,9 +1268,8 @@ export default function DataExplorerAIAgent({
         }
       }
 
-      if (streamTimer) clearTimeout(streamTimer);
-      streamTimer = null;
-      pendingStreamText = null;
+      queueAssistantText(fullText);
+      await drainAssistantText();
       let parsedActions = parseActions(fullText);
       const hasDataCreationAction = parsedActions.some((action) => (
         action?.action === 'create_dataset' || action?.action === 'add_row'
@@ -1290,7 +1298,8 @@ export default function DataExplorerAIAgent({
         return next;
       });
     } finally {
-      if (streamTimer) clearTimeout(streamTimer);
+      if (typingTimer) clearTimeout(typingTimer);
+      removeProviderStream?.();
       setIsStreaming(false);
       abortRef.current = null;
     }
@@ -1503,6 +1512,11 @@ export default function DataExplorerAIAgent({
   const filteredModelList = modelFilterQuery.trim()
     ? activeModelList.filter((model) => String(model).toLowerCase().includes(modelFilterQuery.trim().toLowerCase()))
     : activeModelList;
+  const modelListHeight = Math.min(240, Math.max(48, filteredModelList.length * 28));
+  const hasLongModelList = filteredModelList.length > 8;
+  const modelListStyle = hasLongModelList
+    ? { height: `${modelListHeight}px` }
+    : { height: 'auto', overflowY: 'visible' };
 
   const selectProvider = (nextProviderId) => {
     setProviderId(nextProviderId);
@@ -1576,7 +1590,7 @@ export default function DataExplorerAIAgent({
 
       {/* Provider config dropdown – anchored to top of panel */}
       {configOpen && (
-        <div className="de-ai-provider-panel absolute left-0 right-0 top-0 z-[90] flex max-h-[420px] w-full flex-col overflow-hidden border-b border-zinc-700/80 bg-[#161616] shadow-2xl">
+        <div className="de-ai-provider-panel absolute inset-x-0 top-0 bottom-0 z-[90] flex h-full w-full max-h-none flex-col overflow-hidden border-b border-zinc-700/80 bg-[#161616] shadow-2xl">
           <div className="de-ai-source-bar">
             <div className="de-ai-src-toggle" role="tablist" aria-label="AI Assistant source">
               {PROVIDER_GROUPS.map(({ id, label }) => {
@@ -1621,7 +1635,7 @@ export default function DataExplorerAIAgent({
             </div>
           )}
 
-          <div className="max-h-[380px] min-h-0 flex-1 space-y-2.5 overflow-y-auto p-3 custom-scrollbar">
+          <div className="min-h-0 flex-1 space-y-2.5 overflow-visible p-3">
               {providerId === 'ollama' ? (
                 <>
                   <div className="flex gap-1.5">
@@ -1680,7 +1694,7 @@ export default function DataExplorerAIAgent({
                         <input value={modelFilterQuery} onChange={(event) => setModelFilterQuery(event.target.value)} placeholder="Filter Ollama models..." className="w-full rounded-md border border-zinc-800 bg-zinc-900/90 px-3 py-1.5 text-[10px] font-mono text-zinc-200 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none" />
                       </div>
                     )}
-                    <div className="max-h-24 space-y-0.5 overflow-y-auto pr-0.5 custom-scrollbar">
+                    <div className="space-y-0.5 overflow-y-auto pr-0.5 custom-scrollbar" style={modelListStyle}>
                       {filteredModelList.length > 0 ? filteredModelList.map((model) => (
                         <button key={model} type="button" onClick={() => selectOllamaModel(model)} className={`flex w-full items-center justify-between rounded-md border px-3 py-1.5 text-left text-[10px] font-mono tracking-tight transition-colors ${selectedModel === model ? 'border-zinc-600 bg-zinc-800 font-semibold text-zinc-100' : 'border-transparent text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200'}`}>
                           <span className="truncate">{model}</span>
@@ -1767,14 +1781,15 @@ export default function DataExplorerAIAgent({
                     {codexAuthStatus.loggedIn && (
                       <button type="button" onClick={async () => { const result = await window.electronAPI?.codexLogout?.(); if (result?.success) { setCodexAuthStatus({ loading: false, loggedIn: false, message: 'Signed out. Sign in with another ChatGPT account.' }); setCodexModels([]); setCodexModel(''); setCodexModelsError(''); try { window.localStorage.removeItem(CODEX_MODEL_STORAGE_KEY); } catch { /* Ignore storage failures. */ } } }} className="mt-2 w-full rounded-md border border-zinc-800 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200">Log out / Change account</button>
                     )}
-                    <div className="mt-2.5">
+                  </div>
+                  <div className="mt-2.5">
                       <div className="mb-1 flex items-center justify-between gap-2">
                         <span className="block text-[10px] font-bold uppercase tracking-[0.08em] text-zinc-300">Codex models</span>
                         <button type="button" onClick={loadCodexModels} disabled={codexModelsLoading || !codexAuthStatus.loggedIn} className="text-[10px] font-semibold uppercase tracking-[0.06em] text-zinc-400 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50">
                           {codexModelsLoading ? 'Detecting…' : 'Refresh'}
                         </button>
                       </div>
-                      <div className="max-h-20 space-y-0.5 overflow-y-auto pr-0.5 custom-scrollbar">
+                      <div className="space-y-0.5 overflow-y-auto pr-0.5 custom-scrollbar" style={modelListStyle}>
                         {codexModels.length > 0 ? codexModels.map((model) => (
                           <button key={model} type="button" onClick={() => selectCodexModel(model)} className={`flex w-full items-center justify-between rounded-md border px-3 py-1.5 text-left text-[10px] font-mono tracking-tight transition-colors ${codexModel === model ? 'border-zinc-600 bg-zinc-800 font-semibold text-zinc-100' : 'border-transparent text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200'}`}>
                             <span className="truncate">{model}</span>
@@ -1800,7 +1815,6 @@ export default function DataExplorerAIAgent({
                         ))}
                       </div>
                     </div>
-                  </div>
                 </>
               ) : providerId === 'opencode' ? (
                 <>
@@ -1841,7 +1855,7 @@ export default function DataExplorerAIAgent({
                       <span className="text-[10px] font-mono text-zinc-400">{filteredModelList.length} shown</span>
                     </div>
                     <div className="relative mb-2"><input value={modelFilterQuery} onChange={(event) => setModelFilterQuery(event.target.value)} placeholder="Filter OpenCode models..." className="w-full rounded-md border border-zinc-800 bg-zinc-900/90 px-3 py-1.5 text-[10px] font-mono text-zinc-200 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none" /></div>
-                    <div className="max-h-24 space-y-0.5 overflow-y-auto pr-0.5 custom-scrollbar">
+                    <div className="space-y-0.5 overflow-y-auto pr-0.5 custom-scrollbar" style={modelListStyle}>
                       {filteredModelList.length > 0 ? filteredModelList.map((model) => (
                         <button key={model} type="button" onClick={() => selectOpenCodeModel(model)} className={`flex w-full items-center justify-between rounded-md border px-3 py-1.5 text-left text-[10px] font-mono tracking-tight transition-colors ${openCodeModel === model ? 'border-zinc-600 bg-zinc-800 font-semibold text-zinc-100' : 'border-transparent text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200'}`}>
                           <span className="truncate">{model}</span>{openCodeModel === model && <span className="ml-1.5 shrink-0 text-zinc-300">Selected</span>}
@@ -1873,7 +1887,7 @@ export default function DataExplorerAIAgent({
                   <div>
                     <div className="mb-1.5 flex items-center justify-between"><span className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">Antigravity models</span><span className="text-[10px] font-mono text-zinc-400">{filteredModelList.length} shown</span></div>
                     <div className="relative mb-2"><input value={modelFilterQuery} onChange={(event) => setModelFilterQuery(event.target.value)} placeholder="Filter Antigravity models..." className="w-full rounded-md border border-zinc-800 bg-zinc-900/90 px-3 py-1.5 text-[10px] font-mono text-zinc-200 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none" /></div>
-                    <div className="max-h-24 space-y-0.5 overflow-y-auto pr-0.5 custom-scrollbar">
+                    <div className="space-y-0.5 overflow-y-auto pr-0.5 custom-scrollbar" style={modelListStyle}>
                       {filteredModelList.length > 0 ? filteredModelList.map((model) => (
                         <button key={model} type="button" onClick={() => selectAntigravityModel(model)} className={`flex w-full items-center justify-between rounded-md border px-3 py-1.5 text-left text-[10px] font-mono tracking-tight transition-colors ${antigravityModel === model ? 'border-zinc-600 bg-zinc-800 font-semibold text-zinc-100' : 'border-transparent text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200'}`}>
                           <span className="truncate">{model}</span>{antigravityModel === model && <span className="ml-1.5 shrink-0 text-zinc-300">Selected</span>}
@@ -1918,7 +1932,7 @@ export default function DataExplorerAIAgent({
                   <div>
                     <div className="mb-1.5 flex items-center justify-between"><span className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">{detectedProviderModels[providerId]?.length ? 'Detected Models' : 'Models (Quick Pick)'}</span><span className="text-[10px] font-mono text-zinc-400">{filteredModelList.length} shown</span></div>
                     <div className="relative mb-2"><input value={modelFilterQuery} onChange={(event) => setModelFilterQuery(event.target.value)} placeholder={`Filter ${activeProviderLabel} models...`} className="w-full rounded-md border border-zinc-800 bg-zinc-900/90 px-3 py-1.5 text-[10px] font-mono text-zinc-200 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none" /></div>
-                    <div className="max-h-28 space-y-0.5 overflow-y-auto pr-0.5 custom-scrollbar">
+                    <div className="space-y-0.5 overflow-y-auto pr-0.5 custom-scrollbar" style={modelListStyle}>
                       {filteredModelList.map((model) => (
                         <button key={model} type="button" onClick={() => updateProviderSetting(providerId, 'model', model)} className={`flex w-full items-center justify-between rounded-md border px-3 py-1.5 text-left text-[10px] font-mono tracking-tight transition-colors ${activeProviderSettings.model === model ? 'border-zinc-600 bg-zinc-800 font-semibold text-zinc-100' : 'border-transparent text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200'}`}>
                           <span className="truncate pr-1.5">{model}</span>{activeProviderSettings.model === model && <span className="shrink-0 text-zinc-300">Selected</span>}
@@ -2088,23 +2102,8 @@ export default function DataExplorerAIAgent({
                 className="truncate text-[10px] font-medium tracking-wide rounded-md px-2 py-0.5 text-zinc-400 bg-zinc-800/80 border border-zinc-700/50 hover:border-zinc-500 hover:text-zinc-200 transition-all cursor-pointer inline-flex items-center gap-1"
                 title={`Provider: ${activeProviderLabel} · Model: ${activeModelLabel || 'None'} — click to change`}
               >
-                <span>{activeModelLabel ? `${activeProviderLabel} · ${activeModelLabel}` : 'No model'}</span>
+                <span>{activeModelLabel || 'No model'}</span>
                 <ChevronDown size={9} className="text-zinc-500 shrink-0" />
-              </button>
-              <button
-                type="button"
-                onClick={cycleMode}
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium transition-all cursor-pointer border ${
-                  chatMode === 'free'
-                    ? 'bg-violet-950/40 text-violet-300 border-violet-500/35 hover:bg-violet-950/60'
-                    : 'bg-zinc-800/80 text-zinc-400 border-zinc-700/50 hover:text-zinc-200 hover:border-zinc-500'
-                }`}
-                title={chatMode === 'free' ? 'Free Chat mode — click to switch to Data Agent' : 'Data Agent mode — click to switch to Free Chat'}
-              >
-                {chatMode === 'free'
-                  ? <><Sparkles size={10} /><span>Free Chat</span></>
-                  : <><Database size={10} /><span>Data Agent</span></>
-                }
               </button>
             </div>
             <div className="flex items-center gap-1.5">
