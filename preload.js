@@ -59,6 +59,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   runDplyrTidyrTransform: (rows, pipeline) =>
     ipcRenderer.invoke('run-dplyr-tidyr-transform', rows, pipeline),
   saveDatasetCsv: (payload) => ipcRenderer.invoke('save-dataset-csv', payload),
+  writeDatasetCsv: (payload) => ipcRenderer.invoke('write-dataset-csv', payload),
   saveDatasetXlsx: (payload) => ipcRenderer.invoke('save-dataset-xlsx', payload),
   getFileMetadata: (filePath, sheetName = '') => ipcRenderer.invoke('get-file-metadata', filePath, sheetName),
   saveDetailedReport: (title, lines) => ipcRenderer.invoke('save-detailed-report', title, lines),

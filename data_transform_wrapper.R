@@ -93,6 +93,25 @@ parse_rows <- function(path) {
   stop("Input JSON must be an array of row objects.")
 }
 
+normalize_input_missing_values <- function(data) {
+  if (!is.data.frame(data)) return(data)
+
+  for (column_name in names(data)) {
+    column <- data[[column_name]]
+    if (is.character(column)) {
+      trimmed <- trimws(column)
+      missing_tokens <- !is.na(column) & tolower(trimmed) %in% c("", "na", "nan")
+      column[missing_tokens] <- NA_character_
+      data[[column_name]] <- column
+    } else if (is.numeric(column)) {
+      column[is.nan(column)] <- NA_real_
+      data[[column_name]] <- column
+    }
+  }
+
+  data
+}
+
 normalize_result_df <- function(result_df) {
   if (inherits(result_df, "grouped_df")) {
     result_df <- dplyr::ungroup(result_df)
@@ -166,7 +185,7 @@ if (grepl("^\\s*(%>%|\\|>)", to_eval, perl = TRUE)) {
 }
 
 tryCatch({
-  raw_df <- parse_rows(input_path)
+  raw_df <- normalize_input_missing_values(parse_rows(input_path))
   df <- tibble::as_tibble(raw_df, .name_repair = "minimal")
 
   eval_env <- new.env(parent = globalenv())

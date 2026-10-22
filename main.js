@@ -3925,6 +3925,33 @@ app.whenReady().then(() => {
     }
   });
 
+  ipcMain.handle('write-dataset-csv', async (event, payload) => {
+    try {
+      const sourcePath = path.resolve(String(payload?.sourcePath || '').trim());
+      if (!sourcePath || path.extname(sourcePath).toLowerCase() !== '.csv') {
+        return { success: false, error: 'Only an existing CSV source file can be updated directly.' };
+      }
+      if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isFile()) {
+        return { success: false, error: 'The original CSV source file is no longer available.' };
+      }
+      const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+      const columns = normalizeDatasetColumns(rows, payload?.columns);
+      if (columns.length === 0) {
+        return { success: false, error: 'No columns available to save.' };
+      }
+
+      fs.writeFileSync(sourcePath, buildCsvFromRows(rows, columns), 'utf8');
+      return {
+        success: true,
+        filePath: sourcePath,
+        rowCount: rows.length,
+        columnCount: columns.length
+      };
+    } catch (e) {
+      return { success: false, error: e?.message || 'Failed to update the CSV source file.' };
+    }
+  });
+
   ipcMain.handle('save-dataset-xlsx', async (event, payload) => {
     try {
       const rows = Array.isArray(payload?.rows) ? payload.rows : [];

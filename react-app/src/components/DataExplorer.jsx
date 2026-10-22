@@ -39,6 +39,7 @@ import {
 } from 'lucide-react';
 import DataExplorerAIAgent from './DataExplorerAIAgent.jsx';
 import DataExplorerCalculations from './DataExplorerCalculations.jsx';
+import { isMissingDataValue } from '../utils/dataQuality';
 
 const DEFAULT_FLOATING_TOOL_PRESET = { width: 320, minWidth: 320, defaultX: 24, defaultY: 140, minHeight: 220 };
 
@@ -76,6 +77,11 @@ const UNDO_RESTORE_OPTIONS = [
 ];
 
 const clampValue = (value, min, max) => Math.min(Math.max(value, min), max);
+const formatQualityPercent = (value) => {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return '0.00';
+  return numericValue.toFixed(2);
+};
 const getAnimatedPresenceDuration = (durationMs) => {
   if (
     typeof window !== 'undefined' &&
@@ -976,6 +982,11 @@ function FloatingToolWindow({
   const { isMounted, isVisible } = useAnimatedPresence(Boolean(state?.open), FLOATING_TOOL_TRANSITION_MS);
   if (!state || (!isMounted && !keepMounted)) return null;
   const preset = FLOATING_TOOL_PRESETS[toolKey] || DEFAULT_FLOATING_TOOL_PRESET;
+  const panelWidth = state.width || width;
+  const isAiPanel = toolKey === 'ai';
+  const isEnteringFromRight = isAiPanel && !isVisible;
+  const translateX = state.x + (isEnteringFromRight ? panelWidth + 24 : 0);
+  const translateY = state.y + (!isAiPanel && !isVisible ? -24 : 0);
 
   return (
       <section
@@ -985,13 +996,13 @@ function FloatingToolWindow({
       aria-hidden={!state.open}
       className={`floating-tool-window ${className} ${isRTheme ? 'is-r-theme' : ''} ${isVisible ? 'is-open' : 'is-closing'}`}
       style={{
-        width: `${state.width || width}px`,
+        width: `${panelWidth}px`,
         height: toolKey === 'ai' && !Number.isFinite(state.height)
           ? `calc(100% - ${Math.max(0, Number(state.y) || 0)}px - 1cm)`
           : (Number.isFinite(state.height) ? `${state.height}px` : undefined),
         minWidth: `${preset.minWidth}px`,
         minHeight: `${preset.minHeight}px`,
-        transform: `translate3d(${state.x}px, ${state.y + (isVisible ? 0 : -24)}px, 0) scale(${isVisible ? 1 : 0.985})`,
+        transform: `translate3d(${translateX}px, ${translateY}px, 0) scale(${isVisible ? 1 : 0.985})`,
         opacity: isVisible ? 1 : 0,
         pointerEvents: isVisible ? 'auto' : 'none',
         zIndex: state.z
@@ -2691,7 +2702,7 @@ export default function DataExplorer({
       let numericCount = 0;
       for (let i = 0; i < sampleLimit; i += 1) {
         const raw = fullData[i]?.[columnName];
-        if (raw === undefined || raw === null || String(raw).trim() === '') continue;
+        if (isMissingDataValue(raw)) continue;
         observed += 1;
         if (parseNumericValue(raw) !== null) numericCount += 1;
       }
@@ -2708,7 +2719,7 @@ export default function DataExplorer({
     selectedAdditionalCategoricalColumns.forEach((columnName) => {
       const levels = fullData
         .map((row) => row?.[columnName])
-        .filter((value) => value !== undefined && value !== null && String(value).trim() !== '')
+        .filter((value) => !isMissingDataValue(value))
         .map((value) => String(value));
       next[columnName] = Array.from(new Set(levels));
     });
@@ -2752,7 +2763,7 @@ export default function DataExplorer({
         : (groupColumnLevelsMap[columnName] || []);
       if (!Array.isArray(selectedLevels) || selectedLevels.length === 0) return false;
       const rawValue = row?.[columnName];
-      if (rawValue === undefined || rawValue === null || String(rawValue).trim() === '') return false;
+      if (isMissingDataValue(rawValue)) return false;
       const normalizedValue = String(rawValue);
       if (!selectedLevels.includes(normalizedValue)) return false;
     }
@@ -3953,7 +3964,7 @@ export default function DataExplorer({
       const sampleLimit = Math.min(deferredFullData.length, 5000);
       for (let i = 0; i < sampleLimit; i += 1) {
         const raw = deferredFullData[i]?.[col];
-        if (raw === undefined || raw === null || String(raw).trim() === '') continue;
+        if (isMissingDataValue(raw)) continue;
         if (!Number.isFinite(Number(raw))) return false;
       }
       return true;
@@ -4168,10 +4179,12 @@ export default function DataExplorer({
       incompletePct: 0,
       completeRowsPct: 0,
       incompleteRowsPct: 0,
-      incompleteRowCount: 0,
-      incompleteColumnCount: 0,
-      missingValueCount: 0,
-      topMissingCells: [],
+    incompleteRowCount: 0,
+    incompleteColumnCount: 0,
+    missingValueCount: 0,
+    completeCellCount: 0,
+    totalCellCount: 0,
+    topMissingCells: [],
       topIncompleteColumns: [],
       sampleRows: 0,
       totalRows: 0,
@@ -4208,7 +4221,7 @@ export default function DataExplorer({
 
       activeQualityColumns.forEach((col, colIndex) => {
         const value = row?.[col];
-        const isMissing = value === undefined || value === null || String(value).trim() === '';
+        const isMissing = isMissingDataValue(value);
         if (isMissing) {
           rowMissingCount += 1;
           missingValueCount += 1;
@@ -4237,8 +4250,19 @@ export default function DataExplorer({
     }
 
     const incompleteCells = Math.max(0, totalCells - filledCells);
-    const completePct = totalCells > 0 ? Math.round((filledCells / totalCells) * 100) : 100;
-    const incompletePct = totalCells > 0 ? Math.round((incompleteCells / totalCells) * 100) : 0;
+    const completePct = totalCells > 0
+      ? Number(((filledCells / totalCells) * 100).toFixed(2))
+      : 100;
+    // Use the complement so the two precise percentages always total 100%.
+    const incompletePct = totalCells > 0
+      ? Number((100 - completePct).toFixed(2))
+      : 0;
+    const completeRowsPct = sampleRows > 0
+      ? Number((((sampleRows - incompleteRowCount) / sampleRows) * 100).toFixed(2))
+      : 100;
+    const incompleteRowsPct = sampleRows > 0
+      ? Number((100 - completeRowsPct).toFixed(2))
+      : 0;
     const incompleteColumns = Array.from(missingByColumn.entries())
       .filter(([, summary]) => summary.missingCount > 0);
     const topIncompleteColumns = incompleteColumns
@@ -4247,22 +4271,24 @@ export default function DataExplorer({
       .map(([columnName, summary]) => ({
         columnName,
         missingCount: summary.missingCount,
-        incompletePct: Math.round((summary.missingCount / sampleRows) * 100),
+        incompletePct: Number(((summary.missingCount / sampleRows) * 100).toFixed(2)),
         firstMissingRowIndex: summary.firstRowIndex
       }));
 
     return {
       completePct,
       incompletePct,
-      completeRowsPct: Math.round(((sampleRows - incompleteRowCount) / sampleRows) * 100),
-      incompleteRowsPct: Math.round((incompleteRowCount / sampleRows) * 100),
+      completeRowsPct,
+      incompleteRowsPct,
       incompleteRowCount,
       incompleteColumnCount: incompleteColumns.length,
       missingValueCount,
+      completeCellCount: filledCells,
+      totalCellCount: totalCells,
       allIncompleteColumns: incompleteColumns.map(([columnName, summary]) => ({
         columnName,
         missingCount: summary.missingCount,
-        incompletePct: Math.round((summary.missingCount / sampleRows) * 100),
+        incompletePct: Number(((summary.missingCount / sampleRows) * 100).toFixed(2)),
         firstMissingRowIndex: summary.firstRowIndex
       })),
       topMissingCells,
@@ -4343,7 +4369,7 @@ export default function DataExplorer({
       for (let columnIndex = 0; columnIndex < cleanMissingTargetColumns.length; columnIndex += 1) {
         const columnName = cleanMissingTargetColumns[columnIndex];
         const value = row?.[columnName];
-        if (value === undefined || value === null || String(value).trim() === '') {
+        if (isMissingDataValue(value)) {
           rowMissingCount += 1;
           missingCellCount += 1;
         }
@@ -4419,7 +4445,7 @@ export default function DataExplorer({
     }
     const values = fullData
       .map((row) => row?.[groupVar])
-      .filter((value) => value !== undefined && value !== null && String(value).trim() !== '')
+      .filter((value) => !isMissingDataValue(value))
       .map((value) => String(value));
     return Array.from(new Set(values));
   }, [inferentialAllGroupLevels, groupVar, fullData]);
@@ -4837,7 +4863,7 @@ export default function DataExplorer({
       const dataExplorerHeader = shellNode.querySelector('.data-explorer-topbar');
       const commandRect = commandSurface?.getBoundingClientRect?.();
       const headerRect = dataExplorerHeader?.getBoundingClientRect?.();
-      nextX = shellRect.width - panelWidth;
+      nextX = Math.max(0, shellRect.width - panelWidth);
       nextY = commandRect
         ? commandRect.bottom - shellRect.top - 8
         : headerRect
@@ -5732,13 +5758,13 @@ export default function DataExplorer({
 
   const isShellFullscreen = !embedded && isFullscreen;
   const normalizedSheetNames = useMemo(() => normalizeSheetNamesList(sheetNames), [sheetNames]);
-  const canCreateSheet = typeof handleAddSheet === 'function'
-    && (isVirtualSource || !/\.csv$/i.test(String(sourceFileName || '').trim()));
+  const isCsvSource = /\.csv$/i.test(String(sourceFileName || '').trim());
+  const canCreateSheet = typeof handleAddSheet === 'function' && !isCsvSource;
   const safeActiveSheetName = String(activeSheetName || '').trim();
   const activeSheetValue = normalizedSheetNames.includes(safeActiveSheetName)
     ? safeActiveSheetName
     : (normalizedSheetNames[0] || safeActiveSheetName);
-  const showSheetSelector = normalizedSheetNames.length > 0;
+  const showSheetSelector = !isCsvSource && normalizedSheetNames.length > 0;
   const [sheetBandOpen, setSheetBandOpen] = useState(false);
   const [editingSheetName, setEditingSheetName] = useState('');
   const [sheetRenameValue, setSheetRenameValue] = useState('');
@@ -5922,7 +5948,7 @@ export default function DataExplorer({
                         +
                       </button>
                     )}
-                    {!showSheetSelector && sheetLabel ? (
+                    {!isCsvSource && !showSheetSelector && sheetLabel ? (
                       <span className="data-explorer-file-sheet !py-0 !px-1.5 !text-[9px]">{sheetLabel}</span>
                     ) : null}
                   </div>
@@ -6393,6 +6419,20 @@ export default function DataExplorer({
                 floating
                 chatMode={aiChatMode}
                 onShowSummary={(request) => openSummaryWindow(request)}
+                onCalculateSelectionTotal={(options = {}) => {
+                  const requestedColumns = Array.isArray(options.columns) && options.columns.length > 0
+                    ? options.columns
+                    : (options.column ? [options.column] : effectiveSelectedColumns);
+                  const columnNames = requestedColumns
+                    .map((columnName) => String(columnName || '').trim())
+                    .filter((columnName, index, list) => columns.includes(columnName) && list.indexOf(columnName) === index);
+                  if (columnNames.length === 0 || agentRowScope.length === 0 || typeof handleCalculateSelectionTotal !== 'function') return false;
+                  return handleCalculateSelectionTotal({
+                    axis: options.axis === 'row' ? 'row' : 'column',
+                    rowIndices: agentRowScope,
+                    columnNames
+                  });
+                }}
                 onAddColumn={(name, value) => {
                   if (typeof handleAddColumn !== 'function') return false;
                   return handleAddColumn({ name, value: value ?? '', rowIndices: agentRowScope });
@@ -6606,6 +6646,7 @@ export default function DataExplorer({
                   {activeQualityColumns.length < columns.length
                     ? ` Using ${activeQualityColumns.length.toLocaleString()} selected column(s).`
                     : ' Using all columns.'}
+                  {' A row is incomplete when any selected cell is missing.'}
                   {rowQualitySummary.sampled ? ` Sampled the first ${rowQualitySummary.sampleRows.toLocaleString()} row(s) for speed.` : ''}
                 </p>
                 <div className="toolbar-quality-meter" aria-hidden="true">
@@ -6615,31 +6656,37 @@ export default function DataExplorer({
                   />
                 </div>
                 <div className="toolbar-quality-legend">
-                  <span><strong>{rowQualitySummary.completePct}%</strong> complete</span>
-                  <span><strong>{rowQualitySummary.incompletePct}%</strong> incomplete</span>
+                  <span>
+                    <strong>{formatQualityPercent(rowQualitySummary.completePct)}%</strong> complete
+                    <small> ({rowQualitySummary.completeCellCount.toLocaleString()}/{rowQualitySummary.totalCellCount.toLocaleString()} cells)</small>
+                  </span>
+                  <span>
+                    <strong>{formatQualityPercent(rowQualitySummary.incompletePct)}%</strong> incomplete
+                    <small> ({rowQualitySummary.missingValueCount.toLocaleString()}/{rowQualitySummary.totalCellCount.toLocaleString()} cells)</small>
+                  </span>
                 </div>
                 <div className="toolbar-stats-grid toolbar-stats-grid-compact">
                   <div className="toolbar-stat-card">
-                    <span className="toolbar-stat-label">Messing Values</span>
+                    <span className="toolbar-stat-label">Missing Values</span>
                     <strong>{rowQualitySummary.missingValueCount.toLocaleString()}</strong>
                   </div>
                   <div className="toolbar-stat-card">
-                    <span className="toolbar-stat-label">Missing Rows %</span>
-                    <strong>{rowQualitySummary.incompleteRowsPct}%</strong>
+                    <span className="toolbar-stat-label">Rows With Missing %</span>
+                    <strong>{formatQualityPercent(rowQualitySummary.incompleteRowsPct)}%</strong>
                   </div>
                   <div className="toolbar-stat-card">
                     <span className="toolbar-stat-label">Rows Evaluated</span>
                     <strong>{rowQualitySummary.sampleRows.toLocaleString()}</strong>
                   </div>
                   <div className="toolbar-stat-card">
-                    <span className="toolbar-stat-label">Full Rows %</span>
-                    <strong>{rowQualitySummary.completeRowsPct}%</strong>
+                    <span className="toolbar-stat-label">Complete Rows %</span>
+                    <strong>{formatQualityPercent(rowQualitySummary.completeRowsPct)}%</strong>
                   </div>
                 </div>
               </div>
 
               <div className="toolbar-menu-section toolbar-quality-panel rows-missing-section">
-                <span className="toolbar-menu-label">Messing Values</span>
+                <span className="toolbar-menu-label">Missing Values</span>
                 {rowQualitySummary.topMissingCells.length > 0 ? (
                   <div className="toolbar-quality-list toolbar-quality-list-horizontal-flow">
                     {rowQualitySummary.topMissingCells.map(({ rowIndex, columnName }, idx) => (
@@ -6662,7 +6709,7 @@ export default function DataExplorer({
                   </div>
                 ) : (
                   <div className="toolbar-quality-empty">
-                    {rowQualitySummary.totalRows === 0 ? 'No selected rows to evaluate.' : 'No messing values found in the selected rows.'}
+                    {rowQualitySummary.totalRows === 0 ? 'No selected rows to evaluate.' : 'No missing values found in the selected rows.'}
                   </div>
                 )}
               </div>

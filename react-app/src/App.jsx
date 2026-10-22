@@ -35,6 +35,7 @@ import { classHighlighter, highlightTree, tags as t } from '@lezer/highlight';
 import rLogo from './assets/r-logo.png';
 import { exportModelSummaryToCsv, exportModelSummaryToPdf, exportModelSummaryToXlsx } from './utils/modelSummaryPdf';
 import { buildLinearRegressionEquation } from './utils/reportGenerator';
+import { isMissingDataValue, normalizeMissingDataValue } from './utils/dataQuality';
 import './results-design.css';
 import rFileIcon from './assets/r-file-icon.svg';
 import pythonFileIcon from './assets/python-file-icon.svg';
@@ -10249,6 +10250,7 @@ function App() {
   const sheetDatasetCacheRef = useRef({});
   const dataMemoryCacheRef = useRef(runtimeDataMemoryCache);
   const sheetDirtyStateRef = useRef({});
+  const csvAutoSaveTimerRef = useRef(null);
   const sheetCacheLoadInFlightRef = useRef(new Map());
   const [mergeColumnA, setMergeColumnA] = useState('');
   const [mergeColumnB, setMergeColumnB] = useState('');
@@ -10359,6 +10361,36 @@ function App() {
       rowNames: Array.isArray(nextRowNames) ? nextRowNames : []
     };
   }, []);
+
+  useEffect(() => {
+    const sourcePath = String(file?.path || '').trim();
+    const sheetName = String(activeSheetName || '').trim();
+    const isPhysicalCsv = Boolean(sourcePath && /\.csv$/i.test(sourcePath));
+    const isDirty = Boolean(sheetName && sheetDirtyStateRef.current[sheetName]);
+    if (!isPhysicalCsv || !isDirty || !window.electronAPI?.writeDatasetCsv || columns.length === 0) return undefined;
+
+    if (csvAutoSaveTimerRef.current) clearTimeout(csvAutoSaveTimerRef.current);
+    csvAutoSaveTimerRef.current = setTimeout(async () => {
+      const response = await window.electronAPI.writeDatasetCsv({
+        sourcePath,
+        columns,
+        rows: fullData
+      });
+      if (!response?.success) {
+        setViewerNotice({
+          type: 'error',
+          text: response?.error || 'The edited data could not be written to the CSV file.'
+        });
+      }
+    }, 250);
+
+    return () => {
+      if (csvAutoSaveTimerRef.current) {
+        clearTimeout(csvAutoSaveTimerRef.current);
+        csvAutoSaveTimerRef.current = null;
+      }
+    };
+  }, [activeSheetName, columns, file?.path, fullData]);
 
   const rememberDataMemoryDataset = useCallback((datasetName, nextColumns, nextRows, sourceLabel = '', language = 'r') => {
     const safeName = String(datasetName || '').trim();
@@ -24869,10 +24901,7 @@ except Exception as _ngr_error:
       ))
       : [...targetRowIndices];
 
-    const isMissingValue = (value) => {
-      if (value === null || value === undefined) return true;
-      return String(value).trim() === '';
-    };
+    const isMissingValue = isMissingDataValue;
     const rowHasMissingInTargets = (row) => targetColumns.some((columnName) => {
       const value = row?.[columnName];
       return isMissingValue(value);
@@ -29005,9 +29034,10 @@ except Exception as _ngr_error:
     const knownSheets = normalizeSheetNames(datasetSheetsRef.current);
     const currentSheetName = String(activeSheetNameRef.current || activeSheetName || '').trim();
     const sourceSheetName = currentSheetName || knownSheets[0] || 'Sheet_1';
+    const isPhysicalCsv = Boolean(file?.path && /\.csv$/i.test(String(file.path)));
 
     let resultSheetName;
-    if (overwrite && currentSheetName) {
+    if ((overwrite || isPhysicalCsv) && currentSheetName) {
       resultSheetName = currentSheetName;
     } else {
       const normalizedOperation = String(operationKey || 'result')
@@ -29139,7 +29169,11 @@ except Exception as _ngr_error:
       setIsDatasetSwitching(false);
     }
 
-    return { applied: true, sheetName: resultSheetName };
+    return {
+      applied: true,
+      sheetName: resultSheetName,
+      createdNewSheet: resultSheetName !== sourceSheetName
+    };
   };
 
   const handleAddSheet = () => {
@@ -29880,9 +29914,17 @@ except Exception as _ngr_error:
         : null;
       const transformInput = scopedColumnSet
         ? transformData.map((row) => Object.fromEntries(
-          Array.from(scopedColumnSet).map((columnName) => [columnName, row?.[columnName]])
+          Array.from(scopedColumnSet).map((columnName) => [
+            columnName,
+            normalizeMissingDataValue(row?.[columnName])
+          ])
         ))
-        : transformData;
+        : transformData.map((row) => Object.fromEntries(
+          Object.entries(row || {}).map(([columnName, value]) => [
+            columnName,
+            normalizeMissingDataValue(value)
+          ])
+        ));
       if (transformInput.length === 0) {
         setViewerNotice({ type: 'error', text: 'No selected rows are available for this operation.' });
         return false;
@@ -29915,7 +29957,7 @@ except Exception as _ngr_error:
       const groupedSplitNote = groupedSplitColumnName
         ? ` Group levels from "${groupedSplitColumnName}" were expanded into columns.`
         : '';
-      const newSheetNote = applied?.sheetName
+      const newSheetNote = applied?.createdNewSheet
         ? ` Results were written to new sheet "${applied.sheetName}".`
         : '';
       if (noticeText) {

@@ -120,10 +120,11 @@ Available actions and their parameters:
 - summarize:        { "action": "summarize" }
 - calculate:        { "action": "calculate",        "mode": "column_total|row_totals|summary", "column": "colName", "operation": "sum|average|min|max|count" }
 
-For requests such as "sum the first column", "total each row", or "create a summary table", emit a calculate action so the result window opens with the requested calculation.
+For an in-place sum, use mode "column_total" to add a new row whose values are prefixed with "T=", or mode "row_totals" to add a new column whose values are prefixed with "T=". Use mode "summary" for average, minimum, maximum, count, or a summary-table result.
 For missing-value prediction, use one fill_missing action with mode "ml_prediction". To fill missing values in several columns in one background run, put every target name in the "columns" array. When the user asks for all columns, use "all_columns": true and "columns": ["*"] so the application sends every currently selected column in one batch. If the user names the subject label, pass that exact column as "group_column": use the tumor-type column for a tumor task, the gender column for a gender task, and the cohort or treatment column when those are the requested subjects. Every target column is then predicted only from rows with the same label and never mixes different groups.
 The group_column must be a categorical label column only, such as tumor type, cohort, sex, or treatment group. Never use a numeric measurement column as group_column. If more than one categorical label exists, do not guess: use the exact label named by the user. Only omit group_column when no relevant label is available, so the application can automatically detect a repeated categorical label.
 When the current dataset is empty and the user asks to generate, create, or populate random/sample data, emit one create_dataset action with named columns and populated rows. Do not emit only add_column actions for this request. Keep generated datasets to at most 100 rows unless the user asks for fewer.
+CRITICAL empty-dataset rule: if the dataset has 0 rows, never emit run_pipeline, filter_rows, sort_rows, or mutate-only actions to create data. A dplyr pipeline cannot generate rows from an empty table in this editor. Use create_dataset with the requested column names and actual generated rows instead. If the user asks to rename a blank column and add random data, include the final randomized column name in create_dataset.columns and put the generated values in create_dataset.rows. Never emit a run_pipeline action without a non-empty pipeline string; use run_pipeline only when the dataset already has rows and the action includes a complete dplyr/tidyr expression.
 
 When the user attaches a photo of a table, spreadsheet, form, or other structured data, read the visible rows and columns and emit one create_dataset action containing the extracted column names and values. Preserve text, numbers, dates, and blank cells as accurately as possible. Mention uncertain or unreadable values briefly before the action. Do not invent values.
 
@@ -555,7 +556,11 @@ const ActionBadge = ({ action, onApply, onDismiss, isApplied, isRTheme }) => {
       case 'format_cells': return 'Format the selected cells';
       case 'reorder_columns': return `Move column "${action.from || action.column || ''}"`;
       case 'summarize': return `Open dataset summary`;
-      case 'calculate': return `Calculate ${action.operation || 'summary'}${action.column ? ` for "${action.column}"` : ''}`;
+      case 'calculate': {
+        if (action.mode === 'column_total') return `Add column total row${action.column ? ` for "${action.column}"` : ''}`;
+        if (action.mode === 'row_totals') return 'Add row totals column';
+        return `Calculate ${action.operation || 'summary'}${action.column ? ` for "${action.column}"` : ''}`;
+      }
       default: return action.action;
     }
   })();
@@ -704,6 +709,7 @@ export default function DataExplorerAIAgent({
   onKeepColumns,
   onDeleteColumns,
   onApplyDplyrTidyrPipeline,
+  onCalculateSelectionTotal,
   onUndoDataset,
   onShowSummary,
   defaultOllamaUrl = 'http://localhost:11434/api/generate',
@@ -1414,7 +1420,19 @@ export default function DataExplorerAIAgent({
         case 'run_pipeline': result = await onApplyDplyrTidyrPipeline?.(action.pipeline ?? ''); break;
         case 'undo': result = await onUndoDataset?.(); break;
         case 'summarize': result = await onShowSummary?.({ mode: 'summary' }); break;
-        case 'calculate': result = await onShowSummary?.(action); break;
+        case 'calculate': {
+          const mode = String(action.mode || '').trim().toLowerCase();
+          const isInPlaceTotal = mode === 'column_total' || mode === 'row_totals';
+          if (isInPlaceTotal && String(action.operation || 'sum').trim().toLowerCase() === 'sum') {
+            result = await onCalculateSelectionTotal?.({
+              ...action,
+              axis: mode === 'row_totals' ? 'row' : 'column'
+            });
+          } else {
+            result = await onShowSummary?.(action);
+          }
+          break;
+        }
         default: break;
       }
       if (result === false) return;
@@ -1422,7 +1440,7 @@ export default function DataExplorerAIAgent({
     } catch (err) {
       setError(`Failed to apply action: ${err.message}`);
     }
-  }, [onAddColumn, onDeleteColumn, onRenameColumn, onFilterRows, onSortRows, onFillMissing, onReplaceValue, onAddRow, onDeleteRows, onCreateDataset, onEditCell, onSetCellColor, onSetTextColor, onFormatCells, onReorderColumns, onMergeColumns, onReshapeWideToLong, onSeparateColumn, onGroupBySummarise, onDistinctRows, onRenameGroupLevels, onKeepColumns, onDeleteColumns, onApplyDplyrTidyrPipeline, onUndoDataset, onShowSummary]);
+  }, [onAddColumn, onDeleteColumn, onRenameColumn, onFilterRows, onSortRows, onFillMissing, onReplaceValue, onAddRow, onDeleteRows, onCreateDataset, onEditCell, onSetCellColor, onSetTextColor, onFormatCells, onReorderColumns, onMergeColumns, onReshapeWideToLong, onSeparateColumn, onGroupBySummarise, onDistinctRows, onRenameGroupLevels, onKeepColumns, onDeleteColumns, onApplyDplyrTidyrPipeline, onCalculateSelectionTotal, onUndoDataset, onShowSummary]);
 
   useEffect(() => {
     const pendingActions = messages.flatMap((message) => (

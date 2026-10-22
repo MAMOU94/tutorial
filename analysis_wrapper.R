@@ -118,6 +118,9 @@ read_any_file <- function(path, sheet = NULL) {
   ext <- tolower(tools::file_ext(path))
   if (ext == "csv") {
     header_line <- readLines(path, n = 1, warn = FALSE)
+    if (length(header_line) == 0 || !nzchar(trimws(header_line[[1]]))) {
+      return(data.frame(check.names = FALSE))
+    }
     header_parts <- if (length(header_line) > 0) strsplit(header_line, ",", fixed = TRUE)[[1]] else character(0)
     first_header <- if (length(header_parts) > 0) trimws(header_parts[[1]]) else ""
     first_header <- sub('^"(.*)"$', '\\1', first_header)
@@ -184,6 +187,25 @@ read_any_file <- function(path, sheet = NULL) {
   }
 }
 
+normalize_input_missing_values <- function(data) {
+  if (!is.data.frame(data)) return(data)
+
+  for (column_name in names(data)) {
+    column <- data[[column_name]]
+    if (is.character(column)) {
+      trimmed <- trimws(column)
+      missing_tokens <- !is.na(column) & tolower(trimmed) %in% c("", "na", "nan")
+      column[missing_tokens] <- NA_character_
+      data[[column_name]] <- column
+    } else if (is.numeric(column)) {
+      column[is.nan(column)] <- NA_real_
+      data[[column_name]] <- column
+    }
+  }
+
+  data
+}
+
 if (length(args) == 0) {
   invisible(load_pkgs(base_deps))
   cat(toJSON(list(error = "No arguments provided"), auto_unbox = TRUE))
@@ -212,16 +234,21 @@ if (args[1] == "--get-metadata") {
   tryCatch({
     if (!file.exists(input_file)) stop("File not found.")
     ext <- input_ext
-    sheets <- if (ext %in% c("xlsx", "xls", "xlsm", "xlsb")) {
+    csv_sheet_name <- tools::file_path_sans_ext(basename(input_file))
+    sheets <- if (ext == "csv") {
+      csv_sheet_name
+    } else if (ext %in% c("xlsx", "xls", "xlsm", "xlsb")) {
       get_excel_sheet_names(input_file)
     } else {
       character(0)
     }
     data <- read_any_file(input_file, requested_sheet)
-    if (nrow(data) == 0 || ncol(data) == 0) stop("File is empty.")
+    if (ext != "csv" && (nrow(data) == 0 || ncol(data) == 0)) stop("File is empty.")
     data_for_json <- data
     rownames(data_for_json) <- NULL
-    active_sheet <- if (ext %in% c("xlsx", "xls", "xlsm", "xlsb")) {
+    active_sheet <- if (ext == "csv") {
+      csv_sheet_name
+    } else if (ext %in% c("xlsx", "xls", "xlsm", "xlsb")) {
       if (!is.null(requested_sheet) && requested_sheet %in% sheets) requested_sheet else if (length(sheets) > 0) sheets[[1]] else ""
     } else {
       ""
@@ -8412,7 +8439,7 @@ plot_exploratory_chart <- function(data, chart_type, x_var, y_var = NULL, output
 tryCatch({
   profile_msg("Starting data read (read_any_file)")
   # log_entry(paste0('data <- read_any_file("', input_file, '")'))
-  data <- read_any_file(input_file)
+      data <- normalize_input_missing_values(read_any_file(input_file))
   emit_progress(6, "Pass 0", "Dataset loaded", "")
   profile_msg("Data read complete")
 
@@ -14680,7 +14707,7 @@ tryCatch({
      }
      
      # Load New Data
-     new_data <- tryCatch({ read_any_file(new_data_path) }, error = function(e) NULL)
+     new_data <- tryCatch({ normalize_input_missing_values(read_any_file(new_data_path)) }, error = function(e) NULL)
      if (is.null(new_data)) {
          cat(toJSON(list(error = "Failed to load new data file."), auto_unbox = TRUE))
          quit(save = "no")
