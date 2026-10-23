@@ -6736,6 +6736,30 @@ function App() {
   const [focusedWindowId, setFocusedWindowId] = useState(null);
   const nextWindowId = useRef(1);
 
+  // ── Feature: Stale-result detection ──────────────────────────────────────
+  // Monotonically increasing counter; bumped whenever the Explorer dataset
+  // changes (rows added/removed/cleaned, columns changed, file switched).
+  // Each analysis result captures the version at run-time; if the current
+  // version is higher the result is considered stale.
+  const explorerDataVersionRef = useRef(0);
+  const [explorerDataVersion, setExplorerDataVersion] = useState(0);
+
+  // ── Feature: Column type overrides ───────────────────────────────────────
+  // Users can manually set a column type: 'continuous' | 'nominal' | 'ordinal'
+  // A value of null / undefined means "auto" (heuristic detection).
+  const [columnTypeOverrides, setColumnTypeOverrides] = useState({});
+
+  const handleColumnTypeOverride = useCallback((columnName, nextType) => {
+    setColumnTypeOverrides(prev => {
+      if (!nextType || nextType === 'auto') {
+        const next = { ...prev };
+        delete next[columnName];
+        return next;
+      }
+      return { ...prev, [columnName]: nextType };
+    });
+  }, []);
+
   useEffect(() => {
     if (analysisResults.length <= MAX_ANALYSIS_RESULT_WINDOWS) return;
     setAnalysisResults((previous) => previous.slice(-MAX_ANALYSIS_RESULT_WINDOWS));
@@ -19650,6 +19674,15 @@ except Exception as _ngr_error:
     persistSheetDatasetCache(activeSheetName, columns, fullData, datasetRowNames);
   }, [activeSheetName, columns, datasetRowNames, fullData, isDatasetSwitching, persistSheetDatasetCache]);
 
+  // Bump the Explorer data version whenever the dataset content changes so that
+  // previously-generated results can show a stale-data warning.
+  useEffect(() => {
+    if (isDatasetSwitching) return;
+    explorerDataVersionRef.current += 1;
+    setExplorerDataVersion(explorerDataVersionRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fullData, columns]);
+
   const numericColumns = useMemo(() => {
     if (!Array.isArray(activeColumns) || activeColumns.length === 0 || !Array.isArray(analysisRowsForTypeDetection) || analysisRowsForTypeDetection.length === 0) return [];
     const parseNumericValue = (rawValue) => {
@@ -19666,7 +19699,11 @@ except Exception as _ngr_error:
       return Number.isFinite(numericValue) ? numericValue : null;
     };
     return activeColumns.filter(col => {
-      // Sample a broad slice and allow a small amount of text noise in otherwise numeric columns.
+      // 1. Manual override takes absolute precedence over heuristic detection
+      const override = columnTypeOverrides[col];
+      if (override === 'continuous') return true;
+      if (override === 'nominal' || override === 'ordinal') return false;
+      // 2. Heuristic: sample values and require ≥85% numeric
       const limit = Math.min(analysisRowsForTypeDetection.length, 5000);
       let observed = 0;
       let numericCount = 0;
@@ -19680,7 +19717,7 @@ except Exception as _ngr_error:
       if (numericCount === 0) return false;
       return (numericCount / observed) >= 0.85;
     });
-  }, [activeColumns, analysisRowsForTypeDetection]);
+  }, [activeColumns, analysisRowsForTypeDetection, columnTypeOverrides]);
 
   const categoricalColumns = useMemo(() => {
     if (!Array.isArray(activeColumns) || activeColumns.length === 0) return [];
@@ -28035,6 +28072,8 @@ except Exception as _ngr_error:
           const newResult = {
             id: newId,
             title: exploratoryTitle || inferentialWorkflowTitle || regressionWorkflowTitle || titleMap[modeTitleKey] || 'Analysis Result',
+            // Stamp current explorer data version so stale-result detection works
+            dataVersion: explorerDataVersionRef.current,
             data: {
               ...response.result,
               image: resolvedMainImage,
@@ -40232,6 +40271,37 @@ except Exception as _ngr_error:
                         {loading ? 'Running analysis...' : 'Generate Results'}
                       </Button>
                     </div>
+                    {/* ── Stale-data banner ─────────────────────────────────────────────────
+                        Shown when the Explorer dataset changed after the last analysis run.
+                        The dataVersion field is stamped onto each result entry at run-time;
+                        explorerDataVersion is the live counter that increments on any change. */}
+                    {result && !loading && analysisResults.length > 0 && (() => {
+                      const lastResult = analysisResults[analysisResults.length - 1];
+                      const isStale = typeof lastResult?.dataVersion === 'number'
+                        && explorerDataVersion > lastResult.dataVersion;
+                      if (!isStale) return null;
+                      return (
+                        <div
+                          className="flex items-center gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-2.5 animate-in fade-in slide-in-from-top-1 duration-300"
+                          role="alert"
+                        >
+                          <span className="flex h-2 w-2 shrink-0">
+                            <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-amber-400 opacity-75" />
+                            <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-400" />
+                          </span>
+                          <p className="flex-1 text-[11px] font-semibold text-amber-200">
+                            Data changed since last run — results may be out of date.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => runAnalysis()}
+                            className="shrink-0 rounded-lg border border-amber-500/50 bg-amber-500/20 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-100 transition-colors hover:bg-amber-500/35 hover:text-white"
+                          >
+                            Re-run
+                          </button>
+                        </div>
+                      );
+                    })()}
                     {(loading || analysisProgress.line || analysisProgress.passes.length > 0) && (
                       <div className="analysis-progress-shell w-full max-w-3xl mx-auto px-1 pt-1">
                         <div className="flex items-center justify-between gap-3 text-xs">
@@ -47898,6 +47968,8 @@ except Exception as _ngr_error:
                 forcedTab="manipulate"
                 hideTabs
                 isStudioWindow
+                columnTypeOverrides={columnTypeOverrides}
+                onColumnTypeOverride={handleColumnTypeOverride}
               />
             </div>
           </DraggableWindow>
@@ -48058,6 +48130,8 @@ except Exception as _ngr_error:
                     setShowStudioViewer(true);
                   }}
                   onClose={handleCloseDataExplorer}
+                  columnTypeOverrides={columnTypeOverrides}
+                  onColumnTypeOverride={handleColumnTypeOverride}
                 />
               </div>
             </div>

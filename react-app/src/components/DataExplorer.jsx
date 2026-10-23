@@ -1394,6 +1394,9 @@ const MemoizedDataGridRow = React.memo(({
     prev.onRowHeaderSelect === next.onRowHeaderSelect &&
     prev.onInsertRow === next.onInsertRow &&
     prev.onColumnResizeStart === next.onColumnResizeStart &&
+    prev.columnTypeOverrides === next.columnTypeOverrides &&
+    prev.onColumnTypeOverride === next.onColumnTypeOverride &&
+    prev.numericColumns === next.numericColumns &&
     prev.openCellColorPicker === next.openCellColorPicker;
 });
 
@@ -1449,7 +1452,10 @@ const MemoizedVirtualTable = React.memo(({
   cellColorRanges,
   cellFontRanges,
   cellTextRanges,
-  jumpToCellTarget
+  jumpToCellTarget,
+  columnTypeOverrides = {},
+  onColumnTypeOverride,
+  numericColumns = []
 }) => {
   const tableViewportRef = React.useRef(null);
   const latestFullDataRef = React.useRef(fullData);
@@ -1734,7 +1740,43 @@ const MemoizedVirtualTable = React.memo(({
                         title={c === '' ? 'Double-click to name this unnamed column' : 'Click to rename column'}
                         aria-label={c === '' ? 'Unnamed column. Double-click to name it' : `Column ${c}. Click to select or double-click to rename`}
                       >
-                        {c}
+                        <span className="block truncate">{c}</span>
+                        {/* ── Column type badge ───────────────────────────────────────────
+                            Shows the detected or manually-set type. Clicking cycles:
+                            auto → continuous → nominal → ordinal → auto */}
+                        {onColumnTypeOverride && (() => {
+                          const override = columnTypeOverrides[c];
+                          // Cycle: auto → continuous → nominal → ordinal → auto (null)
+                          const cycleNext = { continuous: 'nominal', nominal: 'ordinal', ordinal: null };
+                          const nextType = override ? cycleNext[override] : 'continuous';
+                          // Determine effective type for display (from numericColumns / categoricalColumns context)
+                          const isNumericAuto = !override && numericColumns?.includes(c);
+                          const effectiveType = override || (isNumericAuto ? 'continuous' : 'nominal');
+                          const badgeStyles = {
+                            continuous: 'bg-sky-500/20 text-sky-300 border-sky-500/30 hover:bg-sky-500/35',
+                            nominal:    'bg-violet-500/20 text-violet-300 border-violet-500/30 hover:bg-violet-500/35',
+                            ordinal:    'bg-amber-500/20 text-amber-300 border-amber-500/30 hover:bg-amber-500/35',
+                          };
+                          const badgeIcons = { continuous: '#', nominal: 'A', ordinal: '≤' };
+                          const badgeLabels = { continuous: 'num', nominal: 'nom', ordinal: 'ord' };
+                          const isManual = Boolean(override);
+                          return (
+                            <button
+                              type="button"
+                              title={`Type: ${effectiveType}${isManual ? ' (manual override)' : ' (auto-detected)'}. Click to change.`}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                onColumnTypeOverride(c, nextType);
+                              }}
+                              className={`mt-0.5 inline-flex items-center gap-0.5 rounded border px-1 py-0 text-[9px] font-bold uppercase tracking-wide transition-colors ${badgeStyles[effectiveType]} ${isManual ? 'ring-1 ring-white/20' : 'opacity-70 hover:opacity-100'}`}
+                              aria-label={`Column type: ${effectiveType}. Click to change.`}
+                            >
+                              <span>{badgeIcons[effectiveType]}</span>
+                              <span>{badgeLabels[effectiveType]}</span>
+                            </button>
+                          );
+                        })()}
                       </button>
                     )}
                   </div>
@@ -1988,6 +2030,9 @@ export default function DataExplorer({
   isRTheme = false,
   onEditorSelectionContextChange,
   syncResetToken = 0,
+  // Column type overrides: { [columnName]: 'continuous' | 'nominal' | 'ordinal' }
+  columnTypeOverrides = {},
+  onColumnTypeOverride,
   onClose
 }) {
   const isAyuTheme = theme === 'ayu-dark';
@@ -5740,6 +5785,9 @@ export default function DataExplorer({
         cellFontRanges={cellFontRanges}
         cellTextRanges={cellTextRanges}
         jumpToCellTarget={jumpToCellTarget}
+        columnTypeOverrides={columnTypeOverrides}
+        onColumnTypeOverride={onColumnTypeOverride}
+        numericColumns={numericColumns}
       />
       {isDatasetSwitching && (
         <div
