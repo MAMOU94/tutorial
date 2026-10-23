@@ -1,0 +1,26 @@
+respondent_id,age,monthly_spend_eur,gender,region,payment_method,satisfaction_level,satisfaction_rank,service_quality,quality_rank,purchase_frequency,frequency_rank
+R001,22,18.50,Female,North,Card,Very dissatisfied,1,Poor,1,Never,1
+R002,35,42.00,Male,South,Cash,Dissatisfied,2,Fair,2,Rarely,2
+R003,29,65.75,Non-binary,East,Card,Neutral,3,Good,3,Monthly,3
+R004,41,120.00,Female,West,Digital wallet,Satisfied,4,Very good,4,Weekly,4
+R005,53,240.50,Male,North,Card,Very satisfied,5,Excellent,5,Daily,5
+R006,31,78.20,Female,South,Card,Satisfied,4,Good,3,Monthly,3
+R007,26,35.00,Male,East,Cash,Neutral,3,Fair,2,Rarely,2
+R008,47,185.90,Female,West,Digital wallet,Very satisfied,5,Excellent,5,Weekly,4
+R009,24,12.00,Male,North,Cash,Dissatisfied,2,Poor,1,Never,1
+R010,38,155.30,Female,South,Card,Satisfied,4,Very good,4,Daily,5
+R011,20,28.40,Non-binary,East,Cash,Very dissatisfied,1,Fair,2,Rarely,2
+R012,44,92.10,Male,West,Card,Neutral,3,Good,3,Monthly,3
+R013,57,210.00,Female,North,Digital wallet,Very satisfied,5,Very good,4,Weekly,4
+R014,33,175.60,Male,South,Card,Satisfied,4,Excellent,5,Daily,5
+R015,27,16.75,Female,East,Cash,Dissatisfied,2,Fair,2,Never,1
+R016,30,49.90,Male,West,Digital wallet,Neutral,3,Poor,1,Rarely,2
+R017,62,320.00,Female,North,Card,Very satisfied,5,Excellent,5,Daily,5
+R018,40,110.45,Male,South,Card,Satisfied,4,Good,3,Weekly,4
+R019,23,9.99,Female,East,Cash,Very dissatisfied,1,Poor,1,Never,1
+R020,49,88.00,Male,West,Digital wallet,Neutral,3,Very good,4,Monthly,3
+R021,36,198.25,Female,North,Card,Satisfied,4,Excellent,5,Weekly,4
+R022,28,57.80,Male,South,Cash,Dissatisfied,2,Good,3,Rarely,2
+R023,55,275.00,Female,East,Digital wallet,Very satisfied,5,Very good,4,Daily,5
+R024,45,73.50,Non-binary,West,Card,Neutral,3,Fair,2,Monthly,3
+R025,39,134.90,Male,North,Card,Satisfied,4,Good,3,Weekly,4

@@ -99,6 +99,64 @@ const stripTerminalControlSequences = (value = '') => String(value || '')
 const inferRDocumentMode = (filePath = '') => /.(?:rmd|qmd)$/i.test(String(filePath || '')) ? 'rmd' : 'script';
 const R_MARKDOWN_CHUNK_POLICY = 'R Markdown chunk detected: edit only the currently active chunk body; preserve both fences; return executable R code only; never change content outside it. If multiple chunks exist, do not edit any other chunk.';
 
+const ORDINAL_LABEL_SEQUENCES = [
+  ['very dissatisfied', 'dissatisfied', 'neutral', 'satisfied', 'very satisfied'],
+  ['poor', 'fair', 'good', 'very good', 'excellent'],
+  ['never', 'rarely', 'monthly', 'weekly', 'daily'],
+  ['strongly disagree', 'disagree', 'neutral', 'agree', 'strongly agree'],
+  ['very low', 'low', 'medium', 'high', 'very high'],
+  ['low', 'medium', 'high'],
+  ['small', 'medium', 'large'],
+  ['beginner', 'intermediate', 'advanced']
+];
+
+const isLikelyOrdinalColumn = (columnName, rows) => {
+  const name = String(columnName || '').trim().toLowerCase();
+  const values = [];
+  const limit = Math.min(Array.isArray(rows) ? rows.length : 0, 5000);
+  for (let i = 0; i < limit; i += 1) {
+    const raw = rows[i]?.[columnName];
+    if (raw === undefined || raw === null || String(raw).trim() === '') continue;
+    values.push(String(raw).trim().toLowerCase().replace(/[\s_-]+/g, ' '));
+  }
+  const uniqueValues = Array.from(new Set(values));
+  if (uniqueValues.length < 2 || uniqueValues.length > 12) return false;
+
+  const ordinalName = /(rank|ordinal|rating|score|satisfaction|quality|frequency|severity|priority|stage|level|agreement)/i.test(name);
+  const numericValues = uniqueValues.map(Number);
+  if (ordinalName && numericValues.every(Number.isFinite) && numericValues.every((value) => Number.isInteger(value))) return true;
+
+  return ORDINAL_LABEL_SEQUENCES.some((sequence) => {
+    const indexes = uniqueValues.map((value) => sequence.indexOf(value));
+    return indexes.every((index) => index >= 0);
+  });
+};
+
+const inferColumnDataType = (columnName, rows, ordinalColumns = []) => {
+  const name = String(columnName || '').trim().toLowerCase();
+  if (/(^id$|_id$|identifier)/i.test(name)) return 'identifier';
+
+  const values = [];
+  const limit = Math.min(Array.isArray(rows) ? rows.length : 0, 5000);
+  for (let i = 0; i < limit; i += 1) {
+    const raw = rows[i]?.[columnName];
+    if (raw === undefined || raw === null || String(raw).trim() === '') continue;
+    values.push(String(raw).trim());
+  }
+  const uniqueValues = Array.from(new Set(values));
+  if (uniqueValues.length === 0) return 'unknown';
+  if (ordinalColumns.includes(columnName)) return 'ordinal';
+
+  const numericValues = uniqueValues.map(Number);
+  if (numericValues.every(Number.isFinite)) {
+    const integerValues = numericValues.every((value) => Number.isInteger(value));
+    const discreteName = /(age|count|number|visit|quantity|total|year)/i.test(name);
+    return integerValues && discreteName ? 'discrete' : 'continuous';
+  }
+  if (uniqueValues.length === 2) return 'binary';
+  return 'nominal';
+};
+
 const findAllRMarkdownChunks = (source = '') => {
   const text = String(source || '');
   const lines = text.split('\n');
@@ -6745,7 +6803,7 @@ function App() {
   const [explorerDataVersion, setExplorerDataVersion] = useState(0);
 
   // ── Feature: Column type overrides ───────────────────────────────────────
-  // Users can manually set a column type: 'continuous' | 'nominal' | 'ordinal'
+  // Users can manually set a column type: 'continuous' | 'discrete' | 'nominal' | 'ordinal' | 'binary'
   // A value of null / undefined means "auto" (heuristic detection).
   const [columnTypeOverrides, setColumnTypeOverrides] = useState({});
 
@@ -19683,6 +19741,25 @@ except Exception as _ngr_error:
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fullData, columns]);
 
+  const ordinalColumns = useMemo(() => {
+    if (!Array.isArray(activeColumns) || activeColumns.length === 0) return [];
+    return activeColumns.filter((columnName) => {
+      const override = columnTypeOverrides[columnName];
+      if (override === 'ordinal') return true;
+      if (override) return false;
+      return isLikelyOrdinalColumn(columnName, analysisRowsForTypeDetection);
+    });
+  }, [activeColumns, analysisRowsForTypeDetection, columnTypeOverrides]);
+
+  const columnDataTypes = useMemo(() => {
+    if (!Array.isArray(activeColumns)) return {};
+    return activeColumns.reduce((types, columnName) => {
+      const override = columnTypeOverrides[columnName];
+      types[columnName] = override || inferColumnDataType(columnName, analysisRowsForTypeDetection, ordinalColumns);
+      return types;
+    }, {});
+  }, [activeColumns, analysisRowsForTypeDetection, columnTypeOverrides, ordinalColumns]);
+
   const numericColumns = useMemo(() => {
     if (!Array.isArray(activeColumns) || activeColumns.length === 0 || !Array.isArray(analysisRowsForTypeDetection) || analysisRowsForTypeDetection.length === 0) return [];
     const parseNumericValue = (rawValue) => {
@@ -19701,8 +19778,9 @@ except Exception as _ngr_error:
     return activeColumns.filter(col => {
       // 1. Manual override takes absolute precedence over heuristic detection
       const override = columnTypeOverrides[col];
-      if (override === 'continuous') return true;
-      if (override === 'nominal' || override === 'ordinal') return false;
+      if (override === 'continuous' || override === 'discrete') return true;
+      if (override === 'nominal' || override === 'ordinal' || override === 'binary') return false;
+      if (ordinalColumns.includes(col)) return false;
       // 2. Heuristic: sample values and require ≥85% numeric
       const limit = Math.min(analysisRowsForTypeDetection.length, 5000);
       let observed = 0;
@@ -19717,7 +19795,7 @@ except Exception as _ngr_error:
       if (numericCount === 0) return false;
       return (numericCount / observed) >= 0.85;
     });
-  }, [activeColumns, analysisRowsForTypeDetection, columnTypeOverrides]);
+  }, [activeColumns, analysisRowsForTypeDetection, columnTypeOverrides, ordinalColumns]);
 
   const categoricalColumns = useMemo(() => {
     if (!Array.isArray(activeColumns) || activeColumns.length === 0) return [];
@@ -47970,6 +48048,8 @@ except Exception as _ngr_error:
                 isStudioWindow
                 columnTypeOverrides={columnTypeOverrides}
                 onColumnTypeOverride={handleColumnTypeOverride}
+                ordinalColumns={ordinalColumns}
+                columnDataTypes={columnDataTypes}
               />
             </div>
           </DraggableWindow>
@@ -48132,6 +48212,8 @@ except Exception as _ngr_error:
                   onClose={handleCloseDataExplorer}
                   columnTypeOverrides={columnTypeOverrides}
                   onColumnTypeOverride={handleColumnTypeOverride}
+                  ordinalColumns={ordinalColumns}
+                  columnDataTypes={columnDataTypes}
                 />
               </div>
             </div>

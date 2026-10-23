@@ -1455,7 +1455,9 @@ const MemoizedVirtualTable = React.memo(({
   jumpToCellTarget,
   columnTypeOverrides = {},
   onColumnTypeOverride,
-  numericColumns = []
+  numericColumns = [],
+  ordinalColumns = [],
+  columnDataTypes = {}
 }) => {
   const tableViewportRef = React.useRef(null);
   const latestFullDataRef = React.useRef(fullData);
@@ -1743,37 +1745,39 @@ const MemoizedVirtualTable = React.memo(({
                         <span className="block truncate">{c}</span>
                         {/* ── Column type badge ───────────────────────────────────────────
                             Shows the detected or manually-set type. Clicking cycles:
-                            auto → continuous → nominal → ordinal → auto */}
+                            auto → continuous → discrete → nominal → ordinal → binary → auto */}
                         {onColumnTypeOverride && (() => {
                           const override = columnTypeOverrides[c];
-                          // Cycle: auto → continuous → nominal → ordinal → auto (null)
-                          const cycleNext = { continuous: 'nominal', nominal: 'ordinal', ordinal: null };
+                          // Manual cycle remains available when the automatic type needs correction.
+                          const cycleNext = { continuous: 'discrete', discrete: 'nominal', nominal: 'ordinal', ordinal: 'binary', binary: null };
                           const nextType = override ? cycleNext[override] : 'continuous';
-                          // Determine effective type for display (from numericColumns / categoricalColumns context)
+                          // Prefer the exact automatic type inferred from the dataset.
+                          const isOrdinalAuto = !override && ordinalColumns.includes(c);
                           const isNumericAuto = !override && numericColumns?.includes(c);
-                          const effectiveType = override || (isNumericAuto ? 'continuous' : 'nominal');
-                          const badgeStyles = {
-                            continuous: 'bg-sky-500/20 text-sky-300 border-sky-500/30 hover:bg-sky-500/35',
-                            nominal:    'bg-violet-500/20 text-violet-300 border-violet-500/30 hover:bg-violet-500/35',
-                            ordinal:    'bg-amber-500/20 text-amber-300 border-amber-500/30 hover:bg-amber-500/35',
-                          };
-                          const badgeIcons = { continuous: '#', nominal: 'A', ordinal: '≤' };
-                          const badgeLabels = { continuous: 'num', nominal: 'nom', ordinal: 'ord' };
+                          const effectiveType = override || columnDataTypes?.[c] || (isOrdinalAuto ? 'ordinal' : (isNumericAuto ? 'continuous' : 'nominal'));
+                          const typeMeta = {
+                            continuous: { family: 'quantitative', label: 'q cont', icon: '#', style: 'bg-sky-500/20 text-sky-300 border-sky-500/30 hover:bg-sky-500/35' },
+                            discrete: { family: 'quantitative', label: 'q disc', icon: '#', style: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30 hover:bg-cyan-500/35' },
+                            nominal: { family: 'qualitative', label: 'q nom', icon: 'A', style: 'bg-violet-500/20 text-violet-300 border-violet-500/30 hover:bg-violet-500/35' },
+                            ordinal: { family: 'qualitative', label: 'q ord', icon: '≤', style: 'bg-amber-500/20 text-amber-300 border-amber-500/30 hover:bg-amber-500/35' },
+                            binary: { family: 'qualitative', label: 'q bin', icon: 'A', style: 'bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/30 hover:bg-fuchsia-500/35' },
+                            identifier: { family: 'identifier', label: 'id', icon: 'ID', style: 'bg-slate-500/20 text-slate-300 border-slate-500/30 hover:bg-slate-500/35' }
+                          }[effectiveType] || { family: 'unknown', label: 'unknown', icon: '?', style: 'bg-slate-500/20 text-slate-300 border-slate-500/30' };
                           const isManual = Boolean(override);
                           return (
                             <button
                               type="button"
-                              title={`Type: ${effectiveType}${isManual ? ' (manual override)' : ' (auto-detected)'}. Click to change.`}
+                              title={`Type: ${typeMeta.family} · ${effectiveType}${isManual ? ' (manual override)' : ' (auto-detected)'}. Click to change.`}
                               onClick={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
                                 onColumnTypeOverride(c, nextType);
                               }}
-                              className={`mt-0.5 inline-flex items-center gap-0.5 rounded border px-1 py-0 text-[9px] font-bold uppercase tracking-wide transition-colors ${badgeStyles[effectiveType]} ${isManual ? 'ring-1 ring-white/20' : 'opacity-70 hover:opacity-100'}`}
-                              aria-label={`Column type: ${effectiveType}. Click to change.`}
+                              className={`mt-0.5 inline-flex items-center gap-0.5 rounded border px-1 py-0 text-[9px] font-bold uppercase tracking-wide transition-colors ${typeMeta.style} ${isManual ? 'ring-1 ring-white/20' : 'opacity-70 hover:opacity-100'}`}
+                              aria-label={`Column type: ${typeMeta.family}, ${effectiveType}. Click to change.`}
                             >
-                              <span>{badgeIcons[effectiveType]}</span>
-                              <span>{badgeLabels[effectiveType]}</span>
+                              <span>{typeMeta.icon}</span>
+                              <span>{typeMeta.label}</span>
                             </button>
                           );
                         })()}
@@ -2030,9 +2034,11 @@ export default function DataExplorer({
   isRTheme = false,
   onEditorSelectionContextChange,
   syncResetToken = 0,
-  // Column type overrides: { [columnName]: 'continuous' | 'nominal' | 'ordinal' }
+  // Column type overrides: { [columnName]: 'continuous' | 'discrete' | 'nominal' | 'ordinal' | 'binary' }
   columnTypeOverrides = {},
   onColumnTypeOverride,
+  ordinalColumns = [],
+  columnDataTypes = {},
   onClose
 }) {
   const isAyuTheme = theme === 'ayu-dark';
@@ -5788,6 +5794,8 @@ export default function DataExplorer({
         columnTypeOverrides={columnTypeOverrides}
         onColumnTypeOverride={onColumnTypeOverride}
         numericColumns={numericColumns}
+        ordinalColumns={ordinalColumns}
+        columnDataTypes={columnDataTypes}
       />
       {isDatasetSwitching && (
         <div
