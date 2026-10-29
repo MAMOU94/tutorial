@@ -5,7 +5,7 @@ import AnalysisResult from './components/AnalysisResult';
 import DraggableWindow from './components/DraggableWindow';
 import RichTextEditor from './components/ui/RichTextEditor';
 import {
-  Activity, Moon, Sun, Table as TableIcon, Trash2, X, Plus, Save, FileText,
+  Activity, Moon, Sun, Table as TableIcon, Trash2, X, Plus, Save, FileText, Pencil,
   AlertCircle, CheckCircle, CheckCircle2, Check, HelpCircle, ChevronRight, ChevronDown, Copy, Undo2,
   Filter, Download, Package, Maximize2, Minimize2, Minus, Square, RefreshCw, Wrench, Cpu,
   PieChart, TrendingUp, Network, Search, Calendar, DollarSign, Clock,
@@ -109,6 +109,19 @@ const ORDINAL_LABEL_SEQUENCES = [
   ['small', 'medium', 'large'],
   ['beginner', 'intermediate', 'advanced']
 ];
+const DISCRETE_BAR_MAX_LEVELS = 12;
+
+const countDistinctColumnValues = (columnName, rows, limit = 5000) => {
+  const values = new Set();
+  const sample = Array.isArray(rows) ? rows.slice(0, limit) : [];
+  sample.forEach((row) => {
+    const raw = row?.[columnName];
+    if (raw !== undefined && raw !== null && String(raw).trim() !== '') {
+      values.add(String(raw).trim());
+    }
+  });
+  return values.size;
+};
 
 const isLikelyOrdinalColumn = (columnName, rows) => {
   const name = String(columnName || '').trim().toLowerCase();
@@ -979,7 +992,10 @@ const buildEccDnaFinderEvidence = (result = {}) => {
 const PALETTE_GROUP_OPTIONS = [
   { value: 'qualitative', label: 'Categorical / Qualitative' },
   { value: 'diverging', label: 'Diverging' },
-  { value: 'sequential', label: 'Sequential' }
+  { value: 'sequential', label: 'Sequential' },
+  { value: 'python', label: 'Python / Matplotlib' },
+  { value: 'python_seaborn', label: 'Python / Seaborn' },
+  { value: 'python_plotly', label: 'Python / Plotly' }
 ];
 
 const QUALITATIVE_PALETTES = [
@@ -1041,7 +1057,43 @@ const SEQUENTIAL_PALETTES = [
   { value: 'topo', label: 'Topo', group: 'sequential', swatch: 'linear-gradient(135deg, #0f172a, #0ea5e9, #bae6fd)' }
 ];
 
-const PALETTE_OPTIONS = [...QUALITATIVE_PALETTES, ...DIVERGING_PALETTES, ...SEQUENTIAL_PALETTES];
+const PYTHON_MATPLOTLIB_PALETTES = [
+  { value: 'tab10', label: 'tab10', group: 'python', swatch: 'linear-gradient(90deg, #1f77b4 0 10%, #ff7f0e 10% 20%, #2ca02c 20% 30%, #d62728 30% 40%, #9467bd 40% 50%, #8c564b 50% 60%, #e377c2 60% 70%, #7f7f7f 70% 80%, #bcbd22 80% 90%, #17becf 90% 100%)' },
+  { value: 'tab20', label: 'tab20', group: 'python', swatch: 'linear-gradient(90deg, #1f77b4 0 5%, #aec7e8 5% 10%, #ff7f0e 10% 15%, #ffbb78 15% 20%, #2ca02c 20% 25%, #98df8a 25% 30%, #d62728 30% 35%, #ff9896 35% 40%, #9467bd 40% 45%, #c5b0d5 45% 50%, #8c564b 50% 55%, #c49c94 55% 60%, #e377c2 60% 65%, #f7b6d2 65% 70%, #7f7f7f 70% 75%, #c7c7c7 75% 80%, #bcbd22 80% 85%, #dbdb8d 85% 90%, #17becf 90% 95%, #9edae5 95% 100%)' },
+  { value: 'tab20b', label: 'tab20b', group: 'python', swatch: 'linear-gradient(90deg, #393b79, #5254a3, #6b6ecf, #9c9ede, #637939, #8ca252, #b5cf6b, #cedb9c, #8c6d31, #bd9e39, #e7ba52, #e7cb94, #8c564b, #ad494a, #d6616b, #e7969c, #7b4173, #a55194, #ce6dbd, #de9ed6)' },
+  { value: 'tab20c', label: 'tab20c', group: 'python', swatch: 'linear-gradient(90deg, #3182bd, #6baed6, #9ecae1, #c6dbef, #e6550d, #fd8d3c, #fdae6b, #fdd0a2, #31a354, #74c476, #a1d99b, #c7e9c0, #756bb1, #9e9ac8, #bcbddc, #dadaeb, #636363, #969696, #bdbdbd, #d9d9d9)' },
+  { value: 'coolwarm', label: 'coolwarm', group: 'python', swatch: 'linear-gradient(90deg, #3b4cc0, #688aef, #9abbff, #c9d7f0, #edd1c2, #f5a081, #dd5f4b, #b40426)' },
+  { value: 'bwr', label: 'bwr', group: 'python', swatch: 'linear-gradient(90deg, #0000ff, #8080ff, #ffffff, #ff8080, #ff0000)' },
+  { value: 'seismic', label: 'seismic', group: 'python', swatch: 'linear-gradient(90deg, #00004c, #0000ff, #ffffff, #ff0000, #4c0000)' }
+];
+
+const PYTHON_SEABORN_PALETTES = [
+  { value: 'seaborn_deep', label: 'deep', group: 'python_seaborn', swatch: 'linear-gradient(90deg, #4c72b0, #dd8452, #55a868, #c44e52, #8172b3, #937860, #da8bc3, #8c8c8c, #ccb974, #64b5cd)' },
+  { value: 'seaborn_muted', label: 'muted', group: 'python_seaborn', swatch: 'linear-gradient(90deg, #4878d0, #ee854a, #6acc64, #d65f5f, #956cb4, #8c613c, #dc7ec0, #797979, #d5bb67, #82c6e2)' },
+  { value: 'seaborn_pastel', label: 'pastel', group: 'python_seaborn', swatch: 'linear-gradient(90deg, #a1c9f4, #ffb482, #8de5a1, #ff9f9b, #d0bbff, #debb9b, #fab0e4, #cfcfcf, #fffea3, #b9f2f0)' },
+  { value: 'seaborn_bright', label: 'bright', group: 'python_seaborn', swatch: 'linear-gradient(90deg, #023eff, #ff7c00, #1ac938, #e8000b, #8b2be2, #9f4800, #f14cc1, #a3a3a3, #ffc400, #00d7ff)' },
+  { value: 'seaborn_dark', label: 'dark', group: 'python_seaborn', swatch: 'linear-gradient(90deg, #001c7f, #b1400d, #12711c, #8c0800, #591e71, #592f0d, #a23582, #3c3c3c, #b8850a, #006374)' },
+  { value: 'seaborn_colorblind', label: 'colorblind', group: 'python_seaborn', swatch: 'linear-gradient(90deg, #0173b2, #de8f05, #029e73, #d55e00, #cc78bc, #ca9161, #fbafe4, #949494, #ece133, #56b4e9)' }
+];
+
+const PYTHON_PLOTLY_PALETTES = [
+  { value: 'plotly_default', label: 'Plotly', group: 'python_plotly', swatch: 'linear-gradient(90deg, #636EFA, #EF553B, #00CC96, #AB63FA, #FFA15A, #19D3F3, #FF6692, #B6E880, #FF97FF, #FECB52)' },
+  { value: 'plotly_d3', label: 'D3', group: 'python_plotly', swatch: 'linear-gradient(90deg, #1F77B4, #FF7F0E, #2CA02C, #D62728, #9467BD, #8C564B, #E377C2, #7F7F7F, #BCBD22, #17BECF)' },
+  { value: 'plotly_g10', label: 'G10', group: 'python_plotly', swatch: 'linear-gradient(90deg, #3366CC, #DC3912, #FF9900, #109618, #990099, #0099C6, #DD4477, #66AA00, #B82E2E, #316395)' },
+  { value: 'plotly_t10', label: 'T10', group: 'python_plotly', swatch: 'linear-gradient(90deg, #4C78A8, #F58518, #E45756, #72B7B2, #54A24B, #EECA3B, #B279A2, #FF9DA6, #9D755D, #BAB0AC)' },
+  { value: 'plotly_alphabet', label: 'Alphabet', group: 'python_plotly', swatch: 'linear-gradient(90deg, #AA0DFE, #3283FE, #85660D, #782AB6, #565656, #1C8356, #16FF32, #F7E1A0, #E2E2E2, #C4451C)' },
+  { value: 'plotly_dark24', label: 'Dark24', group: 'python_plotly', swatch: 'linear-gradient(90deg, #2E91E5, #E15F99, #1CA71C, #FB0D0D, #DA16FF, #222A2A, #B68100, #750D86, #EB663B, #511CFB)' },
+  { value: 'plotly_light24', label: 'Light24', group: 'python_plotly', swatch: 'linear-gradient(90deg, #FD3216, #00FE35, #6A76FC, #FED4C4, #FE00CE, #0DF9FF, #F6F926, #FF9616, #479B55, #EEA6FB)' }
+];
+
+const PALETTE_OPTIONS = [
+  ...QUALITATIVE_PALETTES,
+  ...DIVERGING_PALETTES,
+  ...SEQUENTIAL_PALETTES,
+  ...PYTHON_MATPLOTLIB_PALETTES,
+  ...PYTHON_SEABORN_PALETTES,
+  ...PYTHON_PLOTLY_PALETTES
+];
 
 const getPaletteGroupByValue = (paletteValue) =>
   PALETTE_OPTIONS.find((palette) => palette.value === paletteValue)?.group || 'qualitative';
@@ -1160,6 +1212,53 @@ const DEFAULT_PLOT_EDITOR_STATE = Object.freeze({
     items: []
   }
 });
+
+const readEmbeddedEditablePlotPackage = async (file) => {
+  const extension = String(file?.name || '').toLowerCase().split('.').pop();
+  const decodeJsonBase64 = (value) => {
+    const binary = atob(String(value || ''));
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    return JSON.parse(new TextDecoder().decode(bytes));
+  };
+
+  if (extension === 'svg' || String(file?.type || '').includes('svg')) {
+    const text = await file.text();
+    const matches = [...text.matchAll(/<metadata[^>]*id=["']nextgenr-editable-plot["'][^>]*>([\s\S]*?)<\/metadata>/gi)];
+    const latest = matches[matches.length - 1];
+    return latest ? decodeJsonBase64(latest[1].trim()) : null;
+  }
+
+  if (extension !== 'png' && !String(file?.type || '').includes('png')) return null;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+  if (!signature.every((value, index) => bytes[index] === value)) return null;
+  const decoder = new TextDecoder();
+  let latestPackage = null;
+  let offset = 8;
+  while (offset + 12 <= bytes.length) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset + offset, 4);
+    const length = view.getUint32(0);
+    const type = decoder.decode(bytes.slice(offset + 4, offset + 8));
+    const data = bytes.slice(offset + 8, offset + 8 + length);
+    if (type === 'iTXt') {
+      const keywordEnd = data.indexOf(0);
+      if (keywordEnd > 0 && decoder.decode(data.slice(0, keywordEnd)) === 'nextgenr-editable-plot') {
+        let cursor = keywordEnd + 1;
+        const compressionFlag = data[cursor];
+        cursor += 2;
+        const languageEnd = data.indexOf(0, cursor);
+        if (languageEnd < 0) return null;
+        cursor = languageEnd + 1;
+        const translatedEnd = data.indexOf(0, cursor);
+        if (translatedEnd < 0) return null;
+        cursor = translatedEnd + 1;
+        if (compressionFlag === 0) latestPackage = decodeJsonBase64(decoder.decode(data.slice(cursor)));
+      }
+    }
+    offset += 12 + length;
+  }
+  return latestPackage;
+};
 
 const R_FUNCTION_SUGGESTIONS = [
   { label: 'c', detail: 'Combine values into a vector' },
@@ -2298,18 +2397,18 @@ const Modal = ({ isOpen, onClose, title, children }) => {
 const AccordionSection = ({ sectionKey, icon, label, children, openSections, toggleSection }) => {
   const isOpen = openSections[sectionKey];
   return (
-    <div className={`rounded-none ${isOpen ? 'overflow-visible' : 'overflow-hidden'} border border-slate-200/70 dark:border-slate-700/60 bg-white/60 dark:bg-slate-900/50 accordion-section`}>
+    <div className={`rounded-lg ${isOpen ? 'overflow-visible' : 'overflow-hidden'} border border-white/[0.07] bg-[#181818] accordion-section`}>
       <button
         type="button"
         onClick={() => toggleSection(sectionKey)}
-        className="w-full flex items-center justify-between gap-2 px-4 py-3 text-left hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors accordion-section-header"
+        className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-white/[0.04] transition-colors accordion-section-header"
       >
-        <div className="flex items-center gap-2.5">
-          <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 accordion-section-icon">{icon}</span>
-          <span className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-600 dark:text-slate-300 accordion-section-label">{label}</span>
+        <div className="flex items-center gap-2">
+          <span className="flex items-center justify-center w-5 h-5 rounded bg-white/[0.06] text-slate-300 accordion-section-icon">{icon}</span>
+          <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-200 accordion-section-label">{label}</span>
         </div>
         <span className={`transition-transform duration-300 text-slate-400 ${isOpen ? 'rotate-180' : 'rotate-0'}`}>
-          <ChevronDown size={14} />
+          <ChevronDown size={13} />
         </span>
       </button>
       <div
@@ -2320,7 +2419,7 @@ const AccordionSection = ({ sectionKey, icon, label, children, openSections, tog
         }}
       >
         <div style={{ overflow: isOpen ? 'visible' : 'hidden' }}>
-          <div className="px-4 pb-4 pt-1 space-y-3">
+          <div className="px-3 pb-3 pt-1 space-y-2">
             {children}
           </div>
         </div>
@@ -2329,7 +2428,7 @@ const AccordionSection = ({ sectionKey, icon, label, children, openSections, tog
   );
 };
 
-const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage = 'r', onTapImage }) => {
+const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage = 'r', onTapImage, embedded = false, panelOnly = false, editablePlotMetadata = null }) => {
   const hasEditor = Boolean(editor && typeof editor === 'object');
   const [isEntering, setIsEntering] = useState(false);
   const editorPanelRef = useRef(null);
@@ -2628,10 +2727,10 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
   }, [isOpen, imageUrl, editor?.plotKey]);
 
   const [editorPanelOpen, setEditorPanelOpen] = useState(true);
-  const [panelWidth, setPanelWidth] = useState(720);
+  const [panelWidth, setPanelWidth] = useState(380);
   const isResizingRef = useRef(false);
   const resizeStartXRef = useRef(0);
-  const resizeStartWidthRef = useRef(360);
+  const resizeStartWidthRef = useRef(380);
 
   const onResizeMouseDown = useCallback((e) => {
     e.preventDefault();
@@ -2714,13 +2813,21 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editorDraft, isOpen, hasEditor]);
 
-  // Close panel on Escape
+  // Close panel on Escape, or close modal if panel is already closed
   useEffect(() => {
-    if (!editorPanelOpen) return;
-    const handler = (e) => { if (e.key === 'Escape') setEditorPanelOpen(false); };
+    if (!isOpen) return;
+    const handler = (e) => {
+      if (e.key === 'Escape') {
+        if (editorPanelOpen) {
+          setEditorPanelOpen(false);
+        } else {
+          onClose();
+        }
+      }
+    };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [editorPanelOpen]);
+  }, [isOpen, editorPanelOpen, onClose]);
 
 
   if (!isOpen) return null;
@@ -2935,6 +3042,54 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
   };
 
   const canTapToCycle = hasEditor && typeof onTapImage === 'function';
+  const downloadEditablePlot = (downloadUrl, stem, extension = 'png') => {
+    const metadata = editablePlotMetadata && typeof editablePlotMetadata === 'object'
+      ? editablePlotMetadata
+      : {};
+    const editablePackage = hasEditor ? {
+      format: 'nextgenr-editable-plot',
+      version: 1,
+      image: String(imageUrl || '').trim(),
+      title: String(title || 'Plot'),
+      plotKey: String(metadata.plotKey || editor?.plotKey || 'default'),
+      analysisResultId: String(metadata.analysisResultId || '').trim(),
+      source: String(metadata.source || 'fullscreen'),
+      gallerySection: String(metadata.gallerySection || 'biostat'),
+      editorState: editorDraft,
+      analysisContext: metadata.analysisContext && typeof metadata.analysisContext === 'object'
+        ? metadata.analysisContext
+        : null,
+      analysisResult: metadata.analysisResult && typeof metadata.analysisResult === 'object'
+        ? metadata.analysisResult
+        : null,
+      createdAt: new Date().toISOString()
+    } : null;
+    const fileName = `${stem}.${extension}`;
+    if (window.electronAPI?.savePlotFile) {
+      window.electronAPI.savePlotFile({
+        base64: downloadUrl,
+        defaultName: fileName,
+        editablePackage
+      });
+      return;
+    }
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    if (editablePackage) {
+      const packageUrl = URL.createObjectURL(new Blob([JSON.stringify(editablePackage, null, 2)], { type: 'application/json' }));
+      const packageLink = document.createElement('a');
+      packageLink.href = packageUrl;
+      packageLink.download = `${stem}.ngplot`;
+      document.body.appendChild(packageLink);
+      packageLink.click();
+      document.body.removeChild(packageLink);
+      URL.revokeObjectURL(packageUrl);
+    }
+  };
   const handleDownloadPlot = () => {
     const src = String(imageUrl || '').trim();
     if (!src) return;
@@ -2958,12 +3113,7 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
           else if (n.includes('svg')) extension = 'svg';
           else if (n.includes('webp')) extension = 'webp';
         }
-        const link = document.createElement('a');
-        link.href = src;
-        link.download = `${stem}.${extension}`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        downloadEditablePlot(src, stem, extension);
         setPreviewStatus('Plot downloaded.');
       } catch {
         setPreviewStatus('Failed to download plot.');
@@ -3022,12 +3172,7 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
 
           // 4. Export composite as PNG
           const pngUrl = canvas.toDataURL('image/png');
-          const link = document.createElement('a');
-          link.href = pngUrl;
-          link.download = `${stem}.png`;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
+          downloadEditablePlot(pngUrl, stem, 'png');
           setPreviewStatus('Plot downloaded.');
         } catch {
           setPreviewStatus('Failed to download plot.');
@@ -3042,7 +3187,7 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
 
   if (!hasEditor) {
     return (
-      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/95 backdrop-blur-2xl animate-in fade-in duration-200" onClick={onClose}>
+      <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/95 backdrop-blur-2xl animate-in fade-in duration-200" onClick={onClose}>
         <div className="relative max-w-full max-h-full overflow-hidden flex flex-col items-center fade-in-up" onClick={e => e.stopPropagation()}>
           <button onClick={onClose} className="absolute top-4 right-4 z-10 p-3 bg-black/60 hover:bg-black/80 text-white rounded-full transition-all hover:scale-110 backdrop-blur-md border border-white/20 shadow-xl">
             <X size={24} />
@@ -3062,21 +3207,21 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
 
   return (
     <div
-      className={`plot-editor-fullscreen fixed inset-0 z-[60] plot-editor-backdrop transition-all duration-300 ease-out ${isEntering ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+      className={`${panelOnly ? 'plot-editor-gallery-panel-only absolute inset-0 z-[60]' : embedded ? 'plot-editor-gallery-embedded absolute inset-0 z-[60]' : 'plot-editor-fullscreen fixed left-14 top-12 right-0 bottom-0 z-[180]'} plot-editor-backdrop transition-all duration-300 ease-out ${isEntering ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
       onClick={onClose}
     >
       <div
-        className={`plot-editor-container absolute left-14 top-0 right-0 bottom-0 overflow-hidden rounded-none transition-all duration-300 ease-out flex flex-row ${isEntering ? 'translate-x-0 opacity-100' : '-translate-x-6 opacity-0'}`}
+        className={`plot-editor-container absolute inset-0 overflow-hidden rounded-none transition-all duration-300 ease-out flex flex-row ${panelOnly ? 'plot-editor-panel-only-container' : ''} ${isEntering ? 'translate-x-0 opacity-100' : '-translate-x-6 opacity-0'}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* ── LEFT: Plot area ───────────────────────────────── */}
-        <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+        <div className={`${panelOnly ? 'hidden' : 'flex'} flex-1 min-w-0 flex-col overflow-hidden`}>
           {/* top bar */}
-          <div className="plot-editor-topbar flex items-center justify-between px-5 py-7 shrink-0 gap-2">
-            <div className="flex items-center gap-3 min-w-0">
+          <div className="plot-editor-topbar flex items-center justify-between px-3.5 py-1.5 h-11 shrink-0 gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
               <div className="plot-editor-preview-badge">Preview</div>
               {title && (
-                <div className="plot-editor-title-chip truncate max-w-[400px]">
+                <div className="plot-editor-title-chip truncate max-w-[380px]" title={title}>
                   {title}
                 </div>
               )}
@@ -3086,7 +3231,7 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
                 </div>
               )}
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-1.5 shrink-0">
               {/* Edit toggle */}
               <button
                 type="button"
@@ -3094,7 +3239,7 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
                 className={`plot-editor-toggle-btn ${editorPanelOpen ? 'plot-editor-toggle-btn-active' : 'plot-editor-toggle-btn-idle'}`}
                 title={editorPanelOpen ? 'Hide editor panel' : 'Show editor panel'}
               >
-                <SlidersHorizontal size={13} />
+                <SlidersHorizontal size={12} />
                 <span>{editorPanelOpen ? 'Hide Editor' : 'Edit Plot'}</span>
               </button>
               {/* Close */}
@@ -3103,13 +3248,13 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
                 className="plot-editor-close-btn"
                 title="Close fullscreen editor"
               >
-                <X size={18} />
+                <X size={15} />
               </button>
             </div>
           </div>
 
           {/* Plot image or upload area */}
-          <div className={`plot-editor-stage flex-1 min-h-0 p-3 md:p-4 flex items-center justify-center transition-transform duration-500 ease-out ${isEntering ? 'scale-100' : 'scale-[0.99]'}`}>
+          <div className={`plot-editor-stage flex-1 min-w-0 min-h-0 p-0 flex items-center justify-center transition-transform duration-500 ease-out ${isEntering ? 'scale-100' : 'scale-[0.99]'}`}>
             {imageUrl ? (
               <div className="plot-editor-image-shell">
                 <div className="plot-editor-image-wrapper relative" style={{ lineHeight: 0 }}>
@@ -3133,7 +3278,7 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
                         userSelect: 'none',
                         lineHeight: 1.2
                       }}
-                      className="text-[11px] font-bold italic text-slate-700 whitespace-nowrap"
+                      className="text-[11px] font-bold italic text-slate-300 whitespace-nowrap"
                     >
                       ({editorDraft.xLabelUnits})
                     </div>
@@ -3152,7 +3297,7 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
                         userSelect: 'none',
                         lineHeight: 1.2
                       }}
-                      className="text-[11px] font-bold italic text-slate-700 whitespace-nowrap"
+                      className="text-[11px] font-bold italic text-slate-300 whitespace-nowrap"
                     >
                       ({editorDraft.yLabelUnits})
                     </div>
@@ -3182,9 +3327,9 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
                     };
                     input.click();
                   }}
-                  className="flex items-center gap-2 px-6 py-3 rounded-lg bg-[#284B63] text-[#e0f2fe] text-sm font-black uppercase tracking-wider hover:bg-[#3a6d8c] transition-colors"
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold uppercase tracking-wider transition-colors shadow-lg shadow-cyan-600/20"
                 >
-                  <Upload size={16} />
+                  <Upload size={14} />
                   Upload Plot
                 </button>
               </div>
@@ -3193,16 +3338,16 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
         </div>
 
         {/* ── RESIZE HANDLE ──────────────────────────────────── */}
-        {editorPanelOpen && (
+        {editorPanelOpen && !panelOnly && (
           <div
             onMouseDown={onResizeMouseDown}
-            className="w-[5px] shrink-0 cursor-col-resize bg-slate-200/60 dark:bg-slate-700/60 hover:bg-cyan-400/80 dark:hover:bg-cyan-500/60 transition-colors group relative z-10 select-none"
+            className="w-[4px] shrink-0 cursor-col-resize bg-black/40 hover:bg-cyan-500/80 active:bg-cyan-500 border-l border-r border-white/[0.06] transition-colors group relative z-10 select-none"
             title="Drag to resize editor panel"
           >
             {/* grip dots */}
             <div className="absolute inset-y-0 left-0 right-0 flex flex-col items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-              {[0, 1, 2, 3, 4].map(i => (
-                <div key={i} className="w-1 h-1 rounded-full bg-cyan-500 dark:bg-cyan-400" />
+              {[0, 1, 2].map(i => (
+                <div key={i} className="w-0.5 h-0.5 rounded-full bg-cyan-400" />
               ))}
             </div>
           </div>
@@ -3211,13 +3356,28 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
         {/* ── RIGHT: Editor panel ──────────────────────────── */}
         {editorPanelOpen && (
           <div
-            className="plot-editor-panel flex flex-col overflow-hidden rounded-none"
-            style={{ width: panelWidth, minWidth: 240, maxWidth: 720, flexShrink: 0 }}
+            className={`plot-editor-panel flex flex-col overflow-hidden rounded-none ${embedded || panelOnly ? 'plot-editor-panel-embedded' : ''}`}
+            style={panelOnly
+              ? { width: '100%', minWidth: 0, maxWidth: 'none', flexShrink: 0 }
+              : { width: panelWidth, minWidth: 260, maxWidth: 680, flexShrink: 0 }}
             onClick={e => e.stopPropagation()}
           >
             {/* Editor header */}
-            <div className="plot-editor-panel-header flex items-center justify-end px-4 py-7 shrink-0">
+            <div className="plot-editor-panel-header flex items-center justify-between px-3 py-1.5 h-11 shrink-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300">
+                Plot Customizer
+              </span>
               <div className="flex items-center gap-1.5 shrink-0">
+                {panelOnly && (
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="plot-editor-close-btn"
+                    title="Close editor panel"
+                  >
+                    <X size={15} />
+                  </button>
+                )}
                 {typeof editor?.onPreview === 'function' && (
                   <button
                     type="button"
@@ -3226,7 +3386,7 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
                     className="plot-editor-apply-btn disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     {isApplyingPreview ? <RefreshCw size={11} className="animate-spin" /> : <Play size={11} />}
-                    {isApplyingPreview ? 'Applying…' : 'Apply'}
+                    <span>{isApplyingPreview ? 'Applying…' : 'Apply'}</span>
                   </button>
                 )}
                 {editorLanguage === 'r' && (
@@ -3238,14 +3398,14 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
                       title="Download current plot image"
                     >
                       <Download size={11} />
-                      Download
+                      <span>Download</span>
                     </button>
                     <button
                       type="button"
                       onClick={handleEditorReset}
                       className="plot-editor-reset-btn"
                     >
-                      Reset
+                      <span>Reset</span>
                     </button>
                   </>
                 )}
@@ -3254,52 +3414,52 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
 
             {/* Status feedback */}
             {previewStatus && (
-              <div className="mx-4 mt-3 text-[10px] font-semibold text-slate-600 dark:text-slate-400 bg-slate-100/90 dark:bg-slate-800/60 border border-slate-300/40 dark:border-slate-700/50 rounded-none px-3 py-2 shrink-0">
+              <div className="mx-3 mt-2 text-[10px] font-medium text-zinc-300 bg-zinc-900 border border-zinc-700/60 rounded-lg px-2.5 py-1.5 shrink-0">
                 {previewStatus}
               </div>
             )}
 
             {/* Accordion sections */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar px-4 py-3 space-y-2.5">
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-2.5 space-y-1.5">
 
               <AccordionSection sectionKey="labels" icon={<Type size={13} />} label="Labels" openSections={openSections} toggleSection={toggleSection}>
-                <div className="space-y-4 pt-1">
+                <div className="space-y-2.5 pt-0.5">
                   {[{ field: 'title', label: 'Title' }, { field: 'xLabel', label: 'X Label' }, { field: 'yLabel', label: 'Y Label' }, { field: 'info', label: 'Info / Caption' }].map(({ field, label }) => (
                     <div key={field}>
-                      <label className="block text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5 ml-0.5">{label}</label>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1 ml-0.5">{label}</label>
                       {(field === 'xLabel' || field === 'yLabel') ? (
-                        <div className="flex flex-col gap-2">
-                          <div className="flex gap-2">
+                        <div className="flex flex-col gap-1.5">
+                          <div className="flex gap-1.5">
                             <input
                               type="text"
                               value={editorDraft[field] || ''}
                               onChange={e => setEditorDraft(prev => ({ ...prev, [field]: e.target.value }))}
-                              className="w-1/2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-slate-400/50 focus:border-slate-400 dark:focus:ring-slate-500/50 transition-all text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 shadow-sm"
+                              className="w-1/2 bg-[#141414] border border-white/[0.09] rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-100 placeholder-slate-500 focus:border-zinc-500 focus:ring-1 focus:ring-zinc-600/30 transition-all"
                               placeholder={`Enter ${label}...`}
                             />
                             <input
                               type="text"
                               value={editorDraft[`${field}Units`] || ''}
                               onChange={e => setEditorDraft(prev => ({ ...prev, [`${field}Units`]: e.target.value }))}
-                              className="w-1/2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-slate-400/50 focus:border-slate-400 dark:focus:ring-slate-500/50 transition-all text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 shadow-sm"
+                              className="w-1/2 bg-[#141414] border border-white/[0.09] rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-100 placeholder-slate-500 focus:border-zinc-500 focus:ring-1 focus:ring-zinc-600/30 transition-all"
                               placeholder="Units"
                             />
                           </div>
                           {Boolean(editorDraft[`${field}Units`]) && (
-                            <div className="flex items-center justify-end gap-2 bg-slate-50 dark:bg-slate-900/40 p-2 rounded-xl border border-slate-200 dark:border-slate-800/60 shadow-inner">
-                              <label className="text-[9px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 shrink-0">Unit Nudge X</label>
+                            <div className="flex items-center justify-end gap-2 bg-[#1a1a1a] p-1.5 rounded-lg border border-white/[0.06]">
+                              <label className="text-[9px] font-bold uppercase tracking-wider text-slate-400 shrink-0">Unit Nudge X</label>
                               <input
                                 type="number"
                                 value={editorDraft[field === 'xLabel' ? 'xUnitsOffsetX' : 'yUnitsOffsetX'] ?? 0}
                                 onChange={e => setEditorDraft(prev => ({ ...prev, [field === 'xLabel' ? 'xUnitsOffsetX' : 'yUnitsOffsetX']: e.target.value }))}
-                                className="w-16 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-[11px] font-semibold focus:ring-2 focus:ring-slate-400/50 focus:border-slate-400 dark:focus:ring-slate-500/50 transition-all text-slate-800 dark:text-white shadow-sm"
+                                className="w-14 bg-[#141414] border border-white/[0.1] rounded-md px-1.5 py-0.5 text-[11px] font-medium text-slate-100 text-center"
                               />
-                              <label className="text-[9px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 shrink-0 ml-1">Y</label>
+                              <label className="text-[9px] font-bold uppercase tracking-wider text-slate-400 shrink-0 ml-1">Y</label>
                               <input
                                 type="number"
                                 value={editorDraft[field === 'xLabel' ? 'xUnitsOffsetY' : 'yUnitsOffsetY'] ?? 0}
                                 onChange={e => setEditorDraft(prev => ({ ...prev, [field === 'xLabel' ? 'xUnitsOffsetY' : 'yUnitsOffsetY']: e.target.value }))}
-                                className="w-16 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-[11px] font-semibold focus:ring-2 focus:ring-slate-400/50 focus:border-slate-400 dark:focus:ring-slate-500/50 transition-all text-slate-800 dark:text-white shadow-sm"
+                                className="w-14 bg-[#141414] border border-white/[0.1] rounded-md px-1.5 py-0.5 text-[11px] font-medium text-slate-100 text-center"
                               />
                             </div>
                           )}
@@ -3309,7 +3469,7 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
                           type="text"
                           value={editorDraft[field] || ''}
                           onChange={e => setEditorDraft(prev => ({ ...prev, [field]: e.target.value }))}
-                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-slate-400/50 focus:border-slate-400 dark:focus:ring-slate-500/50 transition-all text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 shadow-sm"
+                          className="w-full bg-[#141414] border border-white/[0.09] rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-100 placeholder-slate-500 focus:border-zinc-500 focus:ring-1 focus:ring-zinc-600/30 transition-all"
                           placeholder={`Enter ${label}...`}
                         />
                       )}
@@ -3319,35 +3479,38 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
               </AccordionSection>
 
               <AccordionSection sectionKey="positioning" icon={<ChevronRight size={13} />} label="Positioning" openSections={openSections} toggleSection={toggleSection}>
-                <div className="space-y-4 pt-1">
+                <div className="space-y-1.5 pt-0.5">
                   {['title', 'x', 'y'].map((axis) => {
                     const labelMap = { title: 'Title', x: 'X Label', y: 'Y Label' };
                     const posKey = axis === 'title' ? 'titlePosition' : `${axis}Position`;
                     const stepsKey = axis === 'title' ? 'titleSteps' : `${axis}Steps`;
                     return (
-                      <div key={axis}>
-                        <div className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">{labelMap[axis]}</div>
-                        <div className="flex gap-1 flex-wrap">
-                          {['left', 'center', 'right'].map(pos => (
-                            <button
-                              key={pos}
-                              onClick={() => setEditorDraft(prev => ({ ...prev, [posKey]: pos }))}
-                              className={`text-[10px] px-2.5 py-1 rounded-lg font-black uppercase tracking-wider border transition-all ${editorDraft[posKey] === pos
-                                ? 'bg-slate-600 text-white border-slate-500'
-                                : 'bg-white dark:bg-slate-950 text-slate-600 dark:text-white border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 shadow-sm'
-                                }`}
-                            >{pos}</button>
-                          ))}
-                        </div>
-                        <div className="mt-1.5 flex items-center gap-2">
-                          <label className="text-[9px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 shrink-0">Nudge</label>
-                          <input
-                            type="number"
-                            value={editorDraft[stepsKey] ?? 0}
-                            onChange={e => setEditorDraft(prev => ({ ...prev, [stepsKey]: e.target.value }))}
-                            className="w-16 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-[11px] font-semibold focus:ring-2 focus:ring-slate-400/50 focus:border-slate-400 dark:focus:ring-slate-500/50 transition-all text-slate-800 dark:text-white shadow-sm"
-                            min={-40} max={40}
-                          />
+                      <div key={axis} className="flex items-center justify-between gap-2 py-1 border-b border-white/[0.04] last:border-none">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{labelMap[axis]}</div>
+                        <div className="flex items-center gap-2">
+                          <div className="flex gap-1 p-0.5 rounded-md bg-[#141414] border border-white/[0.06]">
+                            {['left', 'center', 'right'].map(pos => (
+                              <button
+                                key={pos}
+                                type="button"
+                                onClick={() => setEditorDraft(prev => ({ ...prev, [posKey]: pos }))}
+                                className={`text-[9.5px] px-2 py-0.5 rounded font-bold uppercase tracking-wider transition-all ${editorDraft[posKey] === pos
+                                  ? 'bg-white/10 text-white shadow-sm border border-white/20'
+                                  : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                                  }`}
+                              >{pos}</button>
+                            ))}
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <label className="text-[9px] font-semibold uppercase text-slate-500">Nudge</label>
+                            <input
+                              type="number"
+                              value={editorDraft[stepsKey] ?? 0}
+                              onChange={e => setEditorDraft(prev => ({ ...prev, [stepsKey]: e.target.value }))}
+                              className="w-14 bg-[#141414] border border-white/[0.1] rounded-md px-1.5 py-0.5 text-[11px] font-medium text-slate-100 text-center"
+                              min={-40} max={40}
+                            />
+                          </div>
                         </div>
                       </div>
                     );
@@ -3356,15 +3519,15 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
               </AccordionSection>
 
               <AccordionSection sectionKey="sizes" icon={<Type size={13} />} label="Font Sizes (px)" openSections={openSections} toggleSection={toggleSection}>
-                <div className="space-y-2 pt-1">
+                <div className="space-y-1 pt-0.5">
                   {[{ field: 'titleSize', label: 'Title' }, { field: 'xLabelSize', label: 'X Label' }, { field: 'yLabelSize', label: 'Y Label' }, { field: 'axisTickSize', label: 'Axis Ticks' }].map(({ field, label }) => (
-                    <div key={field} className="flex items-center justify-between gap-2">
-                      <label className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">{label}</label>
+                    <div key={field} className="flex items-center justify-between gap-2 py-0.5 border-b border-white/[0.03] last:border-none">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{label}</label>
                       <input
                         type="number"
                         value={editorDraft[field] ?? ''}
                         onChange={e => setEditorDraft(prev => ({ ...prev, [field]: e.target.value }))}
-                        className="w-16 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-[11px] font-semibold focus:ring-2 focus:ring-slate-400/50 focus:border-slate-400 dark:focus:ring-slate-500/50 transition-all text-slate-800 dark:text-white shadow-sm"
+                        className="w-14 bg-[#141414] border border-white/[0.1] rounded-md px-2 py-0.5 text-[11px] font-medium text-slate-100 text-center focus:border-zinc-500"
                         min={6} max={72}
                       />
                     </div>
@@ -3373,25 +3536,22 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
               </AccordionSection>
 
               <AccordionSection sectionKey="axes" icon={<SlidersHorizontal size={13} />} label="Axis Gradient" openSections={openSections} toggleSection={toggleSection}>
-                <div className="space-y-3 pt-1">
+                <div className="space-y-2 pt-0.5">
                   {['x', 'y'].map(axis => (
-                    <div key={axis} className="space-y-2">
-                      <div className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">{axis.toUpperCase()} Axis</div>
-                      <div>
-                        <label className="text-[9px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">Gradient (Tick Interval)</label>
-                        <input
-                          type="number"
-                          step="any"
-                          min="0"
-                          value={editorDraft[`${axis}TickInterval`] ?? ''}
-                          onChange={e => setEditorDraft(prev => ({ ...prev, [`${axis}TickInterval`]: e.target.value }))}
-                          className="w-full mt-0.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-[11px] font-semibold focus:ring-2 focus:ring-slate-400/50 focus:border-slate-400 dark:focus:ring-slate-500/50 transition-all text-slate-800 dark:text-white shadow-sm"
-                          placeholder="Auto"
-                        />
+                    <div key={axis} className="space-y-1 p-2 rounded-lg bg-[#1a1a1a] border border-white/[0.06]">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300">{axis.toUpperCase()} Axis</span>
+                        <span className="text-[9px] text-slate-500">Tick Interval</span>
                       </div>
-                      <div className="text-[9px] text-slate-400 dark:text-slate-500">
-                        Leave blank to keep automatic axis ticks.
-                      </div>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        value={editorDraft[`${axis}TickInterval`] ?? ''}
+                        onChange={e => setEditorDraft(prev => ({ ...prev, [`${axis}TickInterval`]: e.target.value }))}
+                        className="w-full bg-[#141414] border border-white/[0.1] rounded-md px-2.5 py-1 text-[11px] font-medium text-slate-100 focus:border-zinc-500"
+                        placeholder="Auto"
+                      />
                     </div>
                   ))}
                 </div>
@@ -3412,54 +3572,54 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
               )}
 
               <AccordionSection sectionKey="legend" icon={<Palette size={13} />} label="Legend" openSections={openSections} toggleSection={toggleSection}>
-                <div className="space-y-2 pt-1">
-                  <div className="text-[10px] text-slate-400 dark:text-slate-500">
+                <div className="space-y-2 pt-0.5">
+                  <div className="text-[10px] text-slate-400">
                     Edit legend title, text colors, and add free-form legend entries.
                   </div>
                   <div>
-                    <label className="block text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5 ml-0.5">Legend Title</label>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1 ml-0.5">Legend Title</label>
                     <input
                       type="text"
                       value={editorDraft?.legend?.title || ''}
                       onChange={(e) => updateLegendConfig({ title: e.target.value })}
-                      className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-slate-400/50 focus:border-slate-400 dark:focus:ring-slate-500/50 transition-all text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 shadow-sm"
+                      className="w-full bg-[#141414] border border-white/[0.09] rounded-lg px-2.5 py-1.5 text-xs text-slate-100 placeholder-slate-500 focus:border-zinc-500 transition-all"
                       placeholder="Optional legend title"
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded-md border border-slate-100 dark:border-slate-800 bg-white/70 dark:bg-slate-900/40 px-2 py-1.5">
-                      <label className="block text-[9px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Title Color</label>
-                      <div className="flex items-center gap-2">
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <div className="rounded-lg border border-white/[0.06] bg-[#1a1a1a] px-2 py-1.5">
+                      <label className="block text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-1">Title Color</label>
+                      <div className="flex items-center gap-1.5">
                         <input
                           type="color"
                           value={editorDraft?.legend?.titleColor || '#334155'}
                           onChange={(e) => updateLegendConfig({ titleColor: e.target.value })}
-                          className="h-7 w-9 rounded border border-slate-300 dark:border-slate-700 bg-transparent cursor-pointer"
+                          className="h-6 w-8 rounded border border-white/20 bg-transparent cursor-pointer p-0.5"
                         />
                         <input
                           type="text"
                           value={editorDraft?.legend?.titleColor || ''}
                           onChange={(e) => updateLegendConfig({ titleColor: e.target.value })}
                           placeholder="#334155"
-                          className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/70 px-2 py-1 text-[11px] font-mono text-slate-700 dark:text-slate-200"
+                          className="w-full rounded border border-white/10 bg-[#141414] px-2 py-0.5 text-[11px] font-mono text-slate-200"
                         />
                       </div>
                     </div>
-                    <div className="rounded-md border border-slate-100 dark:border-slate-800 bg-white/70 dark:bg-slate-900/40 px-2 py-1.5">
-                      <label className="block text-[9px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Text Color</label>
-                      <div className="flex items-center gap-2">
+                    <div className="rounded-lg border border-white/[0.06] bg-[#1a1a1a] px-2 py-1.5">
+                      <label className="block text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-1">Text Color</label>
+                      <div className="flex items-center gap-1.5">
                         <input
                           type="color"
                           value={editorDraft?.legend?.textColor || '#475569'}
                           onChange={(e) => updateLegendConfig({ textColor: e.target.value })}
-                          className="h-7 w-9 rounded border border-slate-300 dark:border-slate-700 bg-transparent cursor-pointer"
+                          className="h-6 w-8 rounded border border-white/20 bg-transparent cursor-pointer p-0.5"
                         />
                         <input
                           type="text"
                           value={editorDraft?.legend?.textColor || ''}
                           onChange={(e) => updateLegendConfig({ textColor: e.target.value })}
                           placeholder="#475569"
-                          className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/70 px-2 py-1 text-[11px] font-mono text-slate-700 dark:text-slate-200"
+                          className="w-full rounded border border-white/10 bg-[#141414] px-2 py-0.5 text-[11px] font-mono text-slate-200"
                         />
                       </div>
                     </div>
@@ -3467,25 +3627,25 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
 
                   <div className="space-y-1.5">
                     {(editorDraft?.legend?.items || []).map((item, idx) => (
-                      <div key={item.id || `legend_item_${idx}`} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-2 space-y-1.5">
+                      <div key={item.id || `legend_item_${idx}`} className="rounded-lg border border-white/[0.06] bg-[#1a1a1a] p-2 space-y-1.5">
                         <div className="flex items-center justify-between gap-2">
-                          <div className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                             Item {idx + 1}
                           </div>
                           <div className="flex items-center gap-2">
-                            <label className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                            <label className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                               <input
                                 type="checkbox"
                                 checked={item.enabled !== false}
                                 onChange={(e) => patchLegendItem(item.id, { enabled: e.target.checked })}
-                                className="h-3.5 w-3.5 rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 text-slate-600 focus:ring-slate-400/50"
+                                className="h-3 w-3 rounded border-white/20 bg-[#141414] text-white focus:ring-zinc-500/40"
                               />
                               Show
                             </label>
                             <button
                               type="button"
                               onClick={() => removeLegendItem(item.id)}
-                              className="p-1 text-red-400 hover:text-red-600 transition-colors"
+                              className="p-1 text-red-400 hover:text-red-300 transition-colors"
                               title="Remove legend item"
                             >
                               <X size={12} />
@@ -3498,29 +3658,29 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
                             value={item.key || ''}
                             onChange={(e) => patchLegendItem(item.id, { key: e.target.value })}
                             placeholder="Key"
-                            className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-[11px] font-semibold focus:ring-2 focus:ring-slate-400/50 focus:border-slate-400 dark:focus:ring-slate-500/50 transition-all text-slate-800 dark:text-white shadow-sm"
+                            className="bg-[#141414] border border-white/[0.1] rounded-md px-2 py-1 text-[11px] font-medium text-slate-200"
                           />
                           <input
                             type="text"
                             value={item.label || ''}
                             onChange={(e) => patchLegendItem(item.id, { label: e.target.value })}
                             placeholder="Label"
-                            className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-[11px] font-semibold focus:ring-2 focus:ring-slate-400/50 focus:border-slate-400 dark:focus:ring-slate-500/50 transition-all text-slate-800 dark:text-white shadow-sm"
+                            className="bg-[#141414] border border-white/[0.1] rounded-md px-2 py-1 text-[11px] font-medium text-slate-200"
                           />
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
                           <input
                             type="color"
                             value={item.color || '#2563eb'}
                             onChange={(e) => patchLegendItem(item.id, { color: e.target.value })}
-                            className="h-7 w-9 rounded border border-slate-300 dark:border-slate-700 bg-transparent cursor-pointer"
+                            className="h-6 w-8 rounded border border-white/20 bg-transparent cursor-pointer p-0.5"
                           />
                           <input
                             type="text"
                             value={item.color || ''}
                             onChange={(e) => patchLegendItem(item.id, { color: e.target.value })}
                             placeholder="#2563eb"
-                            className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/70 px-2 py-1 text-[11px] font-mono text-slate-700 dark:text-slate-200"
+                            className="w-full rounded border border-white/10 bg-[#141414] px-2 py-0.5 text-[11px] font-mono text-slate-200"
                           />
                         </div>
                       </div>
@@ -3530,7 +3690,7 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
                   <button
                     type="button"
                     onClick={addLegendItem}
-                    className="w-full text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 border border-dashed border-slate-300 dark:border-slate-700/60 rounded-xl py-2 hover:bg-slate-100/50 dark:hover:bg-slate-800/20 transition-colors"
+                    className="w-full text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-slate-200 border border-dashed border-white/[0.12] rounded-lg py-1.5 hover:bg-white/[0.04] transition-colors"
                   >
                     + Add Legend Item
                   </button>
@@ -3542,10 +3702,10 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
                 {typeof editor?.renderCustomElementControls === 'function' ? (
                   editor.renderCustomElementControls()
                 ) : (
-                  <div className="space-y-2 pt-1">
-                    <div className="text-[10px] text-slate-400 dark:text-slate-500">Add text annotations, shapes, or lines on top of the plot.</div>
+                  <div className="space-y-1.5 pt-0.5">
+                    <div className="text-[10px] text-slate-400">Add text annotations, shapes, or lines on top of the plot.</div>
                     {(editorDraft.customElements || []).map((el, idx) => (
-                      <div key={idx} className="flex gap-1.5 items-start p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
+                      <div key={idx} className="flex gap-1.5 items-start p-2 rounded-lg border border-white/[0.06] bg-[#1a1a1a]">
                         <div className="flex-1 min-w-0 space-y-1">
                           <input
                             type="text"
@@ -3555,7 +3715,7 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
                               setEditorDraft(prev => ({ ...prev, customElements: next }));
                             }}
                             placeholder="Text label…"
-                            className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-[11px] font-semibold focus:ring-2 focus:ring-slate-400/50 focus:border-slate-400 dark:focus:ring-slate-500/50 transition-all text-slate-800 dark:text-white shadow-sm"
+                            className="w-full bg-[#141414] border border-white/[0.1] rounded-md px-2 py-1 text-[11px] font-medium text-slate-200"
                           />
                           <div className="flex gap-1">
                             {['x', 'y'].map(coord => (
@@ -3568,7 +3728,7 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
                                   setEditorDraft(prev => ({ ...prev, customElements: next }));
                                 }}
                                 placeholder={coord.toUpperCase()}
-                                className="w-16 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-[11px] font-semibold focus:ring-2 focus:ring-slate-400/50 focus:border-slate-400 dark:focus:ring-slate-500/50 transition-all text-slate-800 dark:text-white shadow-sm"
+                                className="w-14 bg-[#141414] border border-white/[0.1] rounded-md px-1.5 py-0.5 text-[11px] font-medium text-slate-200 text-center"
                               />
                             ))}
                           </div>
@@ -3578,26 +3738,26 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
                             const next = (editorDraft.customElements || []).filter((_, i) => i !== idx);
                             setEditorDraft(prev => ({ ...prev, customElements: next }));
                           }}
-                          className="p-1 text-red-400 hover:text-red-600 transition-colors mt-0.5 shrink-0"
+                          className="p-1 text-red-400 hover:text-red-300 transition-colors mt-0.5 shrink-0"
                         ><X size={12} /></button>
                       </div>
                     ))}
                     <button
                       onClick={() => setEditorDraft(prev => ({ ...prev, customElements: [...(prev.customElements || []), { text: '', x: '', y: '' }] }))}
-                      className="w-full text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 border border-dashed border-slate-300 dark:border-slate-700/60 rounded-xl py-2 hover:bg-slate-100/50 dark:hover:bg-slate-800/20 transition-colors"
+                      className="w-full text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-slate-200 border border-dashed border-white/[0.12] rounded-lg py-1.5 hover:bg-white/[0.04] transition-colors"
                     >+ Add Element</button>
                   </div>
                 )}
               </AccordionSection>
 
               <AccordionSection sectionKey="notes" icon={<FileText size={13} />} label="Additional Notes" openSections={openSections} toggleSection={toggleSection}>
-                <div className="pt-1">
+                <div className="pt-0.5">
                   <textarea
                     value={editorDraft.info || ''}
                     onChange={e => setEditorDraft(prev => ({ ...prev, info: e.target.value }))}
-                    rows={4}
+                    rows={3}
                     placeholder="Add notes, methodology, or context for this plot…"
-                    className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-[11px] font-semibold focus:ring-2 focus:ring-slate-400/50 focus:border-slate-400 dark:focus:ring-slate-500/50 transition-all text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 resize-none shadow-sm"
+                    className="w-full bg-[#141414] border border-white/[0.09] rounded-lg p-2 text-xs text-slate-100 placeholder-slate-500 focus:border-zinc-500 focus:ring-1 focus:ring-zinc-600/30 transition-all resize-none"
                   />
                 </div>
               </AccordionSection>
@@ -6656,7 +6816,7 @@ function App() {
   const [oneValueSuccessCategory, setOneValueSuccessCategory] = useState('');
   const [descriptiveSubMode, setDescriptiveSubMode] = useState('exploratory_univariate'); // 'exploratory_univariate' | 'exploratory_bivariate'
   const [exploratoryChartType, setExploratoryChartType] = useState('histogram');
-  const [exploratoryChartSelectionMode, setExploratoryChartSelectionMode] = useState('manual'); // 'auto' | 'manual'
+  const [exploratoryChartSelectionMode, setExploratoryChartSelectionMode] = useState('auto'); // 'auto' | 'manual'
   const [exploratoryXVar, setExploratoryXVar] = useState('');
   const [exploratoryYVar, setExploratoryYVar] = useState('');
   const [exploratoryMultiAnalyzeEnabled, setExploratoryMultiAnalyzeEnabled] = useState(false);
@@ -7626,6 +7786,35 @@ function App() {
     plotLabelStateByKeyRef.current = nextState;
     setPlotLabelStateByKey(nextState);
   };
+  const syncRefreshedPlotToGallery = (refreshedResult, imageMeta, targetPlotKey, refreshedUrl, updateAllExploratoryMulti = false) => {
+    const safeTargetPlotKey = normalizePlotKey(targetPlotKey);
+    const safeRefreshedUrl = String(refreshedUrl || '').trim();
+    const targetPlotId = String(imageMeta?.id || '').trim();
+    if (!safeTargetPlotKey || !safeRefreshedUrl) return;
+
+    setGeneratedPlots((previous) => previous.map((plot) => {
+      const plotKey = normalizePlotKey(plot?.plotKey || plot?.plot_key);
+      const samePlot = (
+        plotKey === safeTargetPlotKey
+        || (targetPlotId && String(plot?.id || '').trim() === targetPlotId)
+      );
+      const sameExploratoryGroup = (
+        updateAllExploratoryMulti
+        && plotKey.startsWith('exploratory_multi_')
+      );
+      if (!samePlot && !sameExploratoryGroup) return plot;
+
+      const nextUrl = samePlot
+        ? safeRefreshedUrl
+        : resolveFullscreenImageFromResult(refreshedResult, plot, plot?.url || plot?.base64 || '');
+      if (!nextUrl || nextUrl === plot?.url) return plot;
+      return {
+        ...plot,
+        url: nextUrl,
+        base64: nextUrl
+      };
+    }));
+  };
   const refreshActiveFullscreenPlot = async (draftState = null, refreshOverrides = {}) => {
     const safeTargetPlotKey = activeFullscreenRefreshPlotKey;
     if (!safeTargetPlotKey) {
@@ -7723,6 +7912,14 @@ function App() {
       return { ok: false, message: 'Plot refreshed, but no updated image was returned.' };
     }
 
+    syncRefreshedPlotToGallery(
+      refreshedResult,
+      selectedImage,
+      safeTargetPlotKey,
+      refreshedUrl,
+      applyToAllExploratoryMulti
+    );
+
     setSelectedImage((prev) => {
       if (!prev) return prev;
       if (expectedCurrentUrl && String(prev.url || '') !== expectedCurrentUrl) return prev;
@@ -7767,14 +7964,14 @@ function App() {
       onAutoClick = null
     } = {}
   ) => (
-    <div className="flex items-center justify-between gap-2 rounded-md border border-slate-200/10 dark:border-slate-800 bg-slate-100/10 dark:bg-slate-800/60 px-2 py-1.5">
-      <span className="truncate text-xs font-bold text-slate-700 dark:text-slate-200">{label}</span>
+    <div className="flex items-center justify-between gap-2 rounded-md border border-white/[0.06] bg-[#1a1a1a] px-2.5 py-1.5 ayu-editor-row">
+      <span className="truncate text-xs font-bold text-slate-200 min-w-0 flex-1">{label}</span>
       <div className="flex items-center gap-2 shrink-0">
         {showAutoButton && typeof onAutoClick === 'function' && (
           <button
             type="button"
             onClick={onAutoClick}
-            className="rounded border border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-700/50 px-2 py-1 text-[10px] font-black uppercase tracking-wide text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600/70"
+            className="rounded border border-white/10 bg-[#141414] px-2 py-1 text-[10px] font-black uppercase tracking-wide text-slate-300 hover:bg-[#222222] hover:text-slate-100 transition-colors shrink-0"
           >
             {autoButtonLabel}
           </button>
@@ -7783,26 +7980,26 @@ function App() {
           type="color"
           value={isValidHexColor(value) ? value : fallbackColor}
           onChange={(e) => onChange(e.target.value)}
-          className="h-7 w-9 rounded border border-slate-300 dark:border-slate-700 bg-transparent cursor-pointer"
+          className="h-6 w-8 rounded border border-white/20 bg-transparent cursor-pointer p-0.5 shrink-0"
         />
         <input
           type="text"
           value={String(value || '')}
           onChange={(e) => onChange(e.target.value.trim())}
-          className="w-24 rounded border border-slate-300 dark:border-slate-700 bg-[#C4C4C4] px-2 py-1 text-[11px] font-mono text-slate-900 font-bold"
+          className="w-20 shrink-0 rounded border border-white/10 bg-[#141414] px-2 py-1 text-[11px] font-mono text-slate-100 font-medium focus:border-zinc-500 focus:outline-none"
         />
       </div>
     </div>
   );
 
   const renderSelectEditorRow = (label, value, options, onChange) => (
-    <div className="flex items-center justify-between gap-2 rounded-md border border-slate-200/10 dark:border-slate-800 bg-slate-100/10 dark:bg-slate-800/60 px-2 py-1.5">
-      <span className="truncate text-xs font-bold text-slate-700 dark:text-slate-200">{label}</span>
+    <div className="flex items-center justify-between gap-2 rounded-md border border-white/[0.06] bg-[#1a1a1a] px-2.5 py-1.5 ayu-editor-row">
+      <span className="truncate text-xs font-bold text-slate-200 min-w-0 flex-1">{label}</span>
       <ModernSelect
         value={String(value || options?.[0]?.value || '')}
         onChange={(val) => onChange(String(val || ''))}
         options={Array.isArray(options) ? options : []}
-        triggerClassName="w-28 text-[11px] py-1 px-2 min-h-0"
+        triggerClassName="w-28 text-[11px] py-1 px-2 min-h-0 bg-[#141414] border-white/10 text-slate-200"
         compact
       />
     </div>
@@ -7815,8 +8012,8 @@ function App() {
       return Math.max(Number(min), Math.min(Number(max), Number(numeric.toFixed(2))));
     };
     return (
-      <div className="flex items-center justify-between gap-2 rounded-md border border-slate-200/10 dark:border-slate-800 bg-slate-100/10 dark:bg-slate-800/60 px-2 py-1.5">
-        <span className="truncate text-xs font-bold text-slate-700 dark:text-slate-200">{label}</span>
+      <div className="flex items-center justify-between gap-2 rounded-md border border-white/[0.06] bg-[#1a1a1a] px-2.5 py-1.5 ayu-editor-row">
+        <span className="truncate text-xs font-bold text-slate-200 min-w-0 flex-1">{label}</span>
         <input
           type="number"
           min={min}
@@ -7824,7 +8021,7 @@ function App() {
           step={step}
           value={toSafeValue(value)}
           onChange={(e) => onChange(toSafeValue(e.target.value))}
-          className="w-24 rounded border border-slate-300 dark:border-slate-700 bg-[#C4C4C4] px-2 py-1 text-[11px] font-semibold text-slate-900 font-bold"
+          className="w-24 rounded border border-white/10 bg-[#141414] px-2 py-1 text-[11px] font-mono text-slate-100 font-medium focus:border-zinc-500 focus:outline-none"
         />
       </div>
     );
@@ -10945,9 +11142,9 @@ function App() {
               ? R_EDITOR_UNOROUTER_DEFAULT_HOST
               : providerId === 'opencode'
                 ? R_EDITOR_OPENCODE_DEFAULT_HOST
-              : providerId === 'nvidia'
-                ? R_EDITOR_NVIDIA_DEFAULT_HOST
-                : R_EDITOR_OPENAI_DEFAULT_HOST;
+                : providerId === 'nvidia'
+                  ? R_EDITOR_NVIDIA_DEFAULT_HOST
+                  : R_EDITOR_OPENAI_DEFAULT_HOST;
           targetUrl = `${cleanHost || defHost}/models`;
           if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
         }
@@ -11145,6 +11342,311 @@ function App() {
     setIsPlotsOverlayOpen(true);
   }, []);
 
+  const editablePlotAnalysisContext = {
+    sourceFilePath: String(file?.path || '').trim(),
+    sourceFileName: String(file?.name || '').trim(),
+    replayColumns: (Array.isArray(selectedColumns) && selectedColumns.length > 0
+      ? selectedColumns
+      : columns
+    ).map((column) => String(column || '').trim()).filter(Boolean),
+    replayData: (() => {
+      if (!Array.isArray(fullData) || fullData.length === 0) return [];
+      const excludedRows = new Set((Array.isArray(selectedRows) ? selectedRows : []).map((rowIndex) => Number(rowIndex)));
+      const rowIndexes = selectedRowsMode === 'subset'
+        ? (Array.isArray(selectedRows) ? selectedRows : [])
+        : fullData.map((_, rowIndex) => rowIndex).filter((rowIndex) => !excludedRows.has(rowIndex));
+      return rowIndexes
+        .map((rowIndex) => fullData[Number(rowIndex)])
+        .filter((row) => row && typeof row === 'object');
+    })(),
+    analysisMode,
+    inferentialSubMode,
+    descriptiveSubMode,
+    exploratoryChartType,
+    exploratoryChartSelectionMode,
+    exploratoryXVar,
+    exploratoryYVar,
+    exploratoryMultiAnalyzeEnabled,
+    exploratoryMultiRelationType,
+    exploratoryUnivariateMultiScope,
+    correlationUseAll,
+    correlationSelectedVars: Array.isArray(correlationSelectedVars) ? correlationSelectedVars : [],
+    correlationForceBothMethods,
+    groupVar,
+    groupVar2,
+    responseVar,
+    alpha,
+    chiSquareAdjustment,
+    oneValueReference,
+    oneValueProportions,
+    oneValueSuccessCategory,
+    inferentialSignificantOnly,
+    scatterVarX,
+    scatterVarY,
+    isPaired,
+    factorialDesign,
+    subjectVar,
+    machineLearningMethod,
+    regressionSubMode,
+    linearRegressionVariant,
+    predictors: Array.isArray(predictors) ? predictors : [],
+    autoSelectPredictors,
+    multivariateSubMode,
+    coinertiaYVariables: Array.isArray(coinertiaYVariables) ? coinertiaYVariables : [],
+    caIncludeChiSquareEvidence,
+    caMcaAutoBinNumeric,
+    caMcaBinCount,
+    caMcaBinVariables: Array.isArray(caMcaBinVariables) ? caMcaBinVariables : [],
+    regressionTrainPercent,
+    regressionClassificationThreshold,
+    regressionStandardizePredictors,
+    colorScheme,
+    colorSelectionMode,
+    pcaAutoClusteringEnabled,
+    pcaAutoClusterMethod,
+    pcaAutoClusterStage,
+    clusterOptimizationMethod,
+    mcaAutoClusterMethod,
+    mcaAutoClusterStage,
+    mcaClusterOptimizationMethod,
+    hclustLinkageMethod,
+    manualKmeansVerificationEnabled,
+    manualKmeansVerificationK
+  };
+
+  const openGalleryPlotEditor = useCallback((plot) => {
+    if (!plot) {
+      setSelectedImage(null);
+      return;
+    }
+    if (plot.editable !== true) return;
+    const matchingResult = analysisResults.find((entry) => (
+      String(entry?.id || '').trim() === String(plot?.analysisResultId || '').trim()
+    ));
+    if (matchingResult?.data) setResult(matchingResult.data);
+    setSelectedImage({
+      url: plot.base64 || plot.url,
+      title: plot.title || 'Selected Plot',
+      plotKey: plot.plotKey,
+      editable: true,
+      analysisResultId: plot.analysisResultId,
+      galleryEmbedded: true
+    });
+  }, [analysisResults]);
+
+  const handleGalleryPlotDownload = useCallback((plot) => {
+    if (!plot) return;
+    const image = String(plot.base64 || plot.url || '').trim();
+    if (!image) return;
+    const plotKey = normalizePlotKey(plot.plotKey || plot.plot_key) || 'default';
+    const matchingResult = analysisResults.find((entry) => (
+      String(entry?.id || '').trim() === String(plot?.analysisResultId || '').trim()
+    ));
+    const packageData = plot.editable === true ? {
+      format: 'nextgenr-editable-plot',
+      version: 1,
+      image,
+      title: String(plot.title || 'Plot'),
+      plotKey,
+      analysisResultId: String(plot.analysisResultId || matchingResult?.id || '').trim(),
+      source: String(plot.source || 'gallery'),
+      gallerySection: String(plot.gallerySection || 'biostat'),
+      editorState: getPlotEditorState(plotKey),
+      analysisContext: editablePlotAnalysisContext,
+      analysisResult: matchingResult?.data || null,
+      createdAt: new Date().toISOString()
+    } : null;
+    const stem = String(plot.title || 'plot')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'plot';
+
+    if (window.electronAPI?.savePlotFile) {
+      window.electronAPI.savePlotFile({
+        base64: image,
+        defaultName: `${stem}.png`,
+        editablePackage: packageData
+      });
+      return;
+    }
+
+    const imageLink = document.createElement('a');
+    imageLink.href = image;
+    imageLink.download = `${stem}.png`;
+    document.body.appendChild(imageLink);
+    imageLink.click();
+    document.body.removeChild(imageLink);
+
+    if (packageData) {
+      const packageUrl = URL.createObjectURL(new Blob([JSON.stringify(packageData, null, 2)], { type: 'application/json' }));
+      const packageLink = document.createElement('a');
+      packageLink.href = packageUrl;
+      packageLink.download = `${stem}.ngplot`;
+      document.body.appendChild(packageLink);
+      packageLink.click();
+      document.body.removeChild(packageLink);
+      URL.revokeObjectURL(packageUrl);
+    }
+  }, [analysisResults, editablePlotAnalysisContext, getPlotEditorState, normalizePlotKey]);
+
+  const handleEditablePlotFileChange = useCallback((event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    void (async () => {
+      try {
+        const extension = String(file.name || '').toLowerCase().split('.').pop();
+        let packageData;
+        let image = '';
+        if (extension === 'png' || extension === 'svg' || String(file.type || '').includes('png') || String(file.type || '').includes('svg')) {
+          packageData = await readEmbeddedEditablePlotPackage(file);
+          if (!packageData) {
+            throw new Error('This image does not contain editable plot metadata.');
+          }
+          image = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ''));
+            reader.onerror = () => reject(new Error('Could not read the plot image.'));
+            reader.readAsDataURL(file);
+          });
+        } else {
+          packageData = JSON.parse(await file.text());
+          image = String(packageData?.image || '').trim();
+        }
+        if (packageData?.format !== 'nextgenr-editable-plot' || !image) {
+          throw new Error('This is not a valid editable plot file.');
+        }
+        const analysisContext = packageData.analysisContext && typeof packageData.analysisContext === 'object'
+          ? packageData.analysisContext
+          : editablePlotAnalysisContext;
+        if (analysisContext) {
+          const restoreString = (setter, key) => {
+            if (Object.prototype.hasOwnProperty.call(analysisContext, key)) setter(String(analysisContext[key] ?? ''));
+          };
+          const restoreBoolean = (setter, key) => {
+            if (Object.prototype.hasOwnProperty.call(analysisContext, key)) setter(Boolean(analysisContext[key]));
+          };
+          const restoreArray = (setter, key) => {
+            if (Array.isArray(analysisContext[key])) setter(analysisContext[key]);
+          };
+          if (Array.isArray(analysisContext.replayColumns) && Array.isArray(analysisContext.replayData) && analysisContext.replayData.length > 0) {
+            const replayColumns = analysisContext.replayColumns
+              .map((column) => String(column || '').trim())
+              .filter(Boolean);
+            const replayRows = analysisContext.replayData.filter((row) => row && typeof row === 'object');
+            if (replayColumns.length > 0 && replayRows.length > 0) {
+              setColumns(replayColumns);
+              setFullData(replayRows);
+              setSelectedColumns(replayColumns);
+              setSelectedRowsMode('all');
+              setSelectedRows([]);
+            }
+          }
+          restoreString(setAnalysisMode, 'analysisMode');
+          restoreString(setInferentialSubMode, 'inferentialSubMode');
+          restoreString(setDescriptiveSubMode, 'descriptiveSubMode');
+          restoreString(setExploratoryChartType, 'exploratoryChartType');
+          restoreString(setExploratoryChartSelectionMode, 'exploratoryChartSelectionMode');
+          restoreString(setExploratoryXVar, 'exploratoryXVar');
+          restoreString(setExploratoryYVar, 'exploratoryYVar');
+          restoreBoolean(setExploratoryMultiAnalyzeEnabled, 'exploratoryMultiAnalyzeEnabled');
+          restoreString(setExploratoryMultiRelationType, 'exploratoryMultiRelationType');
+          restoreString(setExploratoryUnivariateMultiScope, 'exploratoryUnivariateMultiScope');
+          restoreBoolean(setCorrelationUseAll, 'correlationUseAll');
+          restoreArray(setCorrelationSelectedVars, 'correlationSelectedVars');
+          restoreBoolean(setCorrelationForceBothMethods, 'correlationForceBothMethods');
+          restoreString(setGroupVar, 'groupVar');
+          restoreString(setGroupVar2, 'groupVar2');
+          restoreString(setResponseVar, 'responseVar');
+          restoreString(setChiSquareAdjustment, 'chiSquareAdjustment');
+          restoreString(setOneValueReference, 'oneValueReference');
+          restoreString(setOneValueProportions, 'oneValueProportions');
+          restoreString(setOneValueSuccessCategory, 'oneValueSuccessCategory');
+          restoreBoolean(setInferentialSignificantOnly, 'inferentialSignificantOnly');
+          restoreString(setScatterVarX, 'scatterVarX');
+          restoreString(setScatterVarY, 'scatterVarY');
+          restoreBoolean(setIsPaired, 'isPaired');
+          restoreString(setFactorialDesign, 'factorialDesign');
+          restoreString(setSubjectVar, 'subjectVar');
+          restoreString(setMachineLearningMethod, 'machineLearningMethod');
+          restoreString(setRegressionSubMode, 'regressionSubMode');
+          restoreString(setLinearRegressionVariant, 'linearRegressionVariant');
+          restoreArray(setPredictors, 'predictors');
+          restoreBoolean(setAutoSelectPredictors, 'autoSelectPredictors');
+          restoreString(setMultivariateSubMode, 'multivariateSubMode');
+          restoreArray(setCoinertiaYVariables, 'coinertiaYVariables');
+          restoreBoolean(setCaIncludeChiSquareEvidence, 'caIncludeChiSquareEvidence');
+          restoreBoolean(setCaMcaAutoBinNumeric, 'caMcaAutoBinNumeric');
+          if (Number.isFinite(Number(analysisContext.caMcaBinCount))) setCaMcaBinCount(Number(analysisContext.caMcaBinCount));
+          restoreArray(setCaMcaBinVariables, 'caMcaBinVariables');
+          if (Number.isFinite(Number(analysisContext.alpha))) setAlpha(Number(analysisContext.alpha));
+          if (Number.isFinite(Number(analysisContext.regressionTrainPercent))) setRegressionTrainPercent(Number(analysisContext.regressionTrainPercent));
+          if (Number.isFinite(Number(analysisContext.regressionClassificationThreshold))) setRegressionClassificationThreshold(Number(analysisContext.regressionClassificationThreshold));
+          restoreBoolean(setRegressionStandardizePredictors, 'regressionStandardizePredictors');
+          restoreString(setColorScheme, 'colorScheme');
+          restoreString(setColorSelectionMode, 'colorSelectionMode');
+          restoreBoolean(setPcaAutoClusteringEnabled, 'pcaAutoClusteringEnabled');
+          restoreString(setPcaAutoClusterMethod, 'pcaAutoClusterMethod');
+          restoreString(setPcaAutoClusterStage, 'pcaAutoClusterStage');
+          restoreString(setClusterOptimizationMethod, 'clusterOptimizationMethod');
+          restoreString(setMcaAutoClusterMethod, 'mcaAutoClusterMethod');
+          restoreString(setMcaAutoClusterStage, 'mcaAutoClusterStage');
+          restoreString(setMcaClusterOptimizationMethod, 'mcaClusterOptimizationMethod');
+          restoreString(setHclustLinkageMethod, 'hclustLinkageMethod');
+          restoreBoolean(setManualKmeansVerificationEnabled, 'manualKmeansVerificationEnabled');
+          restoreString(setManualKmeansVerificationK, 'manualKmeansVerificationK');
+        }
+        const plotKey = normalizePlotKey(packageData.plotKey) || 'default';
+        const plotId = `imported-${Date.now()}`;
+        const importedPlot = {
+          id: plotId,
+          url: image,
+          base64: image,
+          title: String(packageData.title || 'Imported Plot'),
+          plotKey,
+          analysisResultId: String(packageData.analysisResultId || '').trim(),
+          source: 'editable-import',
+          gallerySection: String(packageData.gallerySection || 'biostat'),
+          analysisContext,
+          editable: true,
+          timestamp: Date.now()
+        };
+        const importedEditorState = packageData.editorState && typeof packageData.editorState === 'object'
+          ? packageData.editorState
+          : {};
+        setPlotLabelStateByKey((previous) => {
+          const next = {
+            ...previous,
+            [plotKey]: {
+              ...DEFAULT_PLOT_EDITOR_STATE,
+              ...importedEditorState
+            }
+          };
+          plotLabelStateByKeyRef.current = next;
+          return next;
+        });
+        if (packageData.analysisResult && typeof packageData.analysisResult === 'object') {
+          const resultId = String(packageData.analysisResultId || plotId).trim() || plotId;
+          setResult(packageData.analysisResult);
+          setAnalysisResults((previous) => [
+            ...previous.filter((entry) => String(entry?.id || '').trim() !== resultId),
+            { id: resultId, title: importedPlot.title, data: packageData.analysisResult, timestamp: Date.now(), minimized: false }
+          ].slice(-MAX_ANALYSIS_RESULT_WINDOWS));
+        }
+        setGeneratedPlots((previous) => [
+          ...previous.filter((plot) => String(plot?.id || '') !== plotId),
+          importedPlot
+        ].slice(-MAX_GENERATED_PLOTS));
+        setSelectedImage({ ...importedPlot, galleryEmbedded: false });
+        setError(null);
+      } catch (error) {
+        setError(error?.message || 'Could not open editable plot file.');
+      } finally {
+        if (editablePlotInputRef.current) editablePlotInputRef.current.value = '';
+      }
+    })();
+  }, [editablePlotAnalysisContext, normalizePlotKey]);
+
   const addGeneratedPlots = useCallback((plots) => {
     const getDedupeKey = (plot) => {
       const source = String(plot?.source || '').toLowerCase();
@@ -11241,6 +11743,7 @@ function App() {
               timestamp: Date.now(),
               source,
               plotKey: plotKey || undefined,
+              gallerySection: source === 'bioinformatics' || source === 'bioinfo' ? 'bioinfo' : 'biostat',
               editable: Boolean(analysisResultId && plotKey),
               ...(analysisResultId ? { analysisResultId } : {})
             });
@@ -11257,6 +11760,11 @@ function App() {
   useEffect(() => {
     if (!window.electronAPI?.onRPlotGenerated) return undefined;
     const removeListener = window.electronAPI.onRPlotGenerated((plot) => {
+      const gallerySection = isBioinformaticsModeEnabled
+        ? 'bioinfo'
+        : isBiostatsModeEnabled
+          ? 'biostat'
+          : 'advanced';
       const activeChunkIndex = activeRChunkIndexRef.current;
       const captureChunkIndex = Number.isInteger(activeChunkIndex)
         ? activeChunkIndex
@@ -11271,7 +11779,7 @@ function App() {
           return updated;
         });
       }
-      addGeneratedPlots([plot]);
+      addGeneratedPlots([{ ...plot, gallerySection }]);
     });
     if (window.electronAPI.getAllGeneratedPlots) {
       window.electronAPI.getAllGeneratedPlots().then((plots) => addGeneratedPlots(plots)).catch(() => { });
@@ -11280,7 +11788,7 @@ function App() {
       if (typeof removeListener === 'function') removeListener();
       else window.electronAPI?.offRPlotGenerated?.();
     };
-  }, [addGeneratedPlots, editorLanguage]);
+  }, [addGeneratedPlots, editorLanguage, isBiostatsModeEnabled, isBioinformaticsModeEnabled]);
   const consoleOutputsRef = useRef({ r: '', python: '' });
   const consoleOutputFlushTimersRef = useRef({ r: null, python: null });
   const [consoleOutputs, setConsoleOutputs] = useState({ r: '', python: '' });
@@ -11557,6 +12065,7 @@ function App() {
   const [rConsoleSuggestionToken, setRConsoleSuggestionToken] = useState(null);
   const editorRef = useRef(null);
   const lateralUploadInputRef = useRef(null);
+  const editablePlotInputRef = useRef(null);
   const consoleOutputRef = useRef(null);
   const consoleInputRef = useRef(null);
   const rConsolePendingCommandRef = useRef('');
@@ -12406,16 +12915,16 @@ function App() {
         : isREditorOpenAiSource
           ? rEditorOpenAiModel
           : isREditorCodexSource
-          ? rEditorCodexModel
+            ? rEditorCodexModel
             : isREditorAntigravitySource
               ? rEditorAntigravityModel
               : isREditorOpenCodeSource
-              ? openCodeModel
-            : isREditorAnthropicSource
-              ? rEditorAnthropicModel
-              : isREditorNvidiaSource
-                ? rEditorNvidiaModel
-                : '';
+                ? openCodeModel
+                : isREditorAnthropicSource
+                  ? rEditorAnthropicModel
+                  : isREditorNvidiaSource
+                    ? rEditorNvidiaModel
+                    : '';
 
   const rEditorAgentProfile = (isREditorAgentMode || rEditorAISource === 'agent')
     ? (editorLanguage === 'python' ? 'claude-python-expert' : 'claude-r-expert')
@@ -13773,9 +14282,9 @@ ${historyContext || '(none)'}`;
           ? 'codex'
           : isREditorAntigravitySource
             ? 'antigravity'
-          : isREditorOpenCodeSource
-            ? 'opencode'
-            : 'api';
+            : isREditorOpenCodeSource
+              ? 'opencode'
+              : 'api';
     const selectProviderGroup = (group, event) => {
       if (event?.currentTarget) {
         rEditorAIAnchorButtonRef.current = event.currentTarget;
@@ -13789,9 +14298,9 @@ ${historyContext || '(none)'}`;
             ? 'codex'
             : group === 'antigravity'
               ? 'antigravity'
-            : group === 'opencode'
-              ? 'opencode'
-            : (apiProviderIds.includes(rEditorAISource) ? rEditorAISource : 'openai');
+              : group === 'opencode'
+                ? 'opencode'
+                : (apiProviderIds.includes(rEditorAISource) ? rEditorAISource : 'openai');
       if (activeProviderGroup === group) {
         setIsREditorAIConfigOpen((prev) => !prev);
       } else {
@@ -16909,8 +17418,8 @@ ${originalCodeForPrompt || '# (empty script)'}
           ? freePersona
           : (isConversational
             ? expertPersona
-          : (expectsPatchBlocks
-            ? `${expertPersona}
+            : (expectsPatchBlocks
+              ? `${expertPersona}
 
 ## Current Task: SURGICAL CODE EDITING (Patch Mode)
 When the user requests code changes, you ONLY output @@SEARCH/@@REPLACE/@@END diff blocks.
@@ -16939,8 +17448,8 @@ Rules:
 - NEVER return a complete rewritten script.
 
 ${groundedExecutionClause}`
-            : (expectsFullScript
-              ? `${expertPersona}
+              : (expectsFullScript
+                ? `${expertPersona}
 
 ## Current Task: CODE GENERATION (Replace Mode)
 
@@ -16962,7 +17471,7 @@ ${groundedExecutionClause}`
 - Clean, idiomatic ${editorLanguageLabel}. Brief comments only for non-obvious logic.
 
 ${groundedExecutionClause}`
-              : `${expertPersona}
+                : `${expertPersona}
 
 ## Current Task: CODE GENERATION (Append/Continue Mode)
 
@@ -18153,7 +18662,7 @@ ${attachmentPromptContext || '(none)'}`;
                     ? { background: '#2a1010', color: '#f87171', border: '1px solid #4a1a1a' }
                     : (!rIdeChatInput.trim() && rIdeChatAttachments.length === 0)
                       ? { background: '#242424', color: '#555', cursor: 'not-allowed', border: '1px solid #2e2e2e' }
-                    : { background: '#383838', color: '#f0f0f0', border: '1px solid #484848' }
+                      : { background: '#383838', color: '#f0f0f0', border: '1px solid #484848' }
                   }
                   title={isRIdeChatRequestActive ? 'Stop the current request' : 'Send message'}
                 >
@@ -19738,7 +20247,7 @@ except Exception as _ngr_error:
     if (isDatasetSwitching) return;
     explorerDataVersionRef.current += 1;
     setExplorerDataVersion(explorerDataVersionRef.current);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fullData, columns]);
 
   const ordinalColumns = useMemo(() => {
@@ -20526,25 +21035,56 @@ except Exception as _ngr_error:
     const availableCategorical = (Array.isArray(descriptiveCategoricalColumns) ? descriptiveCategoricalColumns : [])
       .filter((columnName) => availableColumns.includes(columnName));
     const chartLabel = (chartId) => exploratoryChartLabelById.get(chartId) || chartId;
+    const getDataType = (columnName) => columnDataTypes?.[columnName] || (
+      availableNumeric.includes(columnName) ? 'continuous' : (
+        availableCategorical.includes(columnName) ? 'nominal' : 'unknown'
+      )
+    );
+    const isQuantitative = (columnName) => ['continuous', 'discrete'].includes(getDataType(columnName));
+    const isQualitative = (columnName) => ['nominal', 'ordinal', 'binary'].includes(getDataType(columnName));
+    const isContinuous = (columnName) => getDataType(columnName) === 'continuous';
+    const isDiscrete = (columnName) => getDataType(columnName) === 'discrete';
+    const isLowCardinalityDiscrete = (columnName) => {
+      const distinctCount = countDistinctColumnValues(columnName, analysisRowsForTypeDetection);
+      return distinctCount > 0 && distinctCount <= DISCRETE_BAR_MAX_LEVELS;
+    };
     const preferredX = availableColumns.includes(exploratoryXVar) ? exploratoryXVar : '';
     const preferredY = availableColumns.includes(exploratoryYVar) ? exploratoryYVar : '';
     const inferType = (columnName) => {
       if (!columnName) return '';
-      if (availableNumeric.includes(columnName)) return 'numeric';
-      if (availableCategorical.includes(columnName)) return 'categorical';
+      if (isQuantitative(columnName)) return 'numeric';
+      if (isQualitative(columnName)) return 'categorical';
       return 'unknown';
     };
 
     const univariateFallback = () => {
       if (preferredX) {
         const preferredType = inferType(preferredX);
+        if (preferredType === 'numeric' && isDiscrete(preferredX) && isLowCardinalityDiscrete(preferredX)) {
+          return {
+            subMode: 'exploratory_univariate',
+            chartType: 'bar',
+            xVar: preferredX,
+            yVar: '',
+            reason: `Auto-selected ${chartLabel('bar')} for quantitative discrete variable "${preferredX}" (${countDistinctColumnValues(preferredX, analysisRowsForTypeDetection)} distinct values).`
+          };
+        }
+        if (preferredType === 'numeric' && isDiscrete(preferredX)) {
+          return {
+            subMode: 'exploratory_univariate',
+            chartType: 'histogram',
+            xVar: preferredX,
+            yVar: '',
+            reason: `Auto-selected ${chartLabel('histogram')} for high-cardinality quantitative discrete variable "${preferredX}".`
+          };
+        }
         if (preferredType === 'numeric') {
           return {
             subMode: 'exploratory_univariate',
             chartType: 'histogram',
             xVar: preferredX,
             yVar: '',
-            reason: `Auto-selected ${chartLabel('histogram')} from selected variable "${preferredX}".`
+            reason: `Auto-selected ${chartLabel('histogram')} for quantitative continuous variable "${preferredX}".`
           };
         }
         if (preferredType === 'categorical') {
@@ -20564,24 +21104,38 @@ except Exception as _ngr_error:
           reason: `Auto-selected ${chartLabel('dot')} from selected variable "${preferredX}".`
         };
       }
-      if (availableNumeric.length > 0) {
-        const xVar = pickPreferredColumnName([exploratoryXVar, responseVar, groupVar], availableNumeric);
+      const continuousNumeric = availableNumeric.filter(isContinuous);
+      const discreteNumeric = availableNumeric.filter(isDiscrete);
+      if (continuousNumeric.length > 0) {
+        const xVar = pickPreferredColumnName([exploratoryXVar, responseVar, groupVar], continuousNumeric);
         return {
           subMode: 'exploratory_univariate',
           chartType: 'histogram',
           xVar,
           yVar: '',
-          reason: `Auto-selected ${chartLabel('histogram')} using numeric variable "${xVar}".`
+          reason: `Auto-selected ${chartLabel('histogram')} for quantitative continuous variable "${xVar}".`
         };
       }
-      if (availableCategorical.length > 0) {
-        const xVar = pickPreferredColumnName([exploratoryXVar, groupVar, responseVar], availableCategorical);
+      if (discreteNumeric.length > 0) {
+        const xVar = pickPreferredColumnName([exploratoryXVar, responseVar, groupVar], discreteNumeric);
+        const chartType = isLowCardinalityDiscrete(xVar) ? 'bar' : 'histogram';
+        return {
+          subMode: 'exploratory_univariate',
+          chartType,
+          xVar,
+          yVar: '',
+          reason: `Auto-selected ${chartLabel(chartType)} for quantitative discrete variable "${xVar}".`
+        };
+      }
+      const qualitativeColumns = availableCategorical.filter(isQualitative);
+      if (qualitativeColumns.length > 0) {
+        const xVar = pickPreferredColumnName([exploratoryXVar, groupVar, responseVar], qualitativeColumns);
         return {
           subMode: 'exploratory_univariate',
           chartType: 'bar',
           xVar,
           yVar: '',
-          reason: `Auto-selected ${chartLabel('bar')} using categorical variable "${xVar}".`
+          reason: `Auto-selected ${chartLabel('bar')} for qualitative ${getDataType(xVar)} variable "${xVar}".`
         };
       }
       if (availableColumns.length > 0) {
@@ -20598,27 +21152,62 @@ except Exception as _ngr_error:
     };
 
     if (descriptiveSubMode === 'exploratory_bivariate') {
-      if ((preferredX && !preferredY) || (!preferredX && preferredY)) {
-        const selectedSingle = preferredX || preferredY;
-        const selectedType = inferType(selectedSingle);
+      const pairFromSingleSelection = (selectedVar, selectedVarIsX) => {
+        const selectedType = inferType(selectedVar);
         if (selectedType === 'numeric') {
-          return {
-            subMode: 'exploratory_univariate',
-            chartType: 'histogram',
-            xVar: selectedSingle,
-            yVar: '',
-            reason: `Only one variable was selected. Auto-switched to ${chartLabel('histogram')} for "${selectedSingle}".`
-          };
+          const otherNumeric = availableNumeric.find((columnName) => columnName !== selectedVar);
+          if (otherNumeric) {
+            return {
+              subMode: 'exploratory_bivariate',
+              chartType: 'scatter',
+              xVar: selectedVarIsX ? selectedVar : otherNumeric,
+              yVar: selectedVarIsX ? otherNumeric : selectedVar,
+              reason: `Auto-selected ${chartLabel('scatter')} and detected a second numeric variable for "${selectedVar}".`
+            };
+          }
+          const otherCategorical = availableCategorical.find((columnName) => columnName !== selectedVar);
+          if (otherCategorical) {
+            return {
+              subMode: 'exploratory_bivariate',
+              chartType: 'grouped_violin',
+              xVar: otherCategorical,
+              yVar: selectedVar,
+              reason: `Auto-selected ${chartLabel('grouped_violin')} and detected "${otherCategorical}" as the grouping variable.`
+            };
+          }
         }
         if (selectedType === 'categorical') {
-          return {
-            subMode: 'exploratory_univariate',
-            chartType: 'bar',
-            xVar: selectedSingle,
-            yVar: '',
-            reason: `Only one variable was selected. Auto-switched to ${chartLabel('bar')} for "${selectedSingle}".`
-          };
+          const otherCategorical = availableCategorical.find((columnName) => columnName !== selectedVar);
+          if (otherCategorical) {
+            return {
+              subMode: 'exploratory_bivariate',
+              chartType: 'grouped_bar',
+              xVar: selectedVarIsX ? selectedVar : otherCategorical,
+              yVar: selectedVarIsX ? otherCategorical : selectedVar,
+              reason: `Auto-selected ${chartLabel('grouped_bar')} and detected a second categorical variable for "${selectedVar}".`
+            };
+          }
+          const otherNumeric = availableNumeric.find((columnName) => columnName !== selectedVar);
+          if (otherNumeric) {
+            return {
+              subMode: 'exploratory_bivariate',
+              chartType: 'grouped_violin',
+              xVar: selectedVar,
+              yVar: otherNumeric,
+              reason: `Auto-selected ${chartLabel('grouped_violin')} and detected "${otherNumeric}" as the numeric response.`
+            };
+          }
         }
+        return null;
+      };
+
+      if (preferredX && !preferredY) {
+        const pair = pairFromSingleSelection(preferredX, true);
+        if (pair) return pair;
+      }
+      if (!preferredX && preferredY) {
+        const pair = pairFromSingleSelection(preferredY, false);
+        if (pair) return pair;
       }
 
       if (preferredX && preferredY && preferredX !== preferredY) {
@@ -20682,9 +21271,10 @@ except Exception as _ngr_error:
           reason: `Auto-selected ${chartLabel('scatter')} because two numeric variables were detected.`
         };
       }
-      if (availableCategorical.length >= 2) {
-        const yVar = pickPreferredColumnName([exploratoryYVar, responseVar], availableCategorical);
-        const categoricalXPool = availableCategorical.filter((columnName) => columnName !== yVar);
+      const qualitativeColumns = availableCategorical.filter(isQualitative);
+      if (qualitativeColumns.length >= 2) {
+        const yVar = pickPreferredColumnName([exploratoryYVar, responseVar], qualitativeColumns);
+        const categoricalXPool = qualitativeColumns.filter((columnName) => columnName !== yVar);
         let xVar = pickPreferredColumnName([exploratoryXVar, groupVar], categoricalXPool.length > 0 ? categoricalXPool : availableCategorical);
         if (xVar === yVar) {
           const alternativeX = availableCategorical.find((columnName) => columnName !== yVar);
@@ -20698,8 +21288,8 @@ except Exception as _ngr_error:
           reason: `Auto-selected ${chartLabel('grouped_bar')} because categorical pairing was detected.`
         };
       }
-      if (availableCategorical.length >= 1 && availableNumeric.length >= 1) {
-        const xVar = pickPreferredColumnName([exploratoryXVar, groupVar], availableCategorical);
+      if (qualitativeColumns.length >= 1 && availableNumeric.length >= 1) {
+        const xVar = pickPreferredColumnName([exploratoryXVar, groupVar], qualitativeColumns);
         const yVar = pickPreferredColumnName([exploratoryYVar, responseVar], availableNumeric);
         return {
           subMode: 'exploratory_bivariate',
@@ -20723,6 +21313,8 @@ except Exception as _ngr_error:
     activeColumns,
     numericColumns,
     descriptiveCategoricalColumns,
+    columnDataTypes,
+    analysisRowsForTypeDetection,
     exploratoryChartLabelById,
     pickPreferredColumnName,
     exploratoryXVar,
@@ -20770,10 +21362,6 @@ except Exception as _ngr_error:
   const exploratoryYOptions = useMemo(() => {
     return activeColumns;
   }, [activeColumns]);
-  const exploratoryYOptionsWithAutoNone = useMemo(() => {
-    if (exploratoryChartSelectionMode !== 'auto') return toDropdownOptions(exploratoryYOptions);
-    return [{ value: '', label: 'None (Auto)' }, ...toDropdownOptions(exploratoryYOptions)];
-  }, [exploratoryChartSelectionMode, exploratoryYOptions]);
   const exploratoryXLabel = descriptiveSubMode === 'exploratory_univariate'
     ? 'Choose a Variable'
     : 'X Variable';
@@ -20819,13 +21407,6 @@ except Exception as _ngr_error:
     numericColumns,
     descriptiveCategoricalColumns
   ]);
-  const exploratoryMissing = isExploratorySubMode && !isExploratoryMultiMode && (
-    !exploratoryXVar ||
-    (exploratoryConfig?.xType === 'numeric' && !numericColumns.includes(exploratoryXVar)) ||
-    (exploratoryNeedsY && !exploratoryYVar) ||
-    (exploratoryConfig?.yType === 'numeric' && !numericColumns.includes(exploratoryYVar)) ||
-    (exploratoryConfig?.yType === 'categorical' && (descriptiveCategoricalColumns.length > 0 && !descriptiveCategoricalColumns.includes(exploratoryYVar)))
-  );
   const exploratoryAutoPreviewConfig = useMemo(() => {
     if (!exploratoryAutoSelectionPreview?.chartType) return null;
     return exploratoryChartOptions.find((option) => option.id === exploratoryAutoSelectionPreview.chartType) || null;
@@ -20835,7 +21416,7 @@ except Exception as _ngr_error:
     : exploratoryConfig;
   const showSinglePassYSelector = (
     descriptiveSubMode === 'exploratory_bivariate'
-    && exploratoryChartSelectionMode === 'manual'
+    && !isExploratoryMultiMode
   );
   const exploratoryUiXVar = exploratoryChartSelectionMode === 'auto'
     ? (exploratoryAutoSelectionPreview?.xVar || exploratoryXVar)
@@ -20843,6 +21424,51 @@ except Exception as _ngr_error:
   const exploratoryUiYVar = exploratoryChartSelectionMode === 'auto'
     ? (exploratoryAutoSelectionPreview?.yVar || exploratoryYVar)
     : exploratoryYVar;
+  const getExploratoryOptionsForType = useCallback((expectedType) => {
+    if (expectedType === 'numeric') return numericColumns;
+    if (expectedType === 'categorical') return descriptiveCategoricalColumns;
+    return activeColumns;
+  }, [activeColumns, descriptiveCategoricalColumns, numericColumns]);
+  const exploratoryXOptionsForSelection = useMemo(() => {
+    if (exploratoryChartSelectionMode !== 'manual' || isExploratoryMultiMode) return exploratoryXOptions;
+    return getExploratoryOptionsForType(exploratoryConfig?.xType);
+  }, [exploratoryChartSelectionMode, exploratoryConfig, exploratoryXOptions, getExploratoryOptionsForType, isExploratoryMultiMode]);
+  const exploratoryYOptionsForSelection = useMemo(() => {
+    if (isExploratoryMultiMode) return exploratoryYOptions;
+    const typedOptions = exploratoryChartSelectionMode === 'manual'
+      ? getExploratoryOptionsForType(exploratoryConfig?.yType)
+      : exploratoryYOptions;
+    if (descriptiveSubMode !== 'exploratory_bivariate') return typedOptions;
+    return typedOptions.filter((columnName) => columnName !== exploratoryXVar);
+  }, [descriptiveSubMode, exploratoryChartSelectionMode, exploratoryConfig, exploratoryYOptions, exploratoryXVar, getExploratoryOptionsForType, isExploratoryMultiMode]);
+  const exploratoryYOptionsWithAutoNoneForSelection = useMemo(() => {
+    if (exploratoryChartSelectionMode !== 'auto') return toDropdownOptions(exploratoryYOptionsForSelection);
+    return [{ value: '', label: 'None (Auto)' }, ...toDropdownOptions(exploratoryYOptionsForSelection)];
+  }, [exploratoryChartSelectionMode, exploratoryYOptionsForSelection, toDropdownOptions]);
+  const exploratoryValidationConfig = exploratoryChartSelectionMode === 'auto'
+    ? (exploratoryAutoPreviewConfig || exploratoryConfig)
+    : exploratoryConfig;
+  const exploratoryValidationXVar = exploratoryChartSelectionMode === 'auto'
+    ? (exploratoryAutoSelectionPreview?.xVar || exploratoryXVar)
+    : exploratoryXVar;
+  const exploratoryValidationYVar = exploratoryChartSelectionMode === 'auto'
+    ? (exploratoryAutoSelectionPreview?.yVar || exploratoryYVar)
+    : exploratoryYVar;
+  const exploratoryMissing = isExploratorySubMode && !isExploratoryMultiMode && (
+    !exploratoryValidationXVar
+    || !getExploratoryOptionsForType(exploratoryValidationConfig?.xType).includes(exploratoryValidationXVar)
+    || (exploratoryValidationConfig?.yType && !exploratoryValidationYVar)
+    || (
+      exploratoryValidationConfig?.yType
+      && !getExploratoryOptionsForType(exploratoryValidationConfig.yType).includes(exploratoryValidationYVar)
+    )
+    || (
+      descriptiveSubMode === 'exploratory_bivariate'
+      && exploratoryValidationXVar
+      && exploratoryValidationYVar
+      && exploratoryValidationXVar === exploratoryValidationYVar
+    )
+  );
   const showMultiManualNumNumSelector = (
     descriptiveSubMode === 'exploratory_bivariate'
     && (exploratoryMultiRelationType === 'all_pairs' || exploratoryMultiRelationType === 'num_num')
@@ -20885,23 +21511,23 @@ except Exception as _ngr_error:
 
   useEffect(() => {
     if (!isExploratorySubMode) return;
-    if (exploratoryXOptions.length > 0 && !exploratoryXOptions.includes(exploratoryXVar)) {
-      setExploratoryXVar(exploratoryXOptions[0]);
+    if (exploratoryXOptionsForSelection.length > 0 && !exploratoryXOptionsForSelection.includes(exploratoryXVar)) {
+      setExploratoryXVar(exploratoryXOptionsForSelection[0]);
     }
     if (exploratoryChartSelectionMode === 'auto') {
-      if (exploratoryYVar && !exploratoryYOptions.includes(exploratoryYVar)) {
+      if (exploratoryYVar && !exploratoryYOptionsForSelection.includes(exploratoryYVar)) {
         setExploratoryYVar('');
       }
       return;
     }
     if (exploratoryNeedsY) {
-      if (exploratoryYOptions.length > 0 && !exploratoryYOptions.includes(exploratoryYVar)) {
-        setExploratoryYVar(exploratoryYOptions[0]);
+      if (exploratoryYOptionsForSelection.length > 0 && !exploratoryYOptionsForSelection.includes(exploratoryYVar)) {
+        setExploratoryYVar(exploratoryYOptionsForSelection[0]);
       }
     } else if (exploratoryYVar) {
       setExploratoryYVar('');
     }
-  }, [isExploratorySubMode, exploratoryChartSelectionMode, exploratoryXOptions, exploratoryYOptions, exploratoryNeedsY, exploratoryXVar, exploratoryYVar]);
+  }, [isExploratorySubMode, exploratoryChartSelectionMode, exploratoryXOptionsForSelection, exploratoryYOptionsForSelection, exploratoryNeedsY, exploratoryXVar, exploratoryYVar]);
 
   const fmt = (v, digits = 4) => {
     const n = Number(v);
@@ -21340,54 +21966,54 @@ except Exception as _ngr_error:
     const maxValue = Number(summaryPayload?.max);
     const rangeValue = (Number.isFinite(minValue) && Number.isFinite(maxValue)) ? (maxValue - minValue) : NaN;
     return (
-      <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/50 p-4 space-y-3">
+      <div className="rounded-xl bg-[#181818] border-0 p-4 space-y-3 shadow-sm">
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
-            <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">{axisLabel}</div>
-            <div className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate" title={safeText(varName)}>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">{axisLabel}</div>
+            <div className="text-sm font-bold text-zinc-100 truncate" title={safeText(varName)}>
               {safeText(varName)}
             </div>
           </div>
-          <span className={`text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider font-black ${summaryType === 'numeric'
-            ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/35 dark:text-blue-300'
-            : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/35 dark:text-emerald-300'
+          <span className={`text-[10px] px-2.5 py-0.5 rounded-full uppercase tracking-wider font-bold border-0 ${summaryType === 'numeric'
+            ? 'bg-emerald-500/15 text-emerald-400'
+            : 'bg-indigo-500/15 text-indigo-300'
             }`}>
             {summaryType || 'Unknown'}
           </span>
         </div>
 
         {summaryType === 'numeric' ? (
-          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-600 dark:text-slate-300">
-            <div>Total: <span className="font-mono font-semibold">{Number.isFinite(totalN) ? totalN : 'N/A'}</span></div>
-            <div>N: <span className="font-mono font-semibold">{Number.isFinite(n) ? n : 'N/A'}</span></div>
-            <div>Missing: <span className="font-mono font-semibold">{Number.isFinite(missing) ? missing : 'N/A'}</span></div>
-            <div>Mean: <span className="font-mono font-semibold">{formatExploratoryStat(summaryPayload?.mean)}</span></div>
-            <div>Median: <span className="font-mono font-semibold">{formatExploratoryStat(summaryPayload?.median)}</span></div>
-            <div>SD: <span className="font-mono font-semibold">{formatExploratoryStat(summaryPayload?.sd)}</span></div>
-            <div>Variance: <span className="font-mono font-semibold">{formatExploratoryStat(summaryPayload?.variance)}</span></div>
-            <div>Q1: <span className="font-mono font-semibold">{formatExploratoryStat(summaryPayload?.q1)}</span></div>
-            <div>Q3: <span className="font-mono font-semibold">{formatExploratoryStat(summaryPayload?.q3)}</span></div>
-            <div>IQR: <span className="font-mono font-semibold">{formatExploratoryStat(summaryPayload?.iqr)}</span></div>
-            <div>Min: <span className="font-mono font-semibold">{formatExploratoryStat(summaryPayload?.min)}</span></div>
-            <div>Max: <span className="font-mono font-semibold">{formatExploratoryStat(summaryPayload?.max)}</span></div>
-            <div>Range: <span className="font-mono font-semibold">{formatExploratoryStat(rangeValue)}</span></div>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs text-zinc-300">
+            <div>Total: <span className="font-mono font-semibold text-zinc-100">{Number.isFinite(totalN) ? totalN : 'N/A'}</span></div>
+            <div>N: <span className="font-mono font-semibold text-zinc-100">{Number.isFinite(n) ? n : 'N/A'}</span></div>
+            <div>Missing: <span className="font-mono font-semibold text-zinc-100">{Number.isFinite(missing) ? missing : 'N/A'}</span></div>
+            <div>Mean: <span className="font-mono font-semibold text-zinc-100">{formatExploratoryStat(summaryPayload?.mean)}</span></div>
+            <div>Median: <span className="font-mono font-semibold text-zinc-100">{formatExploratoryStat(summaryPayload?.median)}</span></div>
+            <div>SD: <span className="font-mono font-semibold text-zinc-100">{formatExploratoryStat(summaryPayload?.sd)}</span></div>
+            <div>Variance: <span className="font-mono font-semibold text-zinc-100">{formatExploratoryStat(summaryPayload?.variance)}</span></div>
+            <div>Q1: <span className="font-mono font-semibold text-zinc-100">{formatExploratoryStat(summaryPayload?.q1)}</span></div>
+            <div>Q3: <span className="font-mono font-semibold text-zinc-100">{formatExploratoryStat(summaryPayload?.q3)}</span></div>
+            <div>IQR: <span className="font-mono font-semibold text-zinc-100">{formatExploratoryStat(summaryPayload?.iqr)}</span></div>
+            <div>Min: <span className="font-mono font-semibold text-zinc-100">{formatExploratoryStat(summaryPayload?.min)}</span></div>
+            <div>Max: <span className="font-mono font-semibold text-zinc-100">{formatExploratoryStat(summaryPayload?.max)}</span></div>
+            <div>Range: <span className="font-mono font-semibold text-zinc-100">{formatExploratoryStat(rangeValue)}</span></div>
           </div>
         ) : (
           <div className="space-y-2">
-            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-600 dark:text-slate-300">
-              <div>N: <span className="font-mono font-semibold">{Number.isFinite(n) ? n : 'N/A'}</span></div>
-              <div>Missing: <span className="font-mono font-semibold">{Number.isFinite(missing) ? missing : 'N/A'}</span></div>
-              <div>Levels: <span className="font-mono font-semibold">{Number(summaryPayload?.levels) || 0}</span></div>
-              <div>Mode: <span className="font-semibold">{safeText(summaryPayload?.mode || 'N/A')}</span></div>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs text-zinc-300">
+              <div>N: <span className="font-mono font-semibold text-zinc-100">{Number.isFinite(n) ? n : 'N/A'}</span></div>
+              <div>Missing: <span className="font-mono font-semibold text-zinc-100">{Number.isFinite(missing) ? missing : 'N/A'}</span></div>
+              <div>Levels: <span className="font-mono font-semibold text-zinc-100">{Number(summaryPayload?.levels) || 0}</span></div>
+              <div>Mode: <span className="font-semibold text-zinc-100">{safeText(summaryPayload?.mode || 'N/A')}</span></div>
             </div>
             {Array.isArray(summaryPayload?.top_levels) && summaryPayload.top_levels.length > 0 && (
-              <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/35 p-2">
-                <div className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Top Levels</div>
+              <div className="rounded-lg bg-[#141414] border-0 p-2.5">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1.5">Top Levels</div>
                 <div className="space-y-1">
                   {summaryPayload.top_levels.slice(0, 5).map((row, idx) => (
-                    <div key={`top_level_${axisLabel}_${idx}`} className="flex items-center justify-between text-[11px]">
-                      <span className="truncate text-slate-700 dark:text-slate-200 max-w-[140px]" title={safeText(row?.level)}>{safeText(row?.level)}</span>
-                      <span className="font-mono text-slate-500 dark:text-slate-300">{safeText(row?.count)} ({formatExploratoryStat(row?.percent, 1)}%)</span>
+                    <div key={`top_level_${axisLabel}_${idx}`} className="flex items-center justify-between text-xs">
+                      <span className="truncate text-zinc-200 max-w-[140px]" title={safeText(row?.level)}>{safeText(row?.level)}</span>
+                      <span className="font-mono text-zinc-400">{safeText(row?.count)} ({formatExploratoryStat(row?.percent, 1)}%)</span>
                     </div>
                   ))}
                 </div>
@@ -21404,15 +22030,15 @@ except Exception as _ngr_error:
 
     if (relType === 'numeric_numeric') {
       return (
-        <div className="rounded-xl border border-indigo-200 dark:border-indigo-700/60 bg-transparent p-4 space-y-3">
-          <div className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Numeric Relationship Summary</div>
+        <div className="rounded-xl bg-[#181818] border-0 p-4 space-y-3 shadow-sm">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Numeric Relationship Summary</div>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs">
-            <div className="rounded-lg bg-white/80 dark:bg-slate-900/50 border border-indigo-100 dark:border-indigo-800/60 p-2">Pairs: <span className="font-mono font-bold">{safeText(relationship?.n)}</span></div>
-            <div className="rounded-lg bg-white/80 dark:bg-slate-900/50 border border-indigo-100 dark:border-indigo-800/60 p-2">Pearson r: <span className="font-mono font-bold">{formatExploratoryStat(relationship?.pearson)}</span></div>
-            <div className="rounded-lg bg-white/80 dark:bg-slate-900/50 border border-indigo-100 dark:border-indigo-800/60 p-2">Spearman ρ: <span className="font-mono font-bold">{formatExploratoryStat(relationship?.spearman)}</span></div>
-            <div className="rounded-lg bg-white/80 dark:bg-slate-900/50 border border-indigo-100 dark:border-indigo-800/60 p-2">Covariance: <span className="font-mono font-bold">{formatExploratoryStat(relationship?.covariance)}</span></div>
-            <div className="rounded-lg bg-white/80 dark:bg-slate-900/50 border border-indigo-100 dark:border-indigo-800/60 p-2">Slope: <span className="font-mono font-bold">{formatExploratoryStat(relationship?.slope)}</span></div>
-            <div className="rounded-lg bg-white/80 dark:bg-slate-900/50 border border-indigo-100 dark:border-indigo-800/60 p-2">R²: <span className="font-mono font-bold">{formatExploratoryStat(relationship?.r_squared)}</span></div>
+            <div className="rounded-lg bg-[#141414] border-0 p-2.5 text-zinc-300">Pairs: <span className="font-mono font-bold text-zinc-100">{safeText(relationship?.n)}</span></div>
+            <div className="rounded-lg bg-[#141414] border-0 p-2.5 text-zinc-300">Pearson r: <span className="font-mono font-bold text-zinc-100">{formatExploratoryStat(relationship?.pearson)}</span></div>
+            <div className="rounded-lg bg-[#141414] border-0 p-2.5 text-zinc-300">Spearman ρ: <span className="font-mono font-bold text-zinc-100">{formatExploratoryStat(relationship?.spearman)}</span></div>
+            <div className="rounded-lg bg-[#141414] border-0 p-2.5 text-zinc-300">Covariance: <span className="font-mono font-bold text-zinc-100">{formatExploratoryStat(relationship?.covariance)}</span></div>
+            <div className="rounded-lg bg-[#141414] border-0 p-2.5 text-zinc-300">Slope: <span className="font-mono font-bold text-zinc-100">{formatExploratoryStat(relationship?.slope)}</span></div>
+            <div className="rounded-lg bg-[#141414] border-0 p-2.5 text-zinc-300">R²: <span className="font-mono font-bold text-zinc-100">{formatExploratoryStat(relationship?.r_squared)}</span></div>
           </div>
         </div>
       );
@@ -21421,52 +22047,52 @@ except Exception as _ngr_error:
     if (relType === 'categorical_numeric') {
       const rows = Array.isArray(relationship?.groups) ? relationship.groups : [];
       return (
-        <div className="rounded-xl border border-blue-200 dark:border-blue-700/60 bg-blue-50/60 dark:bg-blue-900/15 p-4 space-y-3">
+        <div className="rounded-xl bg-[#181818] border-0 p-4 space-y-3 shadow-sm">
           <div className="flex items-center justify-between gap-2">
-            <div className="text-[10px] font-black uppercase tracking-widest text-blue-500">Grouped Numeric Summary</div>
-            <div className="text-[10px] text-blue-700 dark:text-blue-300 font-semibold">
-              Group: {safeText(relationship?.group_var || 'N/A')} • Value: {safeText(relationship?.value_var || 'N/A')}
+            <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Grouped Numeric Summary</div>
+            <div className="text-xs text-zinc-400 font-medium">
+              Group: <span className="text-zinc-200 font-semibold">{safeText(relationship?.group_var || 'N/A')}</span> • Value: <span className="text-zinc-200 font-semibold">{safeText(relationship?.value_var || 'N/A')}</span>
             </div>
           </div>
           {rows.length > 0 ? (
-            <div className="overflow-x-auto rounded-lg border border-blue-100 dark:border-blue-800/50">
-              <table className="w-full text-[11px]">
-                <thead className="bg-white/80 dark:bg-slate-900/45 text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+            <div className="overflow-x-auto rounded-lg bg-[#141414] border-0">
+              <table className="w-full text-xs">
+                <thead className="bg-[#101010] text-zinc-400 uppercase tracking-wider text-[10px] font-bold border-0">
                   <tr>
-                    <th className="px-2 py-2 text-left">Group</th>
-                    <th className="px-2 py-2 text-right">N</th>
-                    <th className="px-2 py-2 text-right">Mean</th>
-                    <th className="px-2 py-2 text-right">Median</th>
-                    <th className="px-2 py-2 text-right">SD</th>
-                    <th className="px-2 py-2 text-right">Variance</th>
-                    <th className="px-2 py-2 text-right">Q1</th>
-                    <th className="px-2 py-2 text-right">Q3</th>
-                    <th className="px-2 py-2 text-right">IQR</th>
-                    <th className="px-2 py-2 text-right">Min</th>
-                    <th className="px-2 py-2 text-right">Max</th>
+                    <th className="px-3 py-2 text-left">Group</th>
+                    <th className="px-3 py-2 text-right">N</th>
+                    <th className="px-3 py-2 text-right">Mean</th>
+                    <th className="px-3 py-2 text-right">Median</th>
+                    <th className="px-3 py-2 text-right">SD</th>
+                    <th className="px-3 py-2 text-right">Variance</th>
+                    <th className="px-3 py-2 text-right">Q1</th>
+                    <th className="px-3 py-2 text-right">Q3</th>
+                    <th className="px-3 py-2 text-right">IQR</th>
+                    <th className="px-3 py-2 text-right">Min</th>
+                    <th className="px-3 py-2 text-right">Max</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-blue-100 dark:divide-blue-900/40">
+                <tbody className="divide-y divide-white/[0.04]">
                   {rows.slice(0, 8).map((row, idx) => (
-                    <tr key={`grouped_numeric_${idx}`}>
-                      <td className="px-2 py-1.5 font-semibold text-slate-700 dark:text-slate-200">{safeText(row?.group)}</td>
-                      <td className="px-2 py-1.5 text-right font-mono">{safeText(row?.n)}</td>
-                      <td className="px-2 py-1.5 text-right font-mono">{formatExploratoryStat(row?.mean)}</td>
-                      <td className="px-2 py-1.5 text-right font-mono">{formatExploratoryStat(row?.median)}</td>
-                      <td className="px-2 py-1.5 text-right font-mono">{formatExploratoryStat(row?.sd)}</td>
-                      <td className="px-2 py-1.5 text-right font-mono">{formatExploratoryStat(row?.variance)}</td>
-                      <td className="px-2 py-1.5 text-right font-mono">{formatExploratoryStat(row?.q1)}</td>
-                      <td className="px-2 py-1.5 text-right font-mono">{formatExploratoryStat(row?.q3)}</td>
-                      <td className="px-2 py-1.5 text-right font-mono">{formatExploratoryStat(row?.iqr)}</td>
-                      <td className="px-2 py-1.5 text-right font-mono">{formatExploratoryStat(row?.min)}</td>
-                      <td className="px-2 py-1.5 text-right font-mono">{formatExploratoryStat(row?.max)}</td>
+                    <tr key={`grouped_numeric_${idx}`} className="hover:bg-white/[0.03] transition-colors">
+                      <td className="px-3 py-2 font-semibold text-zinc-100">{safeText(row?.group)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-zinc-300">{safeText(row?.n)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-zinc-300">{formatExploratoryStat(row?.mean)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-zinc-300">{formatExploratoryStat(row?.median)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-zinc-300">{formatExploratoryStat(row?.sd)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-zinc-300">{formatExploratoryStat(row?.variance)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-zinc-300">{formatExploratoryStat(row?.q1)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-zinc-300">{formatExploratoryStat(row?.q3)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-zinc-300">{formatExploratoryStat(row?.iqr)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-zinc-300">{formatExploratoryStat(row?.min)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-zinc-300">{formatExploratoryStat(row?.max)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           ) : (
-            <div className="text-xs text-blue-700 dark:text-blue-300">No grouped summary rows available.</div>
+            <div className="text-xs text-zinc-400">No grouped summary rows available.</div>
           )}
         </div>
       );
@@ -21507,50 +22133,50 @@ except Exception as _ngr_error:
         : [];
       const contingencyGrandTotal = contingencyColumnTotals.reduce((sum, value) => sum + value, 0);
       return (
-        <div className="rounded-xl border border-purple-200 dark:border-purple-700/60 bg-purple-50/60 dark:bg-purple-900/15 p-4 space-y-3">
-          <div className="text-[10px] font-black uppercase tracking-widest text-purple-500">Categorical Association Summary</div>
+        <div className="rounded-xl bg-[#181818] border-0 p-4 space-y-3 shadow-sm">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Categorical Association Summary</div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
             {metricItems.map((item, idx) => (
-              <div key={`cat_cat_metric_${idx}`} className="rounded-lg bg-white/80 dark:bg-slate-900/50 border border-purple-100 dark:border-purple-800/60 p-2">
-                {item.label}: <span className="font-mono font-bold">{item.value}</span>
+              <div key={`cat_cat_metric_${idx}`} className="rounded-lg bg-[#141414] border-0 p-2.5 text-zinc-300">
+                {item.label}: <span className="font-mono font-bold text-zinc-100">{item.value}</span>
               </div>
             ))}
           </div>
           {topPairs.length > 0 && (
-            <div className="rounded-lg border border-purple-100 dark:border-purple-800/50 bg-white/70 dark:bg-slate-900/45 p-2">
-              <div className="text-[10px] font-black uppercase tracking-wider text-purple-500 mb-1">Top Cell Combinations</div>
+            <div className="rounded-lg bg-[#141414] border-0 p-3">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1.5">Top Cell Combinations</div>
               <div className="space-y-1">
                 {topPairs.slice(0, 6).map((pair, idx) => (
-                  <div key={`top_pair_${idx}`} className="flex items-center justify-between text-[11px]">
-                    <span className="truncate text-slate-700 dark:text-slate-200">{safeText(pair?.x_level)} × {safeText(pair?.y_level)}</span>
-                    <span className="font-mono text-slate-500 dark:text-slate-300">{safeText(pair?.count)} ({formatExploratoryStat(pair?.percent, 1)}%)</span>
+                  <div key={`top_pair_${idx}`} className="flex items-center justify-between text-xs">
+                    <span className="truncate text-zinc-200">{safeText(pair?.x_level)} × {safeText(pair?.y_level)}</span>
+                    <span className="font-mono text-zinc-400">{safeText(pair?.count)} ({formatExploratoryStat(pair?.percent, 1)}%)</span>
                   </div>
                 ))}
               </div>
             </div>
           )}
           {hasContingencyMatrix && (
-            <div className="rounded-lg border border-purple-100 dark:border-purple-800/50 bg-white/70 dark:bg-slate-900/45 p-2 space-y-2">
+            <div className="rounded-lg bg-[#141414] border-0 p-3 space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <div className="text-[10px] font-black uppercase tracking-wider text-purple-500">Contingency Table</div>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Contingency Table</div>
                 {contingencyTable?.truncated && (
-                  <div className="text-[10px] text-purple-700 dark:text-purple-300 font-semibold">
+                  <div className="text-xs text-zinc-400 font-medium">
                     Showing top levels ({safeText(contingencyTable?.displayed_n)} / {safeText(contingencyTable?.total_n)})
                   </div>
                 )}
               </div>
-              <div className="overflow-x-auto rounded border border-purple-100 dark:border-purple-800/50">
-                <table className="w-full text-[11px]">
-                  <thead className="bg-white/80 dark:bg-slate-900/45 text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+              <div className="overflow-x-auto rounded-lg bg-[#101010] border-0">
+                <table className="w-full text-xs">
+                  <thead className="bg-[#0d0d0d] text-zinc-400 uppercase tracking-wider text-[10px] font-bold border-0">
                     <tr>
-                      <th className="px-2 py-2 text-left">Row \\ Col</th>
+                      <th className="px-3 py-2 text-left">Row \ Col</th>
                       {contingencyColNames.map((colName, idx) => (
-                        <th key={`cont_col_${idx}`} className="px-2 py-2 text-right">{safeText(colName)}</th>
+                        <th key={`cont_col_${idx}`} className="px-3 py-2 text-right">{safeText(colName)}</th>
                       ))}
-                      <th className="px-2 py-2 text-right">Total</th>
+                      <th className="px-3 py-2 text-right">Total</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-purple-100 dark:divide-purple-900/40">
+                  <tbody className="divide-y divide-white/[0.04]">
                     {contingencyRows.map((rowValues, rowIdx) => {
                       const safeRowValues = Array.isArray(rowValues) ? rowValues : [];
                       const rowTotal = contingencyColNames.reduce((sum, _, colIdx) => {
@@ -21558,29 +22184,29 @@ except Exception as _ngr_error:
                         return sum + (Number.isFinite(numeric) ? numeric : 0);
                       }, 0);
                       return (
-                        <tr key={`cont_row_${rowIdx}`}>
-                          <td className="px-2 py-1.5 font-semibold text-slate-700 dark:text-slate-200">
+                        <tr key={`cont_row_${rowIdx}`} className="hover:bg-white/[0.03] transition-colors">
+                          <td className="px-3 py-2 font-semibold text-zinc-100">
                             {safeText(contingencyRowNames[rowIdx] || `Row ${rowIdx + 1}`)}
                           </td>
                           {contingencyColNames.map((_, colIdx) => (
-                            <td key={`cont_cell_${rowIdx}_${colIdx}`} className="px-2 py-1.5 text-right font-mono">
+                            <td key={`cont_cell_${rowIdx}_${colIdx}`} className="px-3 py-2 text-right font-mono text-zinc-300">
                               {safeText(safeRowValues[colIdx] ?? 0)}
                             </td>
                           ))}
-                          <td className="px-2 py-1.5 text-right font-mono font-bold text-slate-700 dark:text-slate-200">
+                          <td className="px-3 py-2 text-right font-mono font-bold text-zinc-100">
                             {safeText(rowTotal)}
                           </td>
                         </tr>
                       );
                     })}
-                    <tr className="bg-purple-50/70 dark:bg-purple-900/20">
-                      <td className="px-2 py-1.5 font-black text-slate-700 dark:text-slate-200">Total</td>
+                    <tr className="bg-[#141414] font-bold">
+                      <td className="px-3 py-2 text-zinc-100">Total</td>
                       {contingencyColumnTotals.map((totalValue, colIdx) => (
-                        <td key={`cont_total_col_${colIdx}`} className="px-2 py-1.5 text-right font-mono font-bold text-slate-700 dark:text-slate-200">
+                        <td key={`cont_total_col_${colIdx}`} className="px-3 py-2 text-right font-mono font-bold text-zinc-100">
                           {safeText(totalValue)}
                         </td>
                       ))}
-                      <td className="px-2 py-1.5 text-right font-mono font-black text-slate-700 dark:text-slate-200">
+                      <td className="px-3 py-2 text-right font-mono font-black text-emerald-400">
                         {safeText(contingencyGrandTotal)}
                       </td>
                     </tr>
@@ -21588,7 +22214,7 @@ except Exception as _ngr_error:
                 </table>
               </div>
               {contingencyTable?.truncated && Number(contingencyTable?.other_count) > 0 && (
-                <div className="text-[10px] text-purple-700 dark:text-purple-300">
+                <div className="text-xs text-zinc-400">
                   Other combinations outside this displayed table: {safeText(contingencyTable?.other_count)}
                 </div>
               )}
@@ -21753,13 +22379,13 @@ except Exception as _ngr_error:
     const lines = getExploratoryInterpretationLines(exploratoryChartPayload, alpha);
     if (!Array.isArray(lines) || lines.length === 0) return null;
     return (
-      <div className="rounded-xl border border-amber-200 dark:border-amber-700/60 bg-amber-50/60 dark:bg-amber-900/15 p-4 space-y-2">
-        <div className="text-[10px] font-black uppercase tracking-widest text-amber-600 dark:text-amber-300">
+      <div className="rounded-xl bg-[#181818] border-0 p-4 space-y-2 shadow-sm">
+        <div className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
           Chart-Specific Interpretation
         </div>
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           {lines.map((line, idx) => (
-            <p key={`exploratory_interp_${idx}`} className="text-xs text-amber-800 dark:text-amber-200 leading-relaxed">
+            <p key={`exploratory_interp_${idx}`} className="text-xs text-zinc-300 leading-relaxed">
               {line}
             </p>
           ))}
@@ -26836,7 +27462,11 @@ except Exception as _ngr_error:
       && exploratoryChartSelectionMode === 'auto'
     ) ? deriveAutoExploratorySelection() : null;
     const exploratorySubModeForRun = autoExploratorySelectionForRun?.subMode || descriptiveSubMode;
-    const exploratoryChartTypeForRun = autoExploratorySelectionForRun?.chartType || exploratoryChartType;
+    const exploratoryChartTypeForRun = autoExploratorySelectionForRun?.chartType || (
+      exploratoryChartOptionsFiltered.some((option) => option.id === exploratoryChartType)
+        ? exploratoryChartType
+        : (exploratoryChartOptionsFiltered[0]?.id || exploratoryChartType)
+    );
     const exploratoryConfigForRun = exploratoryChartOptions.find((option) => option.id === exploratoryChartTypeForRun) || exploratoryConfig;
     const exploratoryNeedsYForRun = !!exploratoryConfigForRun?.yType;
     const exploratoryXVarForRun = autoExploratorySelectionForRun?.xVar || exploratoryXVar;
@@ -26918,9 +27548,25 @@ except Exception as _ngr_error:
             setError("Select an X variable for the exploratory chart.");
             return null;
           }
+          const validXVariablesForRun = getExploratoryOptionsForType(exploratoryConfigForRun?.xType);
+          if (!validXVariablesForRun.includes(exploratoryXVarForRun)) {
+            setError(`The selected X variable is not compatible with ${exploratoryChartTypeForRun}.`);
+            return null;
+          }
           if (exploratoryNeedsYForRun && !exploratoryYVarForRun) {
             setError("Select a Y variable for the selected chart type.");
             return null;
+          }
+          if (exploratoryNeedsYForRun) {
+            const validYVariablesForRun = getExploratoryOptionsForType(exploratoryConfigForRun?.yType);
+            if (!validYVariablesForRun.includes(exploratoryYVarForRun)) {
+              setError(`The selected Y variable is not compatible with ${exploratoryChartTypeForRun}.`);
+              return null;
+            }
+            if (exploratoryXVarForRun === exploratoryYVarForRun) {
+              setError('Select two different variables for a bivariate chart.');
+              return null;
+            }
           }
         }
       } else if (analysisMode === 'regression') {
@@ -27579,7 +28225,8 @@ except Exception as _ngr_error:
           const numericCandidates = (Array.isArray(numericColumns) ? numericColumns : [])
             .filter((columnName) => activeColumns.includes(columnName));
           const categoricalCandidates = (Array.isArray(descriptiveCategoricalColumns) ? descriptiveCategoricalColumns : [])
-            .filter((columnName) => activeColumns.includes(columnName));
+            .filter((columnName) => activeColumns.includes(columnName)
+              && ['nominal', 'ordinal', 'binary'].includes(columnDataTypes?.[columnName]));
           const pairSpecs = [];
           const isUnivariateMultiRun = exploratorySubModeForRun === 'exploratory_univariate';
           const buildSpecId = (spec) => `${spec.relationType || 'pair'}__${spec.xVar}__${spec.yVar || ''}`;
@@ -27605,7 +28252,11 @@ except Exception as _ngr_error:
             univariateCandidates.forEach((columnName) => {
               let nextChartType = '';
               if (exploratoryChartSelectionMode === 'auto') {
-                if (numericCandidates.includes(columnName)) {
+                const detectedType = columnDataTypes?.[columnName];
+                const distinctCount = countDistinctColumnValues(columnName, analysisRowsForTypeDetection);
+                if (detectedType === 'discrete' && distinctCount > 0 && distinctCount <= DISCRETE_BAR_MAX_LEVELS) {
+                  nextChartType = 'bar';
+                } else if (detectedType === 'discrete' || detectedType === 'continuous' || numericCandidates.includes(columnName)) {
                   nextChartType = 'histogram';
                 } else if (categoricalCandidates.includes(columnName)) {
                   nextChartType = 'bar';
@@ -35589,7 +36240,7 @@ except Exception as _ngr_error:
                             value={exploratoryUiXVar}
                             onChange={setExploratoryXVar}
                             placeholder="Select Variable..."
-                            options={toDropdownOptions(exploratoryXOptions)}
+                            options={toDropdownOptions(exploratoryXOptionsForSelection)}
                             triggerClassName={`analysis-workflow-choice bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 rounded-xl text-left w-full focus:outline-none focus:ring-2 transition-colors text-xs font-bold text-slate-800 dark:text-white cursor-pointer shadow-sm relative z-10 ${descriptiveSubMode === 'exploratory_bivariate' ? 'focus:ring-indigo-500/50 hover:border-indigo-500/70 dark:hover:border-indigo-400/70' : 'focus:ring-cyan-500/50 hover:border-cyan-500/70 dark:hover:border-cyan-400/70'}`}
                             menuClassName="analysis-workflow-choice bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl mt-1 z-50"
                           />
@@ -35605,7 +36256,7 @@ except Exception as _ngr_error:
                               value={exploratoryUiYVar}
                               onChange={setExploratoryYVar}
                               placeholder="Select Variable..."
-                              options={exploratoryYOptionsWithAutoNone}
+                              options={exploratoryYOptionsWithAutoNoneForSelection}
                               triggerClassName={`analysis-workflow-choice bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 rounded-xl text-left w-full focus:outline-none focus:ring-2 transition-colors text-xs font-bold text-slate-800 dark:text-white cursor-pointer shadow-sm relative z-10 ${descriptiveSubMode === 'exploratory_bivariate' ? 'focus:ring-indigo-500/50 hover:border-indigo-500/70 dark:hover:border-indigo-400/70' : 'focus:ring-cyan-500/50 hover:border-cyan-500/70 dark:hover:border-cyan-400/70'}`}
                               menuClassName="analysis-workflow-choice bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl mt-1 z-50"
                             />
@@ -37820,19 +38471,21 @@ except Exception as _ngr_error:
                 value={exploratoryUiXVar}
                 onChange={setExploratoryXVar}
                 placeholder="Choose X..."
-                options={toDropdownOptions(exploratoryXOptions)}
+                options={toDropdownOptions(exploratoryXOptionsForSelection)}
                 className="analysis-variable-select"
                 triggerClassName="analysis-variable-trigger"
                 menuClassName="analysis-variable-menu"
               />
             </div>
             <div className="space-y-4">
-              <label className="text-xs font-black uppercase text-slate-500 dark:text-slate-400 tracking-widest block pl-1">Y Variable (Optional)</label>
+              <label className="text-xs font-black uppercase text-slate-500 dark:text-slate-400 tracking-widest block pl-1">
+                {descriptiveSubMode === 'exploratory_bivariate' ? 'Y Variable' : 'Y Variable (Optional)'}
+              </label>
               <ModernSelect
                 value={exploratoryUiYVar}
                 onChange={setExploratoryYVar}
                 placeholder="Choose Y..."
-                options={exploratoryYOptionsWithAutoNone}
+                options={exploratoryYOptionsWithAutoNoneForSelection}
                 className="analysis-variable-select"
                 triggerClassName="analysis-variable-trigger"
                 menuClassName="analysis-variable-menu"
@@ -38954,6 +39607,11 @@ except Exception as _ngr_error:
               );
             })}
           </div>
+          {['python', 'python_seaborn', 'python_plotly'].includes(paletteGroup) && (
+            <div className="rounded-md border border-gray-700/80 bg-gray-900/50 px-2 py-1.5 text-[10px] text-gray-400">
+              Python-compatible palettes for categorical, diverging, and publication-ready plots.
+            </div>
+          )}
           {/* Swatch grid */}
           <div className="grid grid-cols-3 gap-1.5 max-h-48 overflow-y-auto pr-0.5 custom-scrollbar" role="listbox">
             {(paletteOptionsInActiveGroup.length > 0 ? paletteOptionsInActiveGroup : PALETTE_OPTIONS).map((palette) => {
@@ -39013,7 +39671,7 @@ except Exception as _ngr_error:
                             const nextColor = e.target.value;
                             setManualVariableColors((prev) => ({ ...prev, [target.key]: nextColor }));
                           }}
-                          className="h-7 w-9 rounded border border-gray-700 bg-transparent cursor-pointer"
+                          className="h-6 w-8 rounded border border-white/20 bg-transparent cursor-pointer p-0.5"
                         />
                         <input
                           type="text"
@@ -39022,7 +39680,7 @@ except Exception as _ngr_error:
                             const nextText = e.target.value.trim();
                             setManualVariableColors((prev) => ({ ...prev, [target.key]: nextText }));
                           }}
-                          className="w-24 rounded border border-gray-700 bg-[#C4C4C4] px-2 py-1 text-[11px] font-mono text-gray-900 font-bold"
+                          className="w-24 rounded border border-white/10 bg-[#111622] px-2 py-1 text-[11px] font-mono text-slate-100 font-medium focus:border-cyan-500 focus:outline-none"
                         />
                       </div>
                     </div>
@@ -39104,13 +39762,13 @@ except Exception as _ngr_error:
                           type="color"
                           value={safeColor}
                           onChange={(e) => updateLegendPaletteItemColor(safeItem.id, e.target.value)}
-                          className="h-7 w-9 rounded border border-gray-700 bg-transparent cursor-pointer"
+                          className="h-6 w-8 rounded border border-white/20 bg-transparent cursor-pointer p-0.5"
                         />
                         <input
                           type="text"
                           value={String(safeItem.color || '')}
                           onChange={(e) => updateLegendPaletteItemColor(safeItem.id, e.target.value)}
-                          className="w-24 rounded border border-gray-700 bg-[#C4C4C4] px-2 py-1 text-[11px] font-mono text-gray-900 font-bold"
+                          className="w-24 rounded border border-white/10 bg-[#111622] px-2 py-1 text-[11px] font-mono text-slate-100 font-medium focus:border-cyan-500 focus:outline-none"
                         />
                       </div>
                     </div>
@@ -39243,7 +39901,7 @@ except Exception as _ngr_error:
                   </button>
 
                   {isFileMenu && isActive && (
-                    <div className="absolute left-0 top-full mt-1 z-[210] w-36 rounded-md border border-slate-700/80 bg-black/95 shadow-2xl p-1 space-y-0.5">
+                    <div className="absolute left-0 top-full mt-1 z-[210] w-48 rounded-md border border-slate-700/80 bg-black/95 shadow-2xl p-1 space-y-0.5">
                       <button
                         type="button"
                         onClick={() => {
@@ -39268,6 +39926,18 @@ except Exception as _ngr_error:
                         <FolderOpen size={12} className="text-amber-300 shrink-0" />
                         Open Folder
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTopMenu('');
+                          editablePlotInputRef.current?.click();
+                        }}
+                        className="w-full inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[10px] font-semibold text-slate-100 hover:bg-slate-800/85 transition-colors"
+                        title="Open an editable plot, PNG, SVG, or legacy package"
+                      >
+                        <Pencil size={12} className="text-cyan-200 shrink-0" />
+                        Open Editable Plot
+                      </button>
                     </div>
                   )}
                 </div>
@@ -39282,6 +39952,13 @@ except Exception as _ngr_error:
                 await handleFileChange(e);
                 if (lateralUploadInputRef.current) lateralUploadInputRef.current.value = '';
               }}
+            />
+            <input
+              ref={editablePlotInputRef}
+              type="file"
+              accept=".ngplot,application/json,.png,.svg,image/png,image/svg+xml"
+              className="hidden"
+              onChange={handleEditablePlotFileChange}
             />
           </div>
 
@@ -39528,13 +40205,37 @@ except Exception as _ngr_error:
                 initialPlotId={selectedPlotId}
                 onClearPlots={handleClearGeneratedPlots}
                 onDeletePlot={handleDeleteGeneratedPlot}
+                onEditPlot={openGalleryPlotEditor}
+                onDownloadPlot={handleGalleryPlotDownload}
+                editorPlot={selectedImage?.galleryEmbedded ? selectedImage : null}
+                renderEditor={(plot, onClose, options = {}) => (
+                  <ImageModal
+                    isOpen
+                    onClose={onClose}
+                    imageUrl={plot.url}
+                    title={plot.title}
+                    editor={activeImageEditor}
+                    editorLanguage={editorLanguage}
+                    onTapImage={cycleFullscreenPlotPalette}
+                    embedded
+                    panelOnly={options.panelOnly === true}
+                    editablePlotMetadata={{
+                      ...plot,
+                      analysisContext: editablePlotAnalysisContext,
+                      analysisResult: analysisResults.find((entry) => (
+                        String(entry?.id || '').trim() === String(plot?.analysisResultId || '').trim()
+                      ))?.data || null
+                    }}
+                  />
+                )}
               />
             ) : null}
           </div>
         </div>
       </div>
 
-      <main className="flex-grow space-y-8 max-w-7xl mx-auto w-full px-6 pb-20 pt-28 md:pl-24 animate-fade-in">
+      <div className="app-content-scroll-region">
+      <main className="flex-grow space-y-8 max-w-7xl mx-auto w-full px-6 pb-20 pt-16 md:pl-24 animate-fade-in">
         {showWrapperEditor && (
           <RWrapperEditor
             aiModel={aiModel}
@@ -40765,22 +41466,28 @@ except Exception as _ngr_error:
         {/* Descriptive Statistics Results */}
         {console.log('🔍 Checking descriptive mode. result:', result, 'mode:', result?.mode, 'is descriptive?:', result?.mode === 'descriptive')}
         {isBiostatsModeEnabled && result && result.mode === 'descriptive' && (
-          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700 pb-20">
+          <div className="descriptive-results-shell space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700 pb-20">
+            <div className="flex items-center gap-2.5">
+              <div className="analysis-config-step-badge px-2.5 py-0.5 rounded-full bg-[#181818] text-zinc-300 text-[10px] font-semibold uppercase tracking-wider border-0">
+                Step 04
+              </div>
+              <h3 className="analysis-config-title text-base font-bold text-zinc-100 font-sans tracking-tight">Descriptive Analysis Results</h3>
+            </div>
 
             {/* Univariate Analysis - Available for both Bivariate and Correlation Matrix modes */}
             {result.univariate_analysis && (
               <Card title="Univariate Analysis & Distributions" icon={ChartBarIcon}>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {Object.entries(result.univariate_analysis).map(([varName, stats], idx) => (
-                    <div key={idx} className="kpi-card">
+                    <div key={idx} className="kpi-card bg-[#141414] rounded-xl p-5 border-0 shadow-md">
                       {/* Header with Icon Badge */}
                       <div className="flex justify-between items-start mb-6">
                         <div>
-                          <p className="section-label mb-2">{stats.type.toUpperCase()}</p>
-                          <h3 className="text-lg font-bold text-[#E9FEFF]">{varName}</h3>
+                          <p className="section-label text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1.5">{stats.type.toUpperCase()}</p>
+                          <h3 className="text-base font-bold text-zinc-100 tracking-tight">{varName}</h3>
                         </div>
-                        <div className={`icon-badge ${stats.type === 'numeric' ? '' : 'icon-badge-green'}`}>
-                          <span className={`text-lg font-bold ${stats.type === 'numeric' ? 'text-[#00F5FF]' : 'text-[#22c55e]'}`}>
+                        <div className={`icon-badge w-7 h-7 rounded-lg flex items-center justify-center border-0 ${stats.type === 'numeric' ? 'bg-[#181818] text-zinc-300' : 'bg-emerald-500/15 text-emerald-400'}`}>
+                          <span className="text-sm font-bold">
                             {stats.type === 'numeric' ? 'ƒ' : '∑'}
                           </span>
                         </div>
@@ -40791,60 +41498,60 @@ except Exception as _ngr_error:
                         <div className="space-y-4">
                           {/* Mean - Main KPI */}
                           <div>
-                            <p className="section-label mb-1">MEAN</p>
-                            <p className="value-display">{stats.mean?.toFixed(2)}</p>
-                            <p className="value-description mt-1">Central tendency</p>
+                            <p className="section-label text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1">MEAN</p>
+                            <p className="value-display text-3xl font-extrabold text-zinc-100 tracking-tight">{stats.mean?.toFixed(2)}</p>
+                            <p className="value-description text-xs text-zinc-400 mt-1">Central tendency</p>
                           </div>
 
                           {/* Median & SD */}
                           <div className="grid grid-cols-2 gap-3">
-                            <div className="info-panel rounded-lg p-3">
-                              <p className="section-label mb-1">MEDIAN</p>
-                              <p className="text-xl font-bold text-[#E9FEFF]">{stats.median?.toFixed(2)}</p>
+                            <div className="info-panel rounded-xl p-3 bg-[#181818] border-0">
+                              <p className="section-label text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1">MEDIAN</p>
+                              <p className="text-lg font-bold text-zinc-100">{stats.median?.toFixed(2)}</p>
                             </div>
-                            <div className="info-panel rounded-lg p-3">
-                              <p className="section-label mb-1">SD</p>
-                              <p className="text-xl font-bold text-[#E9FEFF]">{stats.sd?.toFixed(2)}</p>
+                            <div className="info-panel rounded-xl p-3 bg-[#181818] border-0">
+                              <p className="section-label text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1">SD</p>
+                              <p className="text-lg font-bold text-zinc-100">{stats.sd?.toFixed(2)}</p>
                             </div>
                           </div>
 
                           {/* Min/Max */}
-                          <div className="info-panel rounded-lg p-3 flex justify-between">
+                          <div className="info-panel rounded-xl p-3 bg-[#181818] border-0 flex justify-between items-center">
                             <div>
-                              <p className="section-label mb-1">MIN</p>
-                              <p className="text-base font-bold text-[#E9FEFF]">{stats.min?.toFixed(2)}</p>
+                              <p className="section-label text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1">MIN</p>
+                              <p className="text-sm font-bold text-zinc-100">{stats.min?.toFixed(2)}</p>
                             </div>
                             <div className="text-right">
-                              <p className="section-label mb-1">MAX</p>
-                              <p className="text-base font-bold text-[#E9FEFF]">{stats.max?.toFixed(2)}</p>
+                              <p className="section-label text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1">MAX</p>
+                              <p className="text-sm font-bold text-zinc-100">{stats.max?.toFixed(2)}</p>
                             </div>
                           </div>
                         </div>
                       ) : (
                         <div className="space-y-2">
-                          <p className="section-label mb-3">DISTRIBUTION</p>
+                          <p className="section-label text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-2">DISTRIBUTION</p>
                           {Object.entries(stats.counts || {}).slice(0, 3).map(([cat, count], i) => (
-                            <div key={i} className="flex justify-between items-center p-2 rounded" style={{ background: 'rgba(255, 255, 255, 0.02)' }}>
-                              <span className="text-xs text-[#E5E2E1]/70">{cat}</span>
-                              <span className="text-xs font-bold text-[#00F5FF]">{count} ({stats.percentages?.[cat]}%)</span>
+                            <div key={i} className="flex justify-between items-center p-2.5 rounded-lg bg-[#181818] border-0">
+                              <span className="text-xs text-zinc-300 font-medium">{cat}</span>
+                              <span className="text-xs font-bold text-emerald-400">{count} ({stats.percentages?.[cat]}%)</span>
                             </div>
                           ))}
                         </div>
                       )}
 
                       {/* Sample Size */}
-                      <div className="info-panel rounded-lg p-3 mt-4">
-                        <p className="section-label mb-1">N (Sample Size)</p>
-                        <p className="text-lg font-bold text-[#E9FEFF]">{stats.n}</p>
+                      <div className="info-panel rounded-xl p-3 mt-4 bg-[#181818] border-0">
+                        <p className="section-label text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1">N (Sample Size)</p>
+                        <p className="text-base font-bold text-zinc-100">{stats.n}</p>
                       </div>
 
                       {/* Plot */}
                       {stats.plot_image && (
-                        <div className="mt-4 plot-container">
+                        <div className="mt-4 plot-container bg-[#101010] rounded-xl overflow-hidden border-0">
                           <img
                             src={`data:image/png;base64,${stats.plot_image}`}
                             alt={`Distribution of ${varName}`}
-                            className="w-full h-40 object-contain opacity-80 hover:opacity-100 transition-opacity"
+                            className="w-full h-40 object-contain opacity-90 hover:opacity-100 transition-opacity"
                           />
                         </div>
                       )}
@@ -40854,9 +41561,9 @@ except Exception as _ngr_error:
                 <div className="mt-6 flex justify-end">
                   <button
                     onClick={() => handleAskAI('Univariate Analysis Report', generateReport(result, 'univariate'))}
-                    className="ai-button px-5 py-2.5 rounded-xl flex items-center gap-2 text-sm font-semibold"
+                    className="ai-button px-5 py-2.5 rounded-xl bg-[#181818] hover:bg-[#242424] text-zinc-200 border-0 flex items-center gap-2 text-xs font-bold transition-all cursor-pointer shadow-sm"
                   >
-                    <Bot size={14} /> Ask AI about Distributions
+                    <Bot size={14} className="text-emerald-400" /> Ask AI about Distributions
                   </button>
                 </div>
               </Card>
@@ -40870,17 +41577,17 @@ except Exception as _ngr_error:
                     const isUnivariateInline = relationKey.startsWith('univariate');
                     return (
                       <div className="flex flex-wrap items-center gap-2 text-xs">
-                        <span className="px-2 py-1 rounded-full border border-indigo-200 dark:border-indigo-700 bg-indigo-50/70 dark:bg-indigo-900/25 text-indigo-700 dark:text-indigo-300 font-black uppercase tracking-wider">
+                        <span className="px-2.5 py-1 rounded-full bg-[#181818] text-zinc-200 text-[10px] font-bold uppercase tracking-wider border-0">
                           {exploratoryMultiRelationLabel(result.exploratory_multi_inline.relation_type)}
                         </span>
-                        <span className="px-2 py-1 rounded-full border border-slate-200 dark:border-slate-700 bg-transparent text-slate-600 dark:text-slate-300 font-semibold">
+                        <span className="px-2.5 py-1 rounded-full bg-[#181818] text-zinc-400 text-[10px] font-semibold border-0">
                           {isUnivariateInline ? 'Total charts' : 'Total pairs'}: {safeText(result.exploratory_multi_inline.pair_count)}
                         </span>
-                        <span className="px-2 py-1 rounded-full border border-emerald-200 dark:border-emerald-700 bg-emerald-50/70 dark:bg-emerald-900/25 text-emerald-700 dark:text-emerald-300 font-semibold">
+                        <span className="px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 text-[10px] font-semibold border-0">
                           Shown: {safeText(result.exploratory_multi_inline.success_count)}
                         </span>
                         {Number(result.exploratory_multi_inline.failed_count) > 0 && (
-                          <span className="px-2 py-1 rounded-full border border-amber-200 dark:border-amber-700 bg-amber-50/70 dark:bg-amber-900/25 text-amber-700 dark:text-amber-300 font-semibold">
+                          <span className="px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-400 text-[10px] font-semibold border-0">
                             Failed: {safeText(result.exploratory_multi_inline.failed_count)}
                           </span>
                         )}
@@ -40889,10 +41596,10 @@ except Exception as _ngr_error:
                   })()}
 
                   {Array.isArray(result.exploratory_multi_inline.failed_pairs) && result.exploratory_multi_inline.failed_pairs.length > 0 && (
-                    <div className="rounded-xl border border-amber-200 dark:border-amber-700/60 bg-amber-50/60 dark:bg-amber-900/15 p-3 space-y-1">
-                      <div className="text-[10px] font-black uppercase tracking-widest text-amber-600 dark:text-amber-300">Failed Runs</div>
+                    <div className="rounded-xl bg-amber-500/10 border-0 p-3.5 space-y-1">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-amber-400">Failed Runs</div>
                       {result.exploratory_multi_inline.failed_pairs.slice(0, 8).map((entry, idx) => (
-                        <div key={`failed_pair_${idx}`} className="text-xs text-amber-800 dark:text-amber-200">
+                        <div key={`failed_pair_${idx}`} className="text-xs text-amber-200">
                           {safeText(entry?.pairLabel)}: {safeText(entry?.error)}
                         </div>
                       ))}
@@ -40913,22 +41620,22 @@ except Exception as _ngr_error:
                     );
                     const interpretationPanel = renderExploratoryInterpretationPanel(chartPayload);
                     return (
-                      <div key={run?.pair_id || `multi_inline_pair_${idx}`} className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/45 p-4 space-y-4">
+                      <div key={run?.pair_id || `multi_inline_pair_${idx}`} className="rounded-xl bg-[#181818] border-0 p-5 space-y-4 shadow-sm">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div>
-                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
                               {hasY ? 'Pair' : 'Chart'} {idx + 1}
                             </div>
-                            <div className="text-sm font-bold text-slate-700 dark:text-slate-200">
+                            <div className="text-sm font-bold text-zinc-100">
                               {pairLabel}
                             </div>
                           </div>
-                          <span className="text-[11px] px-2 py-1 rounded-lg border border-sky-200 dark:border-sky-700 bg-sky-50/70 dark:bg-sky-900/25 text-sky-700 dark:text-sky-300 font-semibold">
+                          <span className="text-xs px-2.5 py-1 rounded-lg bg-[#141414] text-zinc-300 font-semibold border-0">
                             {chartTypeText}
                           </span>
                         </div>
 
-                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">Summary</div>
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Summary</div>
                         {chartSummary ? (
                           <div className="space-y-4">
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -40938,18 +41645,18 @@ except Exception as _ngr_error:
                             {renderExploratoryRelationshipSummary(chartSummary?.relationship)}
                           </div>
                         ) : (
-                          <div className="text-xs text-slate-500 dark:text-slate-400">No summary available.</div>
+                          <div className="text-xs text-zinc-400">No summary available.</div>
                         )}
 
-                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">Plot</div>
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Plot</div>
                         {runData?.image ? (
-                          <div className="relative group rounded-xl overflow-hidden border dark:border-gray-700 shadow-lg bg-white dark:bg-gray-900">
+                          <div className="relative group rounded-xl overflow-hidden bg-[#101010] border-0 shadow-md">
                             <img
                               src={`data:image/png;base64,${runData.image}`}
                               alt={`Exploratory chart: ${chartPayload?.chart_type || run?.chart_type}`}
-                              className="w-full h-auto object-contain"
+                              className="w-full h-auto object-contain opacity-90 group-hover:opacity-100 transition-opacity"
                             />
-                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 dark:group-hover:bg-white/5 transition-all duration-300 flex items-center justify-center opacity-0 group-hover:opacity-100">
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all duration-300 flex items-center justify-center opacity-0 group-hover:opacity-100">
                               <button
                                 onClick={() => setSelectedImage({
                                   url: `data:image/png;base64,${runData.image}`,
@@ -40959,21 +41666,21 @@ except Exception as _ngr_error:
                                   xVar: chartPayload?.x_var || run?.x_var,
                                   yVar: chartPayload?.y_var || run?.y_var
                                 })}
-                                className="bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 p-3 rounded-full shadow-xl hover:scale-110 transition-transform transform border border-gray-200 dark:border-gray-700"
+                                className="bg-[#181818]/90 text-zinc-200 p-3 rounded-full shadow-xl hover:scale-110 transition-transform border border-white/10 hover:bg-[#242424]"
                               >
                                 <Maximize2 size={24} />
                               </button>
                             </div>
                           </div>
                         ) : (
-                          <div className="h-40 rounded-lg bg-gray-50 dark:bg-gray-900 flex items-center justify-center text-xs text-gray-400">
+                          <div className="h-40 rounded-xl bg-[#141414] border-0 flex items-center justify-center text-xs text-zinc-500">
                             No plot available
                           </div>
                         )}
 
-                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">Report</div>
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Report</div>
                         {interpretationPanel || (
-                          <div className="text-xs text-slate-500 dark:text-slate-400">
+                          <div className="text-xs text-zinc-400">
                             No interpretation report was generated for this pair.
                           </div>
                         )}
@@ -40987,10 +41694,10 @@ except Exception as _ngr_error:
             {result.exploratory_chart && (
               <Card title="Exploratory Charts" icon={Activity}>
                 <div className="space-y-6">
-                  <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl" style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                  <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl bg-[#181818] border-0">
                     <div>
-                      <span className="text-[9px] font-bold text-[#E5E2E1]/40 tracking-widest uppercase">CHART TYPE</span>
-                      <p className="text-sm font-bold text-[#E9FEFF] mt-1">
+                      <span className="text-[10px] font-bold text-zinc-400 tracking-wider uppercase">CHART TYPE</span>
+                      <p className="text-sm font-bold text-zinc-100 mt-0.5">
                         {exploratoryChartLabel(result.exploratory_chart.chart_type)}
                       </p>
                     </div>
@@ -40998,27 +41705,27 @@ except Exception as _ngr_error:
                       onClick={handleDownloadModelSummaryPdf}
                       disabled={!modelSummaryReport}
                       title="Download exploratory report as PDF"
-                      className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-95 ${modelSummaryReport
-                        ? 'bg-[#00F5FF]/5 text-[#00F5FF] border border-[#00F5FF]/15 hover:bg-[#00F5FF]/10'
-                        : 'bg-white/5 text-[#E5E2E1]/30 border border-white/5 cursor-not-allowed'
+                      className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all border-0 ${modelSummaryReport
+                        ? 'bg-emerald-600/90 hover:bg-emerald-500 text-white shadow-[0_2px_12px_rgba(16,185,129,0.25)] cursor-pointer active:scale-95'
+                        : 'bg-[#141414] text-zinc-600 cursor-not-allowed'
                         }`}
                     >
                       <Download size={14} />
                       Export PDF
                     </button>
                   </div>
-                  <div className="p-4 rounded-xl" style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
-                    <p className="text-[9px] font-bold text-[#E5E2E1]/40 tracking-widest uppercase mb-2">VARIABLES</p>
-                    <p className="text-sm font-bold text-[#E9FEFF]">
-                      X: <span className="font-mono text-[#00F5FF]">{safeText(result.exploratory_chart.x_var)}</span>
+                  <div className="p-4 rounded-xl bg-[#181818] border-0">
+                    <p className="text-[10px] font-bold text-zinc-400 tracking-wider uppercase mb-1.5">VARIABLES</p>
+                    <p className="text-xs font-semibold text-zinc-200">
+                      X: <span className="font-mono text-xs px-2 py-0.5 rounded bg-[#121212] text-emerald-400 font-bold">{safeText(result.exploratory_chart.x_var)}</span>
                       {result.exploratory_chart.y_var ? (
-                        <> • Y: <span className="font-mono text-[#00F5FF]">{safeText(result.exploratory_chart.y_var)}</span></>
+                        <> • Y: <span className="font-mono text-xs px-2 py-0.5 rounded bg-[#121212] text-emerald-400 font-bold">{safeText(result.exploratory_chart.y_var)}</span></>
                       ) : null}
                     </p>
                   </div>
                   {result.exploratory_chart.summary && (
                     <div className="space-y-4">
-                      <div className="text-[9px] font-bold text-[#E5E2E1]/40 tracking-widest uppercase px-1">
+                      <div className="text-[10px] font-bold text-zinc-400 tracking-wider uppercase px-0.5">
                         Descriptive Information Panel
                       </div>
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -41038,23 +41745,18 @@ except Exception as _ngr_error:
                     </div>
                   )}
                   {result.exploratory_chart.plot_error && (
-                    <div className="p-4 rounded-xl border border-red-500/20" style={{ background: 'rgba(239, 68, 68, 0.05)' }}>
-                      <p className="text-xs text-red-400">
-                        {safeText(result.exploratory_chart.plot_error)}
-                      </p>
+                    <div className="p-4 rounded-xl bg-rose-500/10 border-0 text-xs text-rose-400">
+                      {safeText(result.exploratory_chart.plot_error)}
                     </div>
                   )}
                   {result.image ? (
-                    <div className="relative group rounded-xl overflow-hidden" style={{
-                      background: '#050507',
-                      border: '1px solid rgba(255, 255, 255, 0.05)'
-                    }}>
+                    <div className="relative group rounded-xl overflow-hidden bg-[#101010] border-0 shadow-md">
                       <img
                         src={`data:image/png;base64,${result.image}`}
                         alt={`Exploratory chart: ${result.exploratory_chart.chart_type}`}
-                        className="w-full h-auto object-contain opacity-80 group-hover:opacity-100 transition-opacity"
+                        className="w-full h-auto object-contain opacity-90 group-hover:opacity-100 transition-opacity"
                       />
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-[#00F5FF]/5 transition-all duration-300 flex items-center justify-center opacity-0 group-hover:opacity-100">
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all duration-300 flex items-center justify-center opacity-0 group-hover:opacity-100">
                         <button
                           onClick={() => setSelectedImage({
                             url: `data:image/png;base64,${result.image}`,
@@ -41064,14 +41766,14 @@ except Exception as _ngr_error:
                             xVar: result?.exploratory_chart?.x_var,
                             yVar: result?.exploratory_chart?.y_var
                           })}
-                          className="bg-[#131313]/90 text-white p-3 rounded-full shadow-xl hover:scale-110 transition-transform border border-[#00F5FF]/20"
+                          className="bg-[#181818]/90 text-zinc-200 p-3 rounded-full shadow-xl hover:scale-110 transition-transform border border-white/10 hover:bg-[#242424]"
                         >
                           <Maximize2 size={24} />
                         </button>
                       </div>
                     </div>
                   ) : (
-                    <div className="h-40 rounded-xl flex items-center justify-center text-xs text-[#E5E2E1]/30" style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                    <div className="h-40 rounded-xl flex items-center justify-center text-xs text-zinc-500 bg-[#141414] border-0">
                       No plot available
                     </div>
                   )}
@@ -41083,20 +41785,20 @@ except Exception as _ngr_error:
               <Card title="Multi-Analyse (Bivariate Pairs)" icon={Activity}>
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-center gap-2 text-xs">
-                    <span className="px-2 py-1 rounded-full border border-indigo-200 dark:border-indigo-700 bg-indigo-50/70 dark:bg-indigo-900/25 text-indigo-700 dark:text-indigo-300 font-black uppercase tracking-wider">
+                    <span className="px-2.5 py-1 rounded-full bg-[#181818] text-zinc-200 text-[10px] font-bold uppercase tracking-wider border-0">
                       {exploratoryMultiRelationLabel(result.exploratory_multi.relation_type)}
                     </span>
-                    <span className="px-2 py-1 rounded-full border border-slate-200 dark:border-slate-700 bg-transparent text-slate-600 dark:text-slate-300 font-semibold">
+                    <span className="px-2.5 py-1 rounded-full bg-[#181818] text-zinc-400 text-[10px] font-semibold border-0">
                       Pairs: {safeText(result.exploratory_multi.pair_count)}
                     </span>
                     {Number.isFinite(Number(result.exploratory_multi.significant_pairs)) && (
-                      <span className="px-2 py-1 rounded-full border border-emerald-200 dark:border-emerald-700 bg-emerald-50/70 dark:bg-emerald-900/25 text-emerald-700 dark:text-emerald-300 font-semibold">
+                      <span className="px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 text-[10px] font-semibold border-0">
                         Significant: {safeText(result.exploratory_multi.significant_pairs)}
                       </span>
                     )}
                   </div>
                   {result.exploratory_multi.message && (
-                    <div className="text-xs text-slate-600 dark:text-slate-300">
+                    <div className="text-xs text-zinc-400">
                       {safeText(result.exploratory_multi.message)}
                     </div>
                   )}
@@ -41110,24 +41812,24 @@ except Exception as _ngr_error:
                             ? 'grouped_bar'
                             : 'grouped_violin';
                         const summaryTagText = 'Summary only';
-                        const summaryTagClass = 'text-slate-500 dark:text-slate-400';
+                        const summaryTagClass = 'text-zinc-400';
                         const defaultOpen = idx < 2;
                         return (
                           <details
                             key={pair?.pair_id || `multi_pair_${idx}`}
-                            className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white/75 dark:bg-slate-900/45 p-3"
+                            className="rounded-xl bg-[#181818] border-0 p-4 transition-colors shadow-sm"
                             open={defaultOpen}
                           >
                             <summary className="cursor-pointer list-none flex flex-wrap items-center justify-between gap-2">
                               <div className="min-w-0">
-                                <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                                <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
                                   Pair {idx + 1}
                                 </div>
-                                <div className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">
+                                <div className="text-sm font-bold text-zinc-100 truncate">
                                   {safeText(pair?.x_var)} × {safeText(pair?.y_var)}
                                 </div>
                               </div>
-                              <div className={`text-[11px] font-black ${summaryTagClass}`}>
+                              <div className={`text-xs font-semibold ${summaryTagClass}`}>
                                 {summaryTagText}
                               </div>
                             </summary>
@@ -41147,7 +41849,7 @@ except Exception as _ngr_error:
                       })}
                     </div>
                   ) : (
-                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                    <div className="text-xs text-zinc-400">
                       No pair summaries were returned.
                     </div>
                   )}
@@ -41164,45 +41866,45 @@ except Exception as _ngr_error:
                 {result.bivariate?.type === 'quantitative_quantitative' && (
                   <Card title="Correlation Analysis" icon={TableIcon}>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      <div className="p-6 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl border border-blue-200 dark:border-blue-800">
-                        <div className="text-xs font-black uppercase tracking-widest text-blue-400 mb-2">Pearson r</div>
-                        <div className="text-3xl font-black text-blue-700 dark:text-blue-300">
+                      <div className="p-5 bg-[#181818] rounded-xl border-0 shadow-sm transition-all hover:bg-[#1c1c1c]">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1.5">Pearson r</div>
+                        <div className="text-3xl font-extrabold text-zinc-100 tracking-tight">
                           {result.bivariate.correlation?.pearson?.toFixed(3) || 'N/A'}
                         </div>
-                        <div className="text-xs text-blue-600 dark:text-blue-400 mt-1">Linear relationship</div>
+                        <div className="text-xs text-zinc-400 mt-1">Linear relationship</div>
                       </div>
-                      <div className="p-6 bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-xl border border-purple-200 dark:border-purple-800">
-                        <div className="text-xs font-black uppercase tracking-widest text-purple-400 mb-2">Spearman ρ</div>
-                        <div className="text-3xl font-black text-purple-700 dark:text-purple-300">
+                      <div className="p-5 bg-[#181818] rounded-xl border-0 shadow-sm transition-all hover:bg-[#1c1c1c]">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1.5">Spearman ρ</div>
+                        <div className="text-3xl font-extrabold text-zinc-100 tracking-tight">
                           {result.bivariate.correlation?.spearman?.toFixed(3) || 'N/A'}
                         </div>
-                        <div className="text-xs text-purple-600 dark:text-purple-400 mt-1">Monotonic relationship</div>
+                        <div className="text-xs text-zinc-400 mt-1">Monotonic relationship</div>
                       </div>
-                      <div className="p-6 bg-gradient-to-br from-green-50 to-teal-50 dark:from-green-900/20 dark:to-teal-900/20 rounded-xl border border-green-200 dark:border-green-800">
-                        <div className="text-xs font-black uppercase tracking-widest text-green-400 mb-2">Covariance</div>
-                        <div className="text-3xl font-black text-green-700 dark:text-green-300">
+                      <div className="p-5 bg-[#181818] rounded-xl border-0 shadow-sm transition-all hover:bg-[#1c1c1c]">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1.5">Covariance</div>
+                        <div className="text-3xl font-extrabold text-zinc-100 tracking-tight">
                           {result.bivariate.correlation?.covariance?.toFixed(3) || 'N/A'}
                         </div>
-                        <div className="text-xs text-green-600 dark:text-green-400 mt-1">Joint variability</div>
+                        <div className="text-xs text-zinc-400 mt-1">Joint variability</div>
                       </div>
                     </div>
                     <div className="mt-4 flex justify-end gap-2">
                       <button
                         onClick={() => handleAskAI('Correlation Report', generateReport(result, 'correlation'))}
-                        className="text-[10px] px-3 py-1 rounded-full border border-blue-200 text-blue-700 dark:text-blue-300 dark:border-blue-700 bg-white/60 dark:bg-blue-900/10 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors font-bold uppercase tracking-wider flex items-center gap-2"
+                        className="px-4 py-2 rounded-xl bg-[#181818] hover:bg-[#242424] text-zinc-200 text-xs font-bold border-0 transition-all flex items-center gap-2 cursor-pointer shadow-sm"
                       >
-                        <Bot size={12} /> Ask AI
+                        <Bot size={12} className="text-emerald-400" /> Ask AI
                       </button>
                       <button
                         onClick={() => openInterpretation('Correlation Report', generateReport(result, 'correlation'))}
-                        className="text-[10px] px-3 py-1 rounded-full border border-blue-200 text-blue-700 dark:text-blue-300 dark:border-blue-700 bg-white/60 dark:bg-blue-900/10 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors font-bold uppercase tracking-wider"
+                        className="px-4 py-2 rounded-xl bg-[#181818] hover:bg-[#242424] text-zinc-200 text-xs font-bold border-0 transition-all cursor-pointer shadow-sm"
                       >
                         View Detailed Report
                       </button>
                     </div>
-                    <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/10 rounded-xl border border-blue-100 dark:border-blue-800/30">
-                      <div className="text-[10px] font-black uppercase tracking-widest text-blue-500 mb-2">Correlation Interpretation</div>
-                      <div className="text-xs text-blue-700 dark:text-blue-300 space-y-2">
+                    <div className="mt-5 p-5 bg-[#181818] rounded-xl border-0 shadow-sm">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-2">Correlation Interpretation</div>
+                      <div className="text-xs text-zinc-300 space-y-1.5 leading-relaxed">
                         <div><strong>Range:</strong> −1 to +1. Think of it like a slider: +1 is a perfect positive match, -1 is a perfect opposite match, and 0 means no pattern at all.</div>
                         <div><strong>Pearson r:</strong> Measures straight-line relationships. Use this if your data looks like a line.</div>
                         <div><strong>Spearman ρ:</strong> Measures rank relationships. Use this if your data is curved or has outliers.</div>
@@ -41211,8 +41913,8 @@ except Exception as _ngr_error:
                       </div>
                     </div>
                     {result.image && (
-                      <div className="mt-6">
-                        <img src={`data:image/png;base64,${result.image}`} alt="Scatter Plot" className="w-full rounded-xl border dark:border-gray-700 shadow-lg" />
+                      <div className="mt-5 rounded-xl overflow-hidden bg-[#101010] border-0 shadow-md">
+                        <img src={`data:image/png;base64,${result.image}`} alt="Scatter Plot" className="w-full object-contain opacity-90 hover:opacity-100 transition-opacity" />
                       </div>
                     )}
                   </Card>
@@ -41222,24 +41924,24 @@ except Exception as _ngr_error:
                 {result.bivariate?.type === 'qualitative_qualitative' && (
                   <>
                     <Card title="Contingency Table" icon={TableIcon}>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm">
-                          <thead className="bg-gray-50 dark:bg-black/20 text-[10px] font-black uppercase tracking-widest text-gray-400">
+                      <div className="overflow-x-auto rounded-xl bg-[#181818] border-0 shadow-sm">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-[#141414] text-[10px] font-bold uppercase tracking-wider text-zinc-400 border-0">
                             <tr>
-                              <th className="px-6 py-4"></th>
+                              <th className="px-5 py-3.5 border-0"></th>
                               {result.bivariate.contingency_table?.col_names?.map((col, idx) => (
-                                <th key={idx} className="px-6 py-4">{col}</th>
+                                <th key={idx} className="px-5 py-3.5 border-0">{col}</th>
                               ))}
                             </tr>
                           </thead>
-                          <tbody className="divide-y dark:divide-gray-800">
+                          <tbody className="divide-y divide-white/[0.04]">
                             {result.bivariate.contingency_table?.table?.map((row, rowIdx) => (
-                              <tr key={rowIdx} className="hover:bg-gray-50/50 dark:hover:bg-white/5 transition-colors">
-                                <td className="px-6 py-4 font-bold text-gray-700 dark:text-gray-300">
+                              <tr key={rowIdx} className="hover:bg-white/[0.03] transition-colors border-0">
+                                <td className="px-5 py-3 font-semibold text-zinc-100 border-0">
                                   {result.bivariate.contingency_table.row_names[rowIdx]}
                                 </td>
                                 {row.map((cell, cellIdx) => (
-                                  <td key={cellIdx} className="px-6 py-4 font-mono text-xs text-gray-600 dark:text-gray-400">
+                                  <td key={cellIdx} className="px-5 py-3 font-mono text-xs text-zinc-300 border-0">
                                     {cell}
                                   </td>
                                 ))}
@@ -41249,12 +41951,12 @@ except Exception as _ngr_error:
                         </table>
                       </div>
                       {Number.isFinite(Number(result.bivariate.contingency_table?.cramers_v)) && (
-                        <div className="mt-6 p-6 bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-xl border border-purple-200 dark:border-purple-800">
-                          <div className="text-xs font-black uppercase tracking-widest text-purple-400 mb-2">Cramér's V</div>
-                          <div className="text-4xl font-black text-purple-700 dark:text-purple-300">
+                        <div className="mt-5 p-5 bg-[#181818] rounded-xl border-0 shadow-sm">
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1.5">Cramér's V</div>
+                          <div className="text-3xl font-extrabold text-zinc-100 tracking-tight">
                             {Number(result.bivariate.contingency_table?.cramers_v).toFixed(3)}
                           </div>
-                          <div className="text-xs text-purple-600 dark:text-purple-400 mt-2">
+                          <div className="text-xs text-zinc-400 mt-1">
                             Measure of association strength (0 = no association, 1 = perfect association)
                           </div>
                         </div>
@@ -41262,20 +41964,20 @@ except Exception as _ngr_error:
                       <div className="mt-4 flex justify-end gap-2">
                         <button
                           onClick={() => handleAskAI('Contingency Table Report', generateReport(result, 'contingency_table'))}
-                          className="text-[10px] px-3 py-1 rounded-full border border-purple-200 text-purple-700 dark:text-purple-300 dark:border-purple-700 bg-white/60 dark:bg-purple-900/10 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors font-bold uppercase tracking-wider flex items-center gap-2"
+                          className="px-4 py-2 rounded-xl bg-[#181818] hover:bg-[#242424] text-zinc-200 text-xs font-bold border-0 transition-all flex items-center gap-2 cursor-pointer shadow-sm"
                         >
-                          <Bot size={12} /> Ask AI
+                          <Bot size={12} className="text-emerald-400" /> Ask AI
                         </button>
                         <button
                           onClick={() => openInterpretation('Contingency Table Report', generateReport(result, 'contingency_table'))}
-                          className="text-[10px] px-3 py-1 rounded-full border border-purple-200 text-purple-700 dark:text-purple-300 dark:border-purple-700 bg-white/60 dark:bg-purple-900/10 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors font-bold uppercase tracking-wider"
+                          className="px-4 py-2 rounded-xl bg-[#181818] hover:bg-[#242424] text-zinc-200 text-xs font-bold border-0 transition-all cursor-pointer shadow-sm"
                         >
                           View Detailed Report
                         </button>
                       </div>
-                      <div className="mt-4 p-4 bg-purple-50 dark:bg-purple-900/10 rounded-xl border border-purple-100 dark:border-purple-800/30">
-                        <div className="text-[10px] font-black uppercase tracking-widest text-purple-500 mb-2">Cramér's V Guide</div>
-                        <div className="text-xs text-purple-700 dark:text-purple-300 space-y-2">
+                      <div className="mt-4 p-5 bg-[#181818] rounded-xl border-0 shadow-sm text-zinc-300">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-2">Cramér's V Guide</div>
+                        <div className="text-xs text-zinc-300 space-y-1.5 leading-relaxed">
                           <div><strong>Interpretation:</strong> 0.1 is weak, 0.3 is medium, 0.5 is strong.</div>
                           <div><strong>Meaning:</strong> It tells you how strongly two categories are linked. It doesn't say "how" (positive/negative), just "how much".</div>
                           <div><strong>Note:</strong> This descriptive view focuses on counts and patterns. For significance testing, run Inferential mode.</div>
@@ -41283,8 +41985,8 @@ except Exception as _ngr_error:
                         </div>
                       </div>
                       {result.image && (
-                        <div className="mt-6">
-                          <img src={`data:image/png;base64,${result.image}`} alt="Mosaic Plot" className="w-full rounded-xl border dark:border-gray-700 shadow-lg" />
+                        <div className="mt-5 rounded-xl overflow-hidden bg-[#101010] border-0 shadow-md">
+                          <img src={`data:image/png;base64,${result.image}`} alt="Mosaic Plot" className="w-full object-contain opacity-90 hover:opacity-100 transition-opacity" />
                         </div>
                       )}
                     </Card>
@@ -41293,88 +41995,88 @@ except Exception as _ngr_error:
 
                 {/* Mixed - Summary Statistics by Group */}
                 {result.bivariate?.type === 'mixed' && result.summary_stats && (
-                  <Card title="Summary Statistics by Group" icon={TableIcon}>
+                  <Card title={<span className="text-sm font-bold uppercase tracking-wider text-zinc-200">Summary Statistics by Group</span>} icon={TableIcon}>
                     <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                      <div className="rounded-lg border border-blue-100 dark:border-blue-900/40 bg-blue-50/70 dark:bg-blue-900/10 px-3 py-2">
-                        <div className="text-[10px] font-black uppercase tracking-widest text-blue-500">Groups</div>
-                        <div className="text-sm font-extrabold text-blue-700 dark:text-blue-200">
+                      <div className="rounded-xl bg-[#181818] border-0 px-4 py-3 shadow-sm">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Groups</div>
+                        <div className="text-base font-extrabold text-zinc-100">
                           {Number(result.bivariate?.n_groups) || Object.keys(result.summary_stats || {}).length}
                         </div>
                       </div>
-                      <div className="rounded-lg border border-blue-100 dark:border-blue-900/40 bg-blue-50/70 dark:bg-blue-900/10 px-3 py-2">
-                        <div className="text-[10px] font-black uppercase tracking-widest text-blue-500">Valid N</div>
-                        <div className="text-sm font-extrabold text-blue-700 dark:text-blue-200">
+                      <div className="rounded-xl bg-[#181818] border-0 px-4 py-3 shadow-sm">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Valid N</div>
+                        <div className="text-base font-extrabold text-zinc-100">
                           {Number(result.bivariate?.valid_n) || (result.summary_stats_overall?.n ?? 'N/A')}
                         </div>
                       </div>
-                      <div className="rounded-lg border border-blue-100 dark:border-blue-900/40 bg-blue-50/70 dark:bg-blue-900/10 px-3 py-2">
-                        <div className="text-[10px] font-black uppercase tracking-widest text-blue-500">Missing</div>
-                        <div className="text-sm font-extrabold text-blue-700 dark:text-blue-200">
+                      <div className="rounded-xl bg-[#181818] border-0 px-4 py-3 shadow-sm">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Missing</div>
+                        <div className="text-base font-extrabold text-zinc-100">
                           {Number.isFinite(Number(result.bivariate?.missing_n)) ? Number(result.bivariate.missing_n) : (Number.isFinite(Number(result.summary_stats_overall?.missing_n)) ? Number(result.summary_stats_overall.missing_n) : 'N/A')}
                         </div>
                       </div>
-                      <div className="rounded-lg border border-blue-100 dark:border-blue-900/40 bg-blue-50/70 dark:bg-blue-900/10 px-3 py-2">
-                        <div className="text-[10px] font-black uppercase tracking-widest text-blue-500">Overall Mean</div>
-                        <div className="text-sm font-extrabold text-blue-700 dark:text-blue-200">
+                      <div className="rounded-xl bg-[#181818] border-0 px-4 py-3 shadow-sm">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Overall Mean</div>
+                        <div className="text-base font-extrabold text-zinc-100">
                           {Number.isFinite(Number(result.summary_stats_overall?.mean)) ? Number(result.summary_stats_overall.mean).toFixed(3) : 'N/A'}
                         </div>
                       </div>
                     </div>
-                    <div className="overflow-x-auto">
+                    <div className="rounded-xl overflow-hidden bg-[#181818] border-0 shadow-sm overflow-x-auto">
                       <table className="w-full text-left text-sm">
-                        <thead className="bg-gray-50 dark:bg-black/20 text-[10px] font-black uppercase tracking-widest text-gray-400">
+                        <thead className="bg-[#141414] text-[10px] font-bold uppercase tracking-wider text-zinc-400">
                           <tr>
-                            <th className="px-6 py-4">Group</th>
-                            <th className="px-6 py-4">N</th>
-                            <th className="px-6 py-4">%</th>
-                            <th className="px-6 py-4">Mean</th>
-                            <th className="px-6 py-4">Median</th>
-                            <th className="px-6 py-4">SD</th>
-                            <th className="px-6 py-4">Variance</th>
-                            <th className="px-6 py-4">Q1</th>
-                            <th className="px-6 py-4">Q3</th>
-                            <th className="px-6 py-4">IQR</th>
-                            <th className="px-6 py-4">Min</th>
-                            <th className="px-6 py-4">Max</th>
+                            <th className="px-4 py-3">Group</th>
+                            <th className="px-4 py-3">N</th>
+                            <th className="px-4 py-3">%</th>
+                            <th className="px-4 py-3">Mean</th>
+                            <th className="px-4 py-3">Median</th>
+                            <th className="px-4 py-3">SD</th>
+                            <th className="px-4 py-3">Variance</th>
+                            <th className="px-4 py-3">Q1</th>
+                            <th className="px-4 py-3">Q3</th>
+                            <th className="px-4 py-3">IQR</th>
+                            <th className="px-4 py-3">Min</th>
+                            <th className="px-4 py-3">Max</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y dark:divide-gray-800">
+                        <tbody className="divide-y divide-white/[0.04]">
                           {Object.entries(result.summary_stats).map(([groupName, stats], idx) => (
-                            <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-white/5 transition-colors">
-                              <td className="px-6 py-4 font-bold text-gray-700 dark:text-gray-300">
+                            <tr key={idx} className="hover:bg-white/[0.03] transition-colors">
+                              <td className="px-4 py-3 font-semibold text-zinc-200">
                                 {groupName}
                               </td>
-                              <td className="px-6 py-4 font-mono text-xs text-gray-600 dark:text-gray-400">
+                              <td className="px-4 py-3 font-mono text-xs text-zinc-300">
                                 {stats.n}
                               </td>
-                              <td className="px-6 py-4 font-mono text-xs text-gray-600 dark:text-gray-400">
+                              <td className="px-4 py-3 font-mono text-xs text-zinc-300">
                                 {Number.isFinite(Number(stats.percent)) ? `${Number(stats.percent).toFixed(1)}%` : 'N/A'}
                               </td>
-                              <td className="px-6 py-4 font-mono text-xs text-gray-600 dark:text-gray-400">
+                              <td className="px-4 py-3 font-mono text-xs text-zinc-300">
                                 {Number.isFinite(Number(stats.mean)) ? Number(stats.mean).toFixed(3) : 'N/A'}
                               </td>
-                              <td className="px-6 py-4 font-mono text-xs text-gray-600 dark:text-gray-400">
+                              <td className="px-4 py-3 font-mono text-xs text-zinc-300">
                                 {Number.isFinite(Number(stats.median)) ? Number(stats.median).toFixed(3) : 'N/A'}
                               </td>
-                              <td className="px-6 py-4 font-mono text-xs text-gray-600 dark:text-gray-400">
+                              <td className="px-4 py-3 font-mono text-xs text-zinc-300">
                                 {Number.isFinite(Number(stats.sd)) ? Number(stats.sd).toFixed(3) : 'N/A'}
                               </td>
-                              <td className="px-6 py-4 font-mono text-xs text-gray-600 dark:text-gray-400">
+                              <td className="px-4 py-3 font-mono text-xs text-zinc-300">
                                 {Number.isFinite(Number(stats.variance)) ? Number(stats.variance).toFixed(3) : 'N/A'}
                               </td>
-                              <td className="px-6 py-4 font-mono text-xs text-gray-600 dark:text-gray-400">
+                              <td className="px-4 py-3 font-mono text-xs text-zinc-300">
                                 {Number.isFinite(Number(stats.q1)) ? Number(stats.q1).toFixed(3) : 'N/A'}
                               </td>
-                              <td className="px-6 py-4 font-mono text-xs text-gray-600 dark:text-gray-400">
+                              <td className="px-4 py-3 font-mono text-xs text-zinc-300">
                                 {Number.isFinite(Number(stats.q3)) ? Number(stats.q3).toFixed(3) : 'N/A'}
                               </td>
-                              <td className="px-6 py-4 font-mono text-xs text-gray-600 dark:text-gray-400">
+                              <td className="px-4 py-3 font-mono text-xs text-zinc-300">
                                 {Number.isFinite(Number(stats.iqr)) ? Number(stats.iqr).toFixed(3) : 'N/A'}
                               </td>
-                              <td className="px-6 py-4 font-mono text-xs text-gray-600 dark:text-gray-400">
+                              <td className="px-4 py-3 font-mono text-xs text-zinc-300">
                                 {Number.isFinite(Number(stats.min)) ? Number(stats.min).toFixed(3) : 'N/A'}
                               </td>
-                              <td className="px-6 py-4 font-mono text-xs text-gray-600 dark:text-gray-400">
+                              <td className="px-4 py-3 font-mono text-xs text-zinc-300">
                                 {Number.isFinite(Number(stats.max)) ? Number(stats.max).toFixed(3) : 'N/A'}
                               </td>
                             </tr>
@@ -41382,14 +42084,14 @@ except Exception as _ngr_error:
                         </tbody>
                       </table>
                     </div>
-                    <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/10 rounded-xl border border-blue-100 dark:border-blue-800/30">
-                      <p className="text-xs text-blue-700 dark:text-blue-400 font-medium">
-                        <strong>📊 Mixed Analysis:</strong> Categorical variable: <code className="bg-blue-100 dark:bg-blue-900/30 px-1 rounded">{result.bivariate.categorical_var}</code>, Quantitative variable: <code className="bg-blue-100 dark:bg-blue-900/30 px-1 rounded">{result.bivariate.quantitative_var}</code>
+                    <div className="mt-5 p-4 bg-[#181818] rounded-xl border-0 shadow-sm">
+                      <p className="text-xs text-zinc-300 font-medium">
+                        <strong className="text-zinc-100">Mixed Analysis:</strong> Categorical variable: <code className="bg-[#121212] text-zinc-200 px-2 py-0.5 rounded text-xs font-mono font-medium">{result.bivariate.categorical_var}</code>, Quantitative variable: <code className="bg-[#121212] text-zinc-200 px-2 py-0.5 rounded text-xs font-mono font-medium">{result.bivariate.quantitative_var}</code>
                       </p>
                     </div>
-                    <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/10 rounded-xl border border-blue-100 dark:border-blue-800/30">
-                      <div className="text-[10px] font-black uppercase tracking-widest text-blue-500 mb-2">Interpretation Guide</div>
-                      <div className="text-xs text-blue-700 dark:text-blue-300 space-y-2">
+                    <div className="mt-4 p-5 bg-[#181818] rounded-xl border-0 shadow-sm text-zinc-300">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-2">Interpretation Guide</div>
+                      <div className="text-xs text-zinc-300 space-y-1.5 leading-relaxed">
                         <div><strong>Compare groups:</strong> Look at the Means and Medians. Are they different? That hints at a group effect.</div>
                         <div><strong>Formal testing:</strong> We use mathematical tests (t-test, ANOVA) to tell us if these differences are real or just luck.</div>
                         <div><strong>Visual check:</strong> Look at the Boxplots. If the boxes don't overlap much, the groups are likely different.</div>
@@ -41399,20 +42101,20 @@ except Exception as _ngr_error:
                     <div className="mt-4 flex justify-end gap-2">
                       <button
                         onClick={() => handleAskAI('Group Summary Report', generateReport(result, 'mixed'))}
-                        className="text-[10px] px-3 py-1 rounded-full border border-blue-200 text-blue-700 dark:text-blue-300 dark:border-blue-700 bg-white/60 dark:bg-blue-900/10 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors font-bold uppercase tracking-wider flex items-center gap-2"
+                        className="px-3 py-1.5 rounded-full bg-[#181818] hover:bg-[#242424] text-zinc-200 text-[10px] font-bold uppercase tracking-wider border-0 shadow-sm transition-all flex items-center gap-2"
                       >
                         <Bot size={12} /> Ask AI
                       </button>
                       <button
                         onClick={() => openInterpretation('Group Summary Report', generateReport(result, 'mixed'))}
-                        className="text-[10px] px-3 py-1 rounded-full border border-blue-200 text-blue-700 dark:text-blue-300 dark:border-blue-700 bg-white/60 dark:bg-blue-900/10 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors font-bold uppercase tracking-wider"
+                        className="px-3 py-1.5 rounded-full bg-[#181818] hover:bg-[#242424] text-zinc-200 text-[10px] font-bold uppercase tracking-wider border-0 shadow-sm transition-all"
                       >
                         View Detailed Report
                       </button>
                     </div>
                     {result.image && (
-                      <div className="mt-6">
-                        <img src={`data:image/png;base64,${result.image}`} alt="Boxplot by Group" className="w-full rounded-xl border dark:border-gray-700 shadow-lg" />
+                      <div className="mt-5 rounded-xl overflow-hidden bg-[#101010] border-0 shadow-md">
+                        <img src={`data:image/png;base64,${result.image}`} alt="Boxplot by Group" className="w-full object-contain opacity-90 hover:opacity-100 transition-opacity" />
                       </div>
                     )}
                   </Card>
@@ -41420,18 +42122,18 @@ except Exception as _ngr_error:
 
                 {/* Correlation Matrix Results */}
                 {result?.correlation_matrix && (
-                  <Card title={<span className="text-lg font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-400 drop-shadow-sm">Correlation Matrix Analysis</span>} icon={TableIcon}>
+                  <Card title={<span className="text-sm font-bold uppercase tracking-wider text-zinc-200">Correlation Matrix Analysis</span>} icon={TableIcon}>
                     <div className="space-y-6">
-                      <div className="p-4 bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-xl border border-emerald-200 dark:border-emerald-800">
-                        <div className="text-xs font-black uppercase tracking-widest text-emerald-500 dark:text-emerald-400 mb-2">Variables Analyzed</div>
+                      <div className="p-5 bg-[#181818] rounded-xl border-0 shadow-sm space-y-3">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Variables Analyzed</div>
                         <div className="flex flex-wrap gap-2">
                           {result.correlation_matrix.variables.map((varName, idx) => (
-                            <span key={idx} className="px-3 py-1 bg-white dark:bg-gray-800 rounded-lg text-sm font-semibold text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700">
+                            <span key={idx} className="px-3 py-1 bg-[#121212] rounded-lg text-xs font-semibold text-zinc-200 border-0 shadow-inner">
                               {varName}
                             </span>
                           ))}
                         </div>
-                        <div className="text-xs text-emerald-600 dark:text-emerald-400 mt-2">
+                        <div className="text-xs text-zinc-400">
                           {result.correlation_matrix.n_variables} numeric variables • {
                             correlationModesInline.length > 0
                               ? `${correlationModesInline
@@ -41441,28 +42143,28 @@ except Exception as _ngr_error:
                           }
                         </div>
                         {result.correlation_matrix?.selected_method && (
-                          <div className="text-xs text-teal-700 dark:text-teal-300 mt-1 font-semibold">
+                          <div className="text-xs text-emerald-400 font-semibold">
                             Selected by Shapiro rule: {result.correlation_matrix.selected_method === 'pearson' ? 'Pearson' : 'Spearman'}
                             {result.correlation_matrix.use_both_override ? ' (bypass enabled: both returned)' : ''}
                           </div>
                         )}
                       </div>
                       {result.correlation_matrix?.shapiro && Object.keys(result.correlation_matrix.shapiro).length > 0 && (
-                        <div className="p-3 rounded-xl border border-teal-200 dark:border-teal-800/50 bg-teal-50/50 dark:bg-teal-900/15">
-                          <div className="text-[10px] font-black uppercase tracking-widest text-teal-500 mb-2">
+                        <div className="p-4 rounded-xl bg-[#181818] border-0 shadow-sm">
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-2">
                             Shapiro Normality Check
                           </div>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             {Object.entries(result.correlation_matrix.shapiro).map(([name, stats]) => (
-                              <div key={name} className="flex items-center justify-between gap-2 rounded-lg px-3 py-2 bg-transparent border border-teal-100 dark:border-teal-800/35">
-                                <span className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate" title={name}>{name}</span>
+                              <div key={name} className="flex items-center justify-between gap-2 rounded-lg px-3 py-2 bg-[#141414] border-0">
+                                <span className="text-xs font-semibold text-zinc-200 truncate" title={name}>{name}</span>
                                 <div className="flex items-center gap-2">
-                                  <span className="text-[11px] font-mono font-bold text-slate-500 dark:text-slate-400">
+                                  <span className="text-[11px] font-mono font-medium text-zinc-400">
                                     p = {stats?.formatted_p || 'N/A'}
                                   </span>
-                                  <span className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-black uppercase tracking-wider ${stats?.is_normal
-                                    ? 'bg-emerald-100/80 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
-                                    : 'bg-rose-100/80 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300'
+                                  <span className={`flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${stats?.is_normal
+                                    ? 'bg-emerald-500/15 text-emerald-400'
+                                    : 'bg-rose-500/15 text-rose-400'
                                     }`}>
                                     {stats?.is_normal ? <CheckCircle2 size={10} /> : <AlertCircle size={10} />}
                                     {stats?.is_normal ? 'Normal' : 'Not Normal'}
@@ -41474,25 +42176,25 @@ except Exception as _ngr_error:
                         </div>
                       )}
 
-                      <div className="flex gap-2">
+                      <div className="flex items-center gap-2">
                         {correlationModesInline.map(type => (
                           <button
                             key={type}
                             onClick={() => setCorrViewInline(type)}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${corrViewInline === type
-                              ? 'bg-emerald-600 text-white border-emerald-600'
-                              : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${corrViewInline === type
+                              ? 'bg-emerald-600 text-white shadow-sm'
+                              : 'bg-[#181818] text-zinc-300 hover:bg-[#242424] border-0'
                               }`}
                           >
                             {type === 'pearson' ? 'Pearson' : 'Spearman'}
                           </button>
                         ))}
-                        <label className="flex items-center gap-2 text-[11px] font-bold text-gray-600 dark:text-gray-300 ml-2">
+                        <label className="flex items-center gap-2 text-xs font-semibold text-zinc-300 ml-2 cursor-pointer">
                           <input
                             type="checkbox"
                             checked={showScatterInline}
                             onChange={(e) => setShowScatterInline(e.target.checked)}
-                            className="rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+                            className="rounded bg-[#181818] border-zinc-700 text-emerald-500 focus:ring-emerald-500 cursor-pointer"
                           />
                           Show Linearity Scatter Plot
                         </label>
@@ -41500,8 +42202,8 @@ except Exception as _ngr_error:
 
                       {/* Scatter Plot Variable Selection */}
                       {showScatterInline && result.correlation_matrix?.variables && result.correlation_matrix.variables.length >= 2 && (
-                        <div className="mt-3 flex items-center gap-3 px-4 py-2 bg-gray-50 dark:bg-zinc-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
-                          <span className="text-xs font-bold text-gray-600 dark:text-gray-400">Select variables:</span>
+                        <div className="mt-3 flex flex-wrap items-center gap-3 px-4 py-2.5 bg-[#181818] rounded-xl border-0 shadow-sm">
+                          <span className="text-xs font-semibold text-zinc-400">Select variables:</span>
                           <ModernSelect
                             value={scatterVarX || result.correlation_matrix.variables[0]}
                             onChange={setScatterVarX}
@@ -41510,7 +42212,7 @@ except Exception as _ngr_error:
                             className="min-w-[170px]"
                             menuClassName="max-h-48"
                           />
-                          <span className="text-xs font-bold text-gray-500 dark:text-gray-400">vs</span>
+                          <span className="text-xs font-semibold text-zinc-400">vs</span>
                           <ModernSelect
                             value={scatterVarY || result.correlation_matrix.variables[1]}
                             onChange={setScatterVarY}
@@ -41522,7 +42224,7 @@ except Exception as _ngr_error:
                           <button
                             onClick={() => runAnalysis({ scatterOnly: true })}
                             disabled={loading}
-                            className="ml-2 px-4 py-1.5 bg-gradient-to-r from-primary to-cyan-600 text-white text-xs font-bold rounded-lg shadow-md hover:shadow-xl hover:shadow-primary/30 hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="ml-2 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow hover:shadow-emerald-500/20 transition-all duration-200 flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -41536,21 +42238,21 @@ except Exception as _ngr_error:
                       {corrViewInline === 'pearson' && Array.isArray(result.correlation_matrix.pearson) && (
                         <>
                           <div>
-                            <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 mb-3">Pearson Correlation Matrix</h3>
-                            <div className="overflow-x-auto">
+                            <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-3">Pearson Correlation Matrix</h3>
+                            <div className="rounded-xl overflow-hidden bg-[#181818] border-0 shadow-sm overflow-x-auto">
                               <table className="w-full text-left text-sm">
-                                <thead className="bg-gray-50 dark:bg-black/20 text-[10px] font-black uppercase tracking-widest text-gray-400">
+                                <thead className="bg-[#141414] text-[10px] font-bold uppercase tracking-wider text-zinc-400">
                                   <tr>
                                     <th className="px-4 py-3"></th>
                                     {result.correlation_matrix.variables.map((varName, idx) => (
-                                      <th key={idx} className="px-4 py-3 text-[11px] font-black text-gray-600 dark:text-gray-200">{varName}</th>
+                                      <th key={idx} className="px-4 py-3 text-xs font-bold text-zinc-300">{varName}</th>
                                     ))}
                                   </tr>
                                 </thead>
-                                <tbody className="divide-y dark:divide-gray-800">
+                                <tbody className="divide-y divide-white/[0.04]">
                                   {result.correlation_matrix.pearson.map((row, rowIdx) => (
-                                    <tr key={rowIdx} className="hover:bg-gray-50/50 dark:hover:bg-white/5 transition-colors">
-                                      <td className="px-4 py-3 text-[11px] font-black text-gray-700 dark:text-gray-200">
+                                    <tr key={rowIdx} className="hover:bg-white/[0.03] transition-colors">
+                                      <td className="px-4 py-3 text-xs font-bold text-zinc-200">
                                         {result.correlation_matrix.variables[rowIdx]}
                                       </td>
                                       {row.map((cell, cellIdx) => {
@@ -41571,13 +42273,13 @@ except Exception as _ngr_error:
 
                           {result.heatmap_image && (
                             <div className="mt-6 relative group">
-                              <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 mb-3">Pearson Correlation Heatmap</h3>
-                              <div className="relative rounded-xl overflow-hidden border dark:border-gray-700 shadow-lg inline-block bg-white dark:bg-gray-900">
-                                <img src={`data:image/png;base64,${result.heatmap_image}`} alt="Correlation Heatmap" className="w-full max-w-2xl" />
-                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 dark:group-hover:bg-white/5 transition-all duration-300 flex items-center justify-center opacity-0 group-hover:opacity-100">
+                              <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-3">Pearson Correlation Heatmap</h3>
+                              <div className="relative rounded-xl overflow-hidden bg-[#101010] border-0 shadow-md inline-block">
+                                <img src={`data:image/png;base64,${result.heatmap_image}`} alt="Correlation Heatmap" className="w-full max-w-2xl opacity-90 hover:opacity-100 transition-opacity" />
+                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all duration-300 flex items-center justify-center opacity-0 group-hover:opacity-100">
                                   <button
                                     onClick={() => setSelectedImage({ url: `data:image/png;base64,${result.heatmap_image}`, title: "Pearson Correlation Heatmap", plotKey: 'heatmap_plot' })}
-                                    className="bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 p-3 rounded-full shadow-xl hover:scale-110 transition-transform transform border border-gray-200 dark:border-gray-700"
+                                    className="bg-[#181818] text-zinc-200 p-3 rounded-full shadow-xl hover:scale-110 transition-transform transform border-0"
                                     title="View Full Size"
                                   >
                                     <Maximize2 size={24} />
@@ -41585,25 +42287,29 @@ except Exception as _ngr_error:
                                 </div>
                               </div>
                               {correlationPearsonHeatmapFeatures && (
-                                <div className="mt-3 p-3 text-xs rounded-lg border border-emerald-100 dark:border-emerald-800 bg-emerald-50/60 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-200">
-                                  <div><span className="font-black">Metric:</span> {correlationPearsonHeatmapFeatures.metric || 'Pearson r'}</div>
+                                <div className="mt-3 p-4 text-xs rounded-xl bg-[#181818] border-0 text-zinc-300 space-y-1 shadow-sm">
+                                  <div><span className="font-bold text-zinc-400">Metric:</span> <span className="text-zinc-200">{correlationPearsonHeatmapFeatures.metric || 'Pearson r'}</span></div>
                                   <div>
-                                    <span className="font-black">Grid:</span>{' '}
-                                    {Number.isFinite(Number(correlationPearsonHeatmapFeatures?.dimensions?.rows)) ? Number(correlationPearsonHeatmapFeatures.dimensions.rows) : 'N/A'}
-                                    {' '}x{' '}
-                                    {Number.isFinite(Number(correlationPearsonHeatmapFeatures?.dimensions?.columns)) ? Number(correlationPearsonHeatmapFeatures.dimensions.columns) : 'N/A'}
+                                    <span className="font-bold text-zinc-400">Grid:</span>{' '}
+                                    <span className="text-zinc-200">
+                                      {Number.isFinite(Number(correlationPearsonHeatmapFeatures?.dimensions?.rows)) ? Number(correlationPearsonHeatmapFeatures.dimensions.rows) : 'N/A'}
+                                      {' '}x{' '}
+                                      {Number.isFinite(Number(correlationPearsonHeatmapFeatures?.dimensions?.columns)) ? Number(correlationPearsonHeatmapFeatures.dimensions.columns) : 'N/A'}
+                                    </span>
                                   </div>
                                   <div>
-                                    <span className="font-black">Range:</span>{' '}
-                                    {Number.isFinite(Number(correlationPearsonHeatmapFeatures?.summary?.min)) ? Number(correlationPearsonHeatmapFeatures.summary.min).toFixed(4) : 'N/A'}
-                                    {' '}to{' '}
-                                    {Number.isFinite(Number(correlationPearsonHeatmapFeatures?.summary?.max)) ? Number(correlationPearsonHeatmapFeatures.summary.max).toFixed(4) : 'N/A'}
+                                    <span className="font-bold text-zinc-400">Range:</span>{' '}
+                                    <span className="font-mono text-zinc-200">
+                                      {Number.isFinite(Number(correlationPearsonHeatmapFeatures?.summary?.min)) ? Number(correlationPearsonHeatmapFeatures.summary.min).toFixed(4) : 'N/A'}
+                                      {' '}to{' '}
+                                      {Number.isFinite(Number(correlationPearsonHeatmapFeatures?.summary?.max)) ? Number(correlationPearsonHeatmapFeatures.summary.max).toFixed(4) : 'N/A'}
+                                    </span>
                                   </div>
                                   {Array.isArray(correlationPearsonHeatmapFeatures?.top_cells) && correlationPearsonHeatmapFeatures.top_cells.length > 0 && (
                                     <div className="mt-1">
-                                      <span className="font-black">Strongest links:</span>{' '}
+                                      <span className="font-bold text-zinc-400">Strongest links:</span>{' '}
                                       {correlationPearsonHeatmapFeatures.top_cells.slice(0, 3).map((cell, idx) => (
-                                        <span key={`corr_pearson_link_${idx}`} className="font-mono">
+                                        <span key={`corr_pearson_link_${idx}`} className="font-mono text-zinc-200">
                                           {idx > 0 ? ' | ' : ''}
                                           {String(cell?.row || 'N/A')} x {String(cell?.column || 'N/A')} = {Number.isFinite(Number(cell?.value)) ? Number(cell.value).toFixed(3) : 'N/A'}
                                         </span>
@@ -41621,21 +42327,21 @@ except Exception as _ngr_error:
                       {corrViewInline === 'spearman' && Array.isArray(result.correlation_matrix.spearman) && (
                         <>
                           <div>
-                            <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 mb-3">Spearman Correlation Matrix</h3>
-                            <div className="overflow-x-auto">
+                            <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-3">Spearman Correlation Matrix</h3>
+                            <div className="rounded-xl overflow-hidden bg-[#181818] border-0 shadow-sm overflow-x-auto">
                               <table className="w-full text-left text-sm">
-                                <thead className="bg-gray-50 dark:bg-black/20 text-[10px] font-black uppercase tracking-widest text-gray-400">
+                                <thead className="bg-[#141414] text-[10px] font-bold uppercase tracking-wider text-zinc-400">
                                   <tr>
                                     <th className="px-4 py-3"></th>
                                     {result.correlation_matrix.variables.map((varName, idx) => (
-                                      <th key={idx} className="px-4 py-3 text-[11px] font-black text-gray-600 dark:text-gray-200">{varName}</th>
+                                      <th key={idx} className="px-4 py-3 text-xs font-bold text-zinc-300">{varName}</th>
                                     ))}
                                   </tr>
                                 </thead>
-                                <tbody className="divide-y dark:divide-gray-800">
+                                <tbody className="divide-y divide-white/[0.04]">
                                   {result.correlation_matrix.spearman.map((row, rowIdx) => (
-                                    <tr key={rowIdx} className="hover:bg-gray-50/50 dark:hover:bg-white/5 transition-colors">
-                                      <td className="px-4 py-3 text-[11px] font-black text-gray-700 dark:text-gray-200">
+                                    <tr key={rowIdx} className="hover:bg-white/[0.03] transition-colors">
+                                      <td className="px-4 py-3 text-xs font-bold text-zinc-200">
                                         {result.correlation_matrix.variables[rowIdx]}
                                       </td>
                                       {row.map((cell, cellIdx) => {
@@ -41656,13 +42362,13 @@ except Exception as _ngr_error:
 
                           {result.spearman_heatmap_image && (
                             <div className="mt-6 relative group">
-                              <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 mb-3">Spearman Correlation Heatmap</h3>
-                              <div className="relative rounded-xl overflow-hidden border dark:border-gray-700 shadow-lg inline-block bg-white dark:bg-gray-900">
-                                <img src={`data:image/png;base64,${result.spearman_heatmap_image}`} alt="Spearman Correlation Heatmap" className="w-full max-w-2xl" />
-                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 dark:group-hover:bg-white/5 transition-all duration-300 flex items-center justify-center opacity-0 group-hover:opacity-100">
+                              <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-3">Spearman Correlation Heatmap</h3>
+                              <div className="relative rounded-xl overflow-hidden bg-[#101010] border-0 shadow-md inline-block">
+                                <img src={`data:image/png;base64,${result.spearman_heatmap_image}`} alt="Spearman Correlation Heatmap" className="w-full max-w-2xl opacity-90 hover:opacity-100 transition-opacity" />
+                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all duration-300 flex items-center justify-center opacity-0 group-hover:opacity-100">
                                   <button
                                     onClick={() => setSelectedImage({ url: `data:image/png;base64,${result.spearman_heatmap_image}`, title: "Spearman Correlation Heatmap", plotKey: 'spearman_heatmap_plot' })}
-                                    className="bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 p-3 rounded-full shadow-xl hover:scale-110 transition-transform transform border border-gray-200 dark:border-gray-700"
+                                    className="bg-[#181818] text-zinc-200 p-3 rounded-full shadow-xl hover:scale-110 transition-transform transform border-0"
                                     title="View Full Size"
                                   >
                                     <Maximize2 size={24} />
@@ -41670,25 +42376,29 @@ except Exception as _ngr_error:
                                 </div>
                               </div>
                               {correlationSpearmanHeatmapFeatures && (
-                                <div className="mt-3 p-3 text-xs rounded-lg border border-emerald-100 dark:border-emerald-800 bg-emerald-50/60 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-200">
-                                  <div><span className="font-black">Metric:</span> {correlationSpearmanHeatmapFeatures.metric || 'Spearman rho'}</div>
+                                <div className="mt-3 p-4 text-xs rounded-xl bg-[#181818] border-0 text-zinc-300 space-y-1 shadow-sm">
+                                  <div><span className="font-bold text-zinc-400">Metric:</span> <span className="text-zinc-200">{correlationSpearmanHeatmapFeatures.metric || 'Spearman rho'}</span></div>
                                   <div>
-                                    <span className="font-black">Grid:</span>{' '}
-                                    {Number.isFinite(Number(correlationSpearmanHeatmapFeatures?.dimensions?.rows)) ? Number(correlationSpearmanHeatmapFeatures.dimensions.rows) : 'N/A'}
-                                    {' '}x{' '}
-                                    {Number.isFinite(Number(correlationSpearmanHeatmapFeatures?.dimensions?.columns)) ? Number(correlationSpearmanHeatmapFeatures.dimensions.columns) : 'N/A'}
+                                    <span className="font-bold text-zinc-400">Grid:</span>{' '}
+                                    <span className="text-zinc-200">
+                                      {Number.isFinite(Number(correlationSpearmanHeatmapFeatures?.dimensions?.rows)) ? Number(correlationSpearmanHeatmapFeatures.dimensions.rows) : 'N/A'}
+                                      {' '}x{' '}
+                                      {Number.isFinite(Number(correlationSpearmanHeatmapFeatures?.dimensions?.columns)) ? Number(correlationSpearmanHeatmapFeatures.dimensions.columns) : 'N/A'}
+                                    </span>
                                   </div>
                                   <div>
-                                    <span className="font-black">Range:</span>{' '}
-                                    {Number.isFinite(Number(correlationSpearmanHeatmapFeatures?.summary?.min)) ? Number(correlationSpearmanHeatmapFeatures.summary.min).toFixed(4) : 'N/A'}
-                                    {' '}to{' '}
-                                    {Number.isFinite(Number(correlationSpearmanHeatmapFeatures?.summary?.max)) ? Number(correlationSpearmanHeatmapFeatures.summary.max).toFixed(4) : 'N/A'}
+                                    <span className="font-bold text-zinc-400">Range:</span>{' '}
+                                    <span className="font-mono text-zinc-200">
+                                      {Number.isFinite(Number(correlationSpearmanHeatmapFeatures?.summary?.min)) ? Number(correlationSpearmanHeatmapFeatures.summary.min).toFixed(4) : 'N/A'}
+                                      {' '}to{' '}
+                                      {Number.isFinite(Number(correlationSpearmanHeatmapFeatures?.summary?.max)) ? Number(correlationSpearmanHeatmapFeatures.summary.max).toFixed(4) : 'N/A'}
+                                    </span>
                                   </div>
                                   {Array.isArray(correlationSpearmanHeatmapFeatures?.top_cells) && correlationSpearmanHeatmapFeatures.top_cells.length > 0 && (
                                     <div className="mt-1">
-                                      <span className="font-black">Strongest links:</span>{' '}
+                                      <span className="font-bold text-zinc-400">Strongest links:</span>{' '}
                                       {correlationSpearmanHeatmapFeatures.top_cells.slice(0, 3).map((cell, idx) => (
-                                        <span key={`corr_spearman_link_${idx}`} className="font-mono">
+                                        <span key={`corr_spearman_link_${idx}`} className="font-mono text-zinc-200">
                                           {idx > 0 ? ' | ' : ''}
                                           {String(cell?.row || 'N/A')} x {String(cell?.column || 'N/A')} = {Number.isFinite(Number(cell?.value)) ? Number(cell.value).toFixed(3) : 'N/A'}
                                         </span>
@@ -41706,15 +42416,15 @@ except Exception as _ngr_error:
                       {showScatterInline && (
                         <div className="mt-6 space-y-2">
                           <div className="flex gap-2 items-center">
-                            <h3 className="text-sm font-black uppercase tracking-widest text-gray-400">Linearity Check (Scatterplot Matrix)</h3>
+                            <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Linearity Check (Scatterplot Matrix)</h3>
                             <div className="flex gap-2">
                               {correlationModesInline.map(type => (
                                 <button
                                   key={type}
                                   onClick={() => setLinearityViewInline(type)}
-                                  className={`px-3 py-1 rounded-lg text-[11px] font-bold border transition-colors ${linearityViewInline === type
-                                    ? 'bg-emerald-600 text-white border-emerald-600'
-                                    : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
+                                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-colors ${linearityViewInline === type
+                                    ? 'bg-emerald-600 text-white shadow-sm'
+                                    : 'bg-[#181818] text-zinc-300 hover:bg-[#242424] border-0'
                                     }`}
                                 >
                                   {type === 'pearson' ? 'Pearson (raw)' : 'Spearman (ranks)'}
@@ -41722,19 +42432,19 @@ except Exception as _ngr_error:
                               ))}
                             </div>
                           </div>
-                          <div className="relative rounded-xl overflow-hidden border dark:border-gray-700 shadow-lg inline-block bg-white dark:bg-gray-900">
+                          <div className="relative rounded-xl overflow-hidden bg-[#101010] border-0 shadow-md inline-block">
                             {(linearityViewInline === 'pearson' ? result.linearity_plot_image : result.spearman_linearity_plot_image) ? (
                               <img
                                 src={`data:image/png;base64,${linearityViewInline === 'pearson' ? result.linearity_plot_image : result.spearman_linearity_plot_image}`}
                                 alt="Linearity Scatterplot Matrix"
-                                className="w-full max-w-3xl"
+                                className="w-full max-w-3xl opacity-90 hover:opacity-100 transition-opacity"
                               />
                             ) : (
-                              <div className="w-full max-w-3xl h-64 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+                              <div className="w-full max-w-3xl h-64 flex items-center justify-center text-sm text-zinc-500">
                                 No scatterplot matrix returned.
                               </div>
                             )}
-                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 dark:group-hover:bg-white/5 transition-all duration-300 flex items-center justify-center opacity-0 group-hover:opacity-100">
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all duration-300 flex items-center justify-center opacity-0 group-hover:opacity-100">
                               <button
                                 onClick={() => {
                                   const isPearsonLinearity = linearityViewInline === 'pearson';
@@ -41748,7 +42458,7 @@ except Exception as _ngr_error:
                                     plotKey: isPearsonLinearity ? 'linearity_plot' : 'spearman_linearity_plot'
                                   });
                                 }}
-                                className="bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 p-3 rounded-full shadow-xl hover:scale-110 transition-transform transform border border-gray-200 dark:border-gray-700"
+                                className="bg-[#181818] text-zinc-200 p-3 rounded-full shadow-xl hover:scale-110 transition-transform transform border-0"
                                 title="View Full Size"
                               >
                                 <Maximize2 size={24} />
@@ -41758,9 +42468,9 @@ except Exception as _ngr_error:
                         </div>
                       )}
 
-                      <div className="mt-6 p-4 bg-emerald-50 dark:bg-emerald-900/10 rounded-xl border border-emerald-100 dark:border-emerald-800/30">
-                        <div className="text-[10px] font-black uppercase tracking-widest text-emerald-500 mb-2">Correlation Matrix Guide</div>
-                        <div className="text-xs text-emerald-700 dark:text-emerald-300 space-y-2">
+                      <div className="mt-6 p-5 bg-[#181818] rounded-xl border-0 shadow-sm text-zinc-300">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-2">Correlation Matrix Guide</div>
+                        <div className="text-xs text-zinc-300 space-y-1.5 leading-relaxed">
                           <div><strong>Range:</strong> −1 to +1. + means they move together, - means they move opposite.</div>
                           <div><strong>Rule of thumb:</strong> ≥ 0.7 is a strong link, 0.4–0.7 is moderate, &lt; 0.4 is weak.</div>
                           <div><strong>Pearson vs Spearman:</strong> Pearson checks for straight lines, Spearman checks for general trends (ranks).</div>
@@ -41772,13 +42482,13 @@ except Exception as _ngr_error:
                       <div className="mt-4 flex justify-end gap-2">
                         <button
                           onClick={() => handleAskAI('Correlation Matrix Report', generateReport(result, 'correlation_matrix'))}
-                          className="text-[10px] px-3 py-1 rounded-full border border-emerald-200 text-emerald-700 dark:text-emerald-300 dark:border-emerald-700 bg-white/60 dark:bg-emerald-900/10 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors font-bold uppercase tracking-wider flex items-center gap-2"
+                          className="px-3 py-1.5 rounded-full bg-[#181818] hover:bg-[#242424] text-zinc-200 text-[10px] font-bold uppercase tracking-wider border-0 shadow-sm transition-all flex items-center gap-2"
                         >
                           <Bot size={12} /> Ask AI
                         </button>
                         <button
                           onClick={() => openInterpretation('Correlation Matrix Report', generateReport(result, 'correlation_matrix'))}
-                          className="text-[10px] px-3 py-1 rounded-full border border-emerald-200 text-emerald-700 dark:text-emerald-300 dark:border-emerald-700 bg-white/60 dark:bg-emerald-900/10 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors font-bold uppercase tracking-wider"
+                          className="px-3 py-1.5 rounded-full bg-[#181818] hover:bg-[#242424] text-zinc-200 text-[10px] font-bold uppercase tracking-wider border-0 shadow-sm transition-all"
                         >
                           View Detailed Report
                         </button>
@@ -48308,15 +49018,6 @@ except Exception as _ngr_error:
             </div>
           </div>
         )}
-        <ImageModal
-          isOpen={!!selectedImage}
-          onClose={() => setSelectedImage(null)}
-          imageUrl={selectedImage?.url}
-          title={selectedImage?.title}
-          editor={activeImageEditor}
-          editorLanguage={editorLanguage}
-          onTapImage={selectedImage?.editable === false ? undefined : cycleFullscreenPlotPalette}
-        />
         <AIDocumentAssistant
           isOpen={showDocAssistant}
           onClose={() => setShowDocAssistant(false)}
@@ -48361,6 +49062,23 @@ except Exception as _ngr_error:
         )}
 
       </main>
+      </div>
+      <ImageModal
+        isOpen={!!selectedImage && !selectedImage.galleryEmbedded}
+        onClose={() => setSelectedImage(null)}
+        imageUrl={selectedImage?.url}
+        title={selectedImage?.title}
+        editor={activeImageEditor}
+        editorLanguage={editorLanguage}
+        onTapImage={selectedImage?.editable === false ? undefined : cycleFullscreenPlotPalette}
+        editablePlotMetadata={{
+          ...selectedImage,
+          analysisContext: editablePlotAnalysisContext,
+          analysisResult: analysisResults.find((entry) => (
+            String(entry?.id || '').trim() === String(selectedImage?.analysisResultId || '').trim()
+          ))?.data || result || null
+        }}
+      />
     </div>
   );
 }

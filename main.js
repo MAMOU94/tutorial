@@ -4812,17 +4812,91 @@ app.whenReady().then(() => {
 
   ipcMain.handle('save-plot-file', async (event, payload) => {
     try {
-      const { base64, defaultName = 'plot.png' } = payload || {};
+      const { base64, defaultName = 'plot.png', editablePackage = null } = payload || {};
       if (!base64) return { success: false, error: 'No plot data provided' };
       const { filePath, canceled } = await dialog.showSaveDialog(mainAppWindow, {
         title: 'Save Plot',
         defaultPath: defaultName,
-        filters: [{ name: 'Plot media', extensions: ['png', 'gif', 'webp', 'apng', 'mp4', 'html', 'htm'] }]
+        filters: [{ name: 'Plot media', extensions: ['png', 'svg', 'gif', 'webp', 'apng', 'mp4', 'html', 'htm'] }]
       });
       if (canceled || !filePath) return { success: false, canceled: true };
-      const base64Data = base64.replace(/^data:[^;]+;base64,/, '');
-      fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
-      return { success: true, filePath };
+      const extension = path.extname(filePath).toLowerCase();
+      const dataUrlMatch = String(base64).match(/^data:([^,]+),(.*)$/s);
+      let rawBuffer;
+      if (dataUrlMatch) {
+        const [, header, data] = dataUrlMatch;
+        rawBuffer = /;base64(?:;|$)/i.test(header)
+          ? Buffer.from(data, 'base64')
+          : Buffer.from(decodeURIComponent(data), 'utf8');
+      } else {
+        rawBuffer = Buffer.from(String(base64), 'base64');
+      }
+      let outputBuffer = rawBuffer;
+      let metadataEmbedded = false;
+
+      if (editablePackage && typeof editablePackage === 'object' && extension === '.png') {
+        const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+        if (rawBuffer.subarray(0, 8).equals(pngSignature)) {
+          const metadataText = Buffer.from(JSON.stringify(editablePackage), 'utf8').toString('base64');
+          const keyword = Buffer.from('nextgenr-editable-plot', 'latin1');
+          const text = Buffer.from(metadataText, 'latin1');
+          const chunkData = Buffer.concat([
+            keyword,
+            Buffer.from([0, 0, 0, 0, 0]),
+            text
+          ]);
+          const chunkType = Buffer.from('iTXt', 'ascii');
+          const crcTable = new Uint32Array(256);
+          for (let i = 0; i < 256; i += 1) {
+            let value = i;
+            for (let bit = 0; bit < 8; bit += 1) value = (value & 1) ? (0xedb88320 ^ (value >>> 1)) : (value >>> 1);
+            crcTable[i] = value >>> 0;
+          }
+          let crc = 0xffffffff;
+          for (const byte of Buffer.concat([chunkType, chunkData])) crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+          const chunk = Buffer.concat([
+            Buffer.alloc(4),
+            chunkType,
+            chunkData,
+            Buffer.alloc(4)
+          ]);
+          chunk.writeUInt32BE(chunkData.length, 0);
+          chunk.writeUInt32BE((crc ^ 0xffffffff) >>> 0, chunk.length - 4);
+
+          let offset = 8;
+          let insertAt = rawBuffer.length;
+          while (offset + 12 <= rawBuffer.length) {
+            const length = rawBuffer.readUInt32BE(offset);
+            const type = rawBuffer.toString('ascii', offset + 4, offset + 8);
+            if (type === 'IEND') {
+              insertAt = offset;
+              break;
+            }
+            offset += 12 + length;
+          }
+          outputBuffer = Buffer.concat([rawBuffer.subarray(0, insertAt), chunk, rawBuffer.subarray(insertAt)]);
+          metadataEmbedded = true;
+        }
+      } else if (editablePackage && typeof editablePackage === 'object' && extension === '.svg') {
+        const svgText = rawBuffer.toString('utf8');
+        if (/<svg[\s>]/i.test(svgText)) {
+          const metadataText = Buffer.from(JSON.stringify(editablePackage), 'utf8').toString('base64');
+          const metadataTag = `<metadata id="nextgenr-editable-plot" encoding="base64">${metadataText}</metadata>`;
+          outputBuffer = Buffer.from(svgText.replace(/<svg([^>]*)>/i, `<svg$1>${metadataTag}`), 'utf8');
+          metadataEmbedded = true;
+        }
+      }
+
+      fs.writeFileSync(filePath, outputBuffer);
+      let editableFilePath = '';
+      if (editablePackage && typeof editablePackage === 'object' && !metadataEmbedded) {
+        const extensionMatch = filePath.match(/\.[^./\\]+$/);
+        editableFilePath = extensionMatch
+          ? filePath.slice(0, -extensionMatch[0].length) + '.ngplot'
+          : `${filePath}.ngplot`;
+        fs.writeFileSync(editableFilePath, JSON.stringify(editablePackage, null, 2), 'utf8');
+      }
+      return { success: true, filePath, editableFilePath, metadataEmbedded };
     } catch (err) {
       return { success: false, error: err.message };
     }
