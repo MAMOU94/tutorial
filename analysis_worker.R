@@ -1,6 +1,30 @@
 options(show.error.messages = TRUE)
 options(warn = 1)
 
+active_r_minor <- paste(R.version$major, strsplit(R.version$minor, "\\.")[[1]][1], sep = ".")
+r_library_minor <- function(path) {
+  leaf <- basename(normalizePath(path.expand(path), winslash = "/", mustWork = FALSE))
+  if (grepl("^[0-9]+\\.[0-9]+$", leaf)) leaf else ""
+}
+is_other_r_library <- function(path) {
+  library_minor <- r_library_minor(path)
+  nzchar(library_minor) && !identical(library_minor, active_r_minor)
+}
+compatible_libraries <- .libPaths()
+compatible_libraries <- compatible_libraries[!vapply(compatible_libraries, is_other_r_library, logical(1))]
+r_user_library <- strsplit(Sys.getenv("R_LIBS_USER", unset = ""), .Platform$path.sep, fixed = TRUE)[[1]]
+r_user_library <- r_user_library[nzchar(trimws(r_user_library))]
+r_user_library <- if (length(r_user_library) > 0 && !is_other_r_library(r_user_library[[1]])) {
+  path.expand(r_user_library[[1]])
+} else {
+  file.path(path.expand("~"), "R", paste0(R.version$platform, "-library"), active_r_minor)
+}
+if (!dir.exists(r_user_library)) dir.create(r_user_library, recursive = TRUE, showWarnings = FALSE)
+.libPaths(unique(c(r_user_library, compatible_libraries)))
+if (!requireNamespace("jsonlite", quietly = TRUE)) {
+  install.packages("jsonlite", lib = r_user_library, repos = "https://cloud.r-project.org", quiet = TRUE)
+}
+
 suppressPackageStartupMessages(library(jsonlite))
 
 Sys.setenv(ANALYSIS_WRAPPER_EMBEDDED = "1")

@@ -19,6 +19,15 @@ app.commandLine.appendSwitch('no-sandbox');
 app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
 app.commandLine.appendSwitch('enable-features', 'NetworkService,NetworkServiceInProcess');
 
+const homeLocalBin = path.join(os.homedir(), '.local', 'bin');
+if (fs.existsSync(homeLocalBin) && !(process.env.PATH || '').split(path.delimiter).includes(homeLocalBin)) {
+  process.env.PATH = `${homeLocalBin}${path.delimiter}${process.env.PATH || ''}`;
+}
+if (!process.env.RIG_MODE) {
+  process.env.RIG_MODE = 'user';
+}
+
+
 
 const DEFAULT_OLLAMA_BASE = 'http://localhost:11434';
 const normalizeOllamaApiUrl = (value) => {
@@ -192,6 +201,7 @@ let ollamaProcess = null;
 let ollamaStarting = false;
 let ollamaStartupPromise = null;
 let eccFinderProcess = null;
+let fastqcProcess = null;
 
 const EXTENSION_PARTITION = 'persist:extension-browser';
 const EXTENSIONS_ROOT = path.join(__dirname, 'extensions');
@@ -1587,6 +1597,163 @@ const getEccFinderEnvManager = async () => {
   return '';
 };
 
+const getBioinformaticsEnvManager = async () => {
+  if (await hasCommand('micromamba')) return 'micromamba';
+  const localMicromambaPath = getLocalMicromambaPath();
+  if (fs.existsSync(localMicromambaPath)) return localMicromambaPath;
+  if (await hasCommand('mamba')) return 'mamba';
+  if (await hasCommand('conda')) return 'conda';
+  return '';
+};
+
+const getMicromambaManager = async () => {
+  if (await hasCommand('micromamba')) return 'micromamba';
+  const localMicromambaPath = getLocalMicromambaPath();
+  return fs.existsSync(localMicromambaPath) ? localMicromambaPath : '';
+};
+
+const getBioinformaticsManagerEnv = (manager) => ({
+  ...process.env,
+  LC_ALL: 'en_US.UTF-8',
+  BIOINFORMATICS_ENV_MANAGER: manager || 'micromamba',
+  ...(isMicromambaManager(manager) && path.isAbsolute(manager)
+    ? { MAMBA_ROOT_PREFIX: getWritableMicromambaRoot() }
+    : {})
+});
+
+const getFastqcEnvStatus = async (manager) => {
+  if (!manager) return { environmentManager: '', environmentReady: false };
+  const env = getBioinformaticsManagerEnv(manager);
+  const envList = await runSpawnCapture(manager, ['env', 'list', '--json'], { env, windowsHide: true });
+  let environmentPrefix = '';
+  try {
+    environmentPrefix = JSON.parse(envList.stdout || '{}').envs?.find((prefix) => path.basename(prefix) === 'fastq_quality') || '';
+  } catch (_) { }
+  const environmentExists = Boolean(environmentPrefix);
+  const fastqcExecutable = environmentPrefix
+    ? path.join(environmentPrefix, process.platform === 'win32' ? 'Scripts' : 'bin', process.platform === 'win32' ? 'fastqc.bat' : 'fastqc')
+    : '';
+  const probeEnv = environmentPrefix && process.platform !== 'win32'
+    ? { ...env, PATH: `${path.join(environmentPrefix, 'bin')}${path.delimiter}${env.PATH || ''}` }
+    : env;
+  const probe = environmentExists
+    ? process.platform === 'win32'
+      ? await runSpawnCapture(manager, ['run', '-n', 'fastq_quality', 'fastqc', '--version'], { env, windowsHide: true })
+      : fs.existsSync(fastqcExecutable)
+        ? await runSpawnCapture(fastqcExecutable, ['--version'], { env: probeEnv, windowsHide: true })
+        : { code: 1 }
+    : { code: 1 };
+  return {
+    environmentManager: manager,
+    environmentExists,
+    environmentReady: probe.code === 0,
+    environmentPrefix,
+    fastqcExecutable
+  };
+};
+
+const getMicromambaEnvironments = async () => {
+  const manager = await getMicromambaManager();
+  if (!manager) return { success: false, found: false, envs: [], error: 'Micromamba was not found.' };
+  const env = getBioinformaticsManagerEnv(manager);
+  const [envResult, infoResult, versionResult] = await Promise.all([
+    runSpawnCapture(manager, ['env', 'list', '--json'], { env, windowsHide: true }),
+    runSpawnCapture(manager, ['info', '--json'], { env, windowsHide: true }),
+    runSpawnCapture(manager, ['--version'], { env, windowsHide: true })
+  ]);
+  if (envResult.code !== 0) {
+    return { success: false, found: true, envs: [], error: String(envResult.stderr || 'Could not list Micromamba environments.').trim() };
+  }
+  let prefixes = [];
+  let rootPrefix = '';
+  try { prefixes = JSON.parse(envResult.stdout || '{}').envs || []; } catch (_) { }
+  try { rootPrefix = JSON.parse(infoResult.stdout || '{}').root_prefix || ''; } catch (_) { }
+  const envs = prefixes.map((prefix) => ({
+    name: path.resolve(prefix) === path.resolve(rootPrefix) ? 'base' : path.basename(prefix),
+    prefix: path.resolve(prefix)
+  }));
+  return {
+    success: true,
+    found: true,
+    version: String(versionResult.stdout || '').trim(),
+    path: manager,
+    envs
+  };
+};
+
+const getWritableBioinformaticsScriptPath = (environmentName) => {
+  const safeName = String(environmentName || '').trim();
+  if (!/^[A-Za-z0-9_.-]+$/.test(safeName)) throw new Error('Invalid Micromamba environment name.');
+  return path.join(app.getPath('userData'), 'bioinformatics-env-scripts', `${safeName}.sh`);
+};
+
+const getDefaultBioinformaticsEnvScript = (environmentName) => {
+  if (environmentName === 'fastq_quality') return `#!/usr/bin/env bash
+set -euo pipefail
+
+mode=\${1:?Usage: fastqc_workflow.sh single|auto FASTQ_FILE_OR_FOLDER}
+input_path=\${2:?Usage: fastqc_workflow.sh single|auto FASTQ_FILE_OR_FOLDER}
+manager=\${BIOINFORMATICS_ENV_MANAGER:-micromamba}
+environment_prefix=\${BIOINFORMATICS_ENV_PREFIX:?Select a Micromamba environment first}
+
+shopt -s nocaseglob nocasematch
+if [[ "$mode" == "single" ]]; then
+  [[ -f "$input_path" && "$input_path" =~ \\.(fastq|fq)(\\.gz)?$ ]] || { echo "Select a valid FASTQ file." >&2; exit 2; }
+  files=("$input_path")
+elif [[ "$mode" == "auto" && -d "$input_path" ]]; then
+  shopt -s nullglob
+  matches=("$input_path"/*.fastq "$input_path"/*.fq "$input_path"/*.fastq.gz "$input_path"/*.fq.gz)
+  files=()
+  for file in "\${matches[@]}"; do
+    [[ -f "$file" ]] && files+=("$file")
+  done
+  (( \${#files[@]} > 0 )) || { echo "No FASTQ files were found in the selected folder." >&2; exit 2; }
+else
+  echo "Choose single or auto mode and provide a valid file or folder." >&2
+  exit 2
+fi
+
+if [[ "$mode" == "single" ]]; then
+  output_dir="$(dirname -- "$input_path")/fastqc_results"
+else
+  output_dir="$input_path/fastqc_results"
+fi
+mkdir -p "$output_dir"
+
+if [[ "\${manager##*/}" == micromamba* ]]; then
+  exec "$manager" run -p "$environment_prefix" fastqc --outdir "$output_dir" "\${files[@]}"
+fi
+exec "$manager" run --no-capture-output -p "$environment_prefix" fastqc --outdir "$output_dir" "\${files[@]}"
+`;
+  return `#!/usr/bin/env bash
+set -euo pipefail
+
+manager=\${BIOINFORMATICS_ENV_MANAGER:-micromamba}
+environment_prefix=\${BIOINFORMATICS_ENV_PREFIX:?Select a Micromamba environment first}
+exec "$manager" run -p "$environment_prefix" "$@"
+`;
+};
+
+const ensureWritableBioinformaticsEnvScript = (environmentName) => {
+  const scriptPath = getWritableBioinformaticsScriptPath(environmentName);
+  if (!fs.existsSync(scriptPath)) {
+    fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
+    fs.writeFileSync(scriptPath, getDefaultBioinformaticsEnvScript(environmentName), 'utf8');
+  } else if (environmentName === 'fastq_quality') {
+    const previousFastqcRunner = `#!/usr/bin/env bash
+set -euo pipefail
+
+manager=\${BIOINFORMATICS_ENV_MANAGER:-micromamba}
+environment_prefix=\${BIOINFORMATICS_ENV_PREFIX:?Select a Micromamba environment first}
+exec "$manager" run -p "$environment_prefix" fastqc "$@"
+`;
+    if (fs.readFileSync(scriptPath, 'utf8') === previousFastqcRunner) {
+      fs.writeFileSync(scriptPath, getDefaultBioinformaticsEnvScript(environmentName), 'utf8');
+    }
+  }
+  return scriptPath;
+};
+
 const isMicromambaManager = (manager) => path.basename(String(manager || '')).toLowerCase().startsWith('micromamba');
 
 const buildEccFinderManagerCommand = (manager) => {
@@ -1608,12 +1775,16 @@ const buildEccFinderEnvRunPrefix = (manager) => {
 };
 
 // Returns the python command to use: direct bundled path preferred (no manager needed at runtime)
-const getDefaultEccFinderPythonCommand = () => {
-  if (isEccFinderEnvReady()) return shellQuote(getEccFinderEnvPython());
-  if (fs.existsSync(getLocalMicromambaPath())) {
-    return `MAMBA_ROOT_PREFIX=${shellQuote(getWritableMicromambaRoot())} ${shellQuote(getLocalMicromambaPath())} run -n ${shellQuote(ECC_FINDER_ENV_NAME)} python`;
+const getDefaultEccFinderPythonCommand = (manager = '') => {
+  if (process.platform === 'win32') {
+    if (isEccFinderEnvReady()) return shellQuote(getEccFinderEnvPython());
+    if (fs.existsSync(getLocalMicromambaPath())) {
+      return `MAMBA_ROOT_PREFIX=${shellQuote(getWritableMicromambaRoot())} ${shellQuote(getLocalMicromambaPath())} run -n ${shellQuote(ECC_FINDER_ENV_NAME)} python`;
+    }
+    return 'conda run -n ecc_finder python';
   }
-  return 'conda run -n ecc_finder python';
+  if (manager === '__bundled__') return shellQuote(getEccFinderEnvPython());
+  return 'python';
 };
 
 const buildEccFinderEnvInstallCommand = (manager, envFile, environmentInstalled) => {
@@ -1725,7 +1896,7 @@ const getEccFinderStatus = async (sourcePath = '') => {
   };
 };
 
-const buildEccFinderCommand = (payload = {}) => {
+const buildEccFinderCommand = (payload = {}, environmentManager = '') => {
   const workflowId = String(payload.workflow || 'map_ont').trim();
   const workflowMeta = ECC_FINDER_WORKFLOWS[workflowId];
   if (!workflowMeta) throw new Error(`Unsupported ecc_finder workflow: ${workflowId}`);
@@ -1736,7 +1907,7 @@ const buildEccFinderCommand = (payload = {}) => {
     throw new Error(`ecc_finder.py was not found at ${entryPath}. Install or choose the ecc_finder folder first.`);
   }
 
-  const pythonCommand = String(payload.pythonCommand || getDefaultEccFinderPythonCommand()).trim() || 'python';
+  const pythonCommand = String(payload.pythonCommand || getDefaultEccFinderPythonCommand(environmentManager)).trim() || 'python';
   const outputPath = resolveEccFinderOutputPath(payload.outputPath, workflowMeta);
   const prefix = String(payload.prefix || workflowMeta.defaultPrefix || 'ecc').trim();
   const threads = Number.parseInt(String(payload.threads || ''), 10);
@@ -2038,10 +2209,14 @@ const parseRVersionOutput = (rawOutput = '') => {
   };
 };
 
-const getRVersionDetails = async () => {
+let selectedRVersion = '';
+let selectedRSource = '';
+let selectedRCommands = { r: 'R', rscript: 'Rscript' };
+
+const getRVersionDetailsFor = async (rCommand, rscriptCommand) => {
   const commands = [
-    { cmd: 'R', args: ['--version'] },
-    { cmd: 'Rscript', args: ['--version'] }
+    { cmd: rCommand, args: ['--version'] },
+    { cmd: rscriptCommand, args: ['--version'] }
   ];
 
   for (const command of commands) {
@@ -2062,156 +2237,94 @@ const getRVersionDetails = async () => {
   };
 };
 
-const getRUpdatePlan = async () => {
-  if (process.platform === 'win32') {
-    const wingetInstalled = await hasCommand('winget');
-    const command = 'winget upgrade --id RProject.R --exact --silent --accept-package-agreements --accept-source-agreements';
-    if (!wingetInstalled) {
-      return {
-        success: false,
-        requiresManual: true,
-        error: 'winget is not available on this system.',
-        command
-      };
+const getInstalledRVersions = async () => {
+  const versions = [];
+  const rigCommand = fs.existsSync(path.join(os.homedir(), '.local', 'bin', process.platform === 'win32' ? 'rig.exe' : 'rig'))
+    ? path.join(os.homedir(), '.local', 'bin', process.platform === 'win32' ? 'rig.exe' : 'rig')
+    : 'rig';
+  if (rigCommand !== 'rig' || await hasCommand('rig')) {
+    const env = { ...process.env, RIG_MODE: process.env.RIG_MODE || 'user' };
+    let result = await runSpawnCapture(rigCommand, ['list', '--json'], { env, windowsHide: true });
+    let rigVersions = [];
+    if (result.code === 0) {
+      try {
+        rigVersions = JSON.parse(result.stdout || '[]');
+      } catch (_) { }
     }
-    return {
-      success: true,
-      shellCommand: command,
-      manualCommand: command
-    };
+    if (!Array.isArray(rigVersions) || rigVersions.length === 0) {
+      const userResult = await runSpawnCapture(rigCommand, ['list', '--user', '--json'], { env, windowsHide: true });
+      if (userResult.code === 0) {
+        try {
+          rigVersions = JSON.parse(userResult.stdout || '[]');
+        } catch (_) { }
+      }
+    }
+    for (const item of Array.isArray(rigVersions) ? rigVersions : []) {
+      const version = String(item?.version || '').trim();
+      const binary = String(item?.binary || '').trim();
+      if (!version || !binary) continue;
+      const rscript = path.join(path.dirname(binary), process.platform === 'win32' ? 'Rscript.exe' : 'Rscript');
+      if (!fs.existsSync(binary) || !fs.existsSync(rscript)) continue;
+      versions.push({ version, r: binary, rscript, isDefault: item.default === true, source: 'rig' });
+    }
   }
 
-  if (process.platform === 'darwin') {
-    const brewInstalled = await hasCommand('brew');
-    const command = 'brew update && brew upgrade --cask r';
-    if (!brewInstalled) {
-      return {
-        success: false,
-        requiresManual: true,
-        error: 'Homebrew is not installed.',
-        command
-      };
-    }
-    return {
-      success: true,
-      shellCommand: command,
-      manualCommand: command
-    };
+  const systemR = await getRVersionDetailsFor('R', 'Rscript');
+  if (systemR.success && systemR.version && !versions.some((item) => item.version === systemR.version)) {
+    versions.push({ version: systemR.version, r: 'R', rscript: 'Rscript', isDefault: versions.length === 0, source: 'system' });
   }
 
-  if (process.platform === 'linux') {
-    const aptInstalled = await hasCommand('apt-get');
-    const dnfInstalled = await hasCommand('dnf');
-    const pacmanInstalled = await hasCommand('pacman');
-    const zypperInstalled = await hasCommand('zypper');
-    const pkexecInstalled = await hasCommand('pkexec');
-    const sudoInstalled = await hasCommand('sudo');
-
-    const wrapAutoPrivilege = (innerCommand) => {
-      if (pkexecInstalled) return `pkexec bash -lc '${innerCommand}'`;
-      if (sudoInstalled) return `sudo -n bash -lc '${innerCommand}'`;
-      return null;
-    };
-    const wrapManualPrivilege = (innerCommand) => {
-      if (sudoInstalled) return `sudo bash -lc '${innerCommand}'`;
-      return innerCommand;
-    };
-
-    if (aptInstalled) {
-      const innerCommand = 'DEBIAN_FRONTEND=noninteractive apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --only-upgrade r-base r-base-core';
-      const autoCommand = wrapAutoPrivilege(innerCommand);
-      const manualCommand = wrapManualPrivilege(innerCommand);
-      if (!autoCommand) {
-        return {
-          success: false,
-          requiresManual: true,
-          error: 'Administrator privileges are required to update R.',
-          command: manualCommand
-        };
-      }
-      return {
-        success: true,
-        shellCommand: autoCommand,
-        manualCommand
-      };
-    }
-
-    if (dnfInstalled) {
-      const innerCommand = 'dnf upgrade -y R';
-      const autoCommand = wrapAutoPrivilege(innerCommand);
-      const manualCommand = wrapManualPrivilege(innerCommand);
-      if (!autoCommand) {
-        return {
-          success: false,
-          requiresManual: true,
-          error: 'Administrator privileges are required to update R.',
-          command: manualCommand
-        };
-      }
-      return {
-        success: true,
-        shellCommand: autoCommand,
-        manualCommand
-      };
-    }
-
-    if (pacmanInstalled) {
-      const innerCommand = 'pacman -Syu --noconfirm r';
-      const autoCommand = wrapAutoPrivilege(innerCommand);
-      const manualCommand = wrapManualPrivilege(innerCommand);
-      if (!autoCommand) {
-        return {
-          success: false,
-          requiresManual: true,
-          error: 'Administrator privileges are required to update R.',
-          command: manualCommand
-        };
-      }
-      return {
-        success: true,
-        shellCommand: autoCommand,
-        manualCommand
-      };
-    }
-
-    if (zypperInstalled) {
-      const innerCommand = 'zypper --non-interactive update R-base';
-      const autoCommand = wrapAutoPrivilege(innerCommand);
-      const manualCommand = wrapManualPrivilege(innerCommand);
-      if (!autoCommand) {
-        return {
-          success: false,
-          requiresManual: true,
-          error: 'Administrator privileges are required to update R.',
-          command: manualCommand
-        };
-      }
-      return {
-        success: true,
-        shellCommand: autoCommand,
-        manualCommand
-      };
-    }
-
-    return {
-      success: false,
-      requiresManual: true,
-      error: 'No supported Linux package manager detected for automatic R upgrade.',
-      command: 'Use your distribution package manager to upgrade R.'
-    };
-  }
-
-  return {
-    success: false,
-    requiresManual: true,
-    error: `Automatic R update is not supported on platform: ${process.platform}`
-  };
+  return versions.sort((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }));
 };
 
-// Handle creating/removing shortcuts on Windows when installing/uninstalling.
-if (require('electron-squirrel-startup')) {
-  app.quit();
-}
+const getRVersionPreferencePath = () => path.join(app.getPath('userData'), 'r-version-preference.json');
+const getSavedRVersion = () => {
+  try {
+    return String(JSON.parse(fs.readFileSync(getRVersionPreferencePath(), 'utf8'))?.version || '').trim();
+  } catch (_) {
+    return '';
+  }
+};
+
+const setSelectedRVersion = async (requestedVersion = '') => {
+  const versions = await getInstalledRVersions();
+  const requested = String(requestedVersion || '').trim();
+  const target = (requested ? versions.find((item) => item.version === requested) : null)
+    || (!requested ? versions.find((item) => item.version === getSavedRVersion()) : null)
+    || (!requested ? versions.find((item) => item.isDefault) : null)
+    || (!requested ? versions[0] : null);
+  if (!target) {
+    return {
+      success: false,
+      error: requested ? `R ${requested} is not installed.` : 'No working R installation was found.'
+    };
+  }
+  if (requestedVersion) {
+    try {
+      fs.writeFileSync(getRVersionPreferencePath(), JSON.stringify({ version: target.version }, null, 2));
+    } catch (error) {
+      return { success: false, error: `Could not save selected R version: ${error.message}` };
+    }
+  }
+  if (target.source === 'rig') {
+    const homeRig = path.join(os.homedir(), '.local', 'bin', process.platform === 'win32' ? 'rig.exe' : 'rig');
+    const rigCommand = fs.existsSync(homeRig) ? homeRig : 'rig';
+    if (rigCommand !== 'rig' || await hasCommand('rig')) {
+      try {
+        await runSpawnCapture(rigCommand, ['default', target.version], { env: { ...process.env, RIG_MODE: process.env.RIG_MODE || 'user' }, windowsHide: true });
+      } catch (_) { }
+    }
+  }
+  selectedRVersion = target.version;
+  selectedRSource = target.source;
+  selectedRCommands = { r: target.r, rscript: target.rscript };
+  return { success: true, version: target.version, source: target.source };
+};
+
+const getRVersionDetails = () => getRVersionDetailsFor(selectedRCommands.r, selectedRCommands.rscript);
+const getRExecutable = () => selectedRCommands.r;
+const getRScriptExecutable = () => selectedRCommands.rscript;
+
 
 const sendMenuActionToRenderer = (channel, payload = null) => {
   const targetWindow = BrowserWindow.getFocusedWindow() || mainAppWindow;
@@ -2301,7 +2414,10 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  const initialRSelection = await setSelectedRVersion();
+  if (!initialRSelection.success) console.warn('[R version selection]', initialRSelection.error);
+
   app.userAgentFallback = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
   const setupSessionEvasion = (sess) => {
@@ -2326,15 +2442,12 @@ app.whenReady().then(() => {
   // Pre-load heavy R packages 2s after app start so the OS file cache has them
   // in RAM. Subsequent Rscript spawns load from cache (~3-10x faster cold start).
   setTimeout(() => {
-    const localLib = path.join(__dirname, 'r-libs').replace(/\\/g, '/');
     const warmupScript = [
-      `local_lib <- "${localLib}";`,
-      `.libPaths(c(local_lib, .libPaths()));`,
       `pkgs <- c("ggplot2","reshape2","dunn.test","multcompView","cluster","openxlsx","jsonlite","RColorBrewer","viridisLite");`,
-      `for(p in pkgs) tryCatch(suppressMessages(library(p,character.only=TRUE,lib.loc=local_lib,warn.conflicts=FALSE)),error=function(e)NULL);`,
+      `for(p in pkgs) tryCatch(suppressMessages(library(p,character.only=TRUE,warn.conflicts=FALSE)),error=function(e)NULL);`,
       `message("[R warm-up] packages ready.");`
     ].join('\n');
-    const warmup = spawn('Rscript', ['--no-restore', '--no-save', '-e', warmupScript], {
+    const warmup = spawn(getRScriptExecutable(), ['--no-restore', '--no-save', '-e', warmupScript], {
       cwd: __dirname, stdio: ['ignore', 'ignore', 'pipe']
     });
     warmup.stderr.on('data', (d) => console.log('[R warm-up]', d.toString().trim()));
@@ -2397,7 +2510,7 @@ app.whenReady().then(() => {
       }
       const checkExpr = 'args <- commandArgs(trailingOnly = TRUE); invisible(parse(file = args[[1]])); cat("OK\\n")';
       const proc = spawnSync(
-        'Rscript',
+        getRScriptExecutable(),
         ['--no-restore', '--no-save', '-e', checkExpr, scriptPath],
         { cwd: __dirname, encoding: 'utf8' }
       );
@@ -2637,7 +2750,7 @@ app.whenReady().then(() => {
     rEditorWorkerStartPromise = new Promise((resolve, reject) => {
       const workerEnv = { ...process.env, ANALYSIS_WRAPPER_EMBEDDED: '1' };
       const proc = spawn(
-        'Rscript',
+        getRScriptExecutable(),
         ['--no-restore', '--no-save', rEditorWorkerScriptPath, analysisWrapperPath],
         { cwd: getWorkspaceRoot(), env: workerEnv }
       );
@@ -3609,7 +3722,7 @@ app.whenReady().then(() => {
         };
 
         const runOneShotRProcess = () => {
-          const rProcess = spawn('Rscript', ['--no-restore', '--no-save', ...args], { cwd: getWorkspaceRoot() });
+          const rProcess = spawn(getRScriptExecutable(), ['--no-restore', '--no-save', ...args], { cwd: getWorkspaceRoot() });
 
           rProcess.stdout.on('data', (data) => {
             const str = data.toString();
@@ -3698,7 +3811,7 @@ app.whenReady().then(() => {
       }
 
       const rProcess = spawn(
-        'Rscript',
+        getRScriptExecutable(),
         [transformWrapperPath, inputPath, outputPath, pipelinePath],
         { cwd: __dirname }
       );
@@ -4366,7 +4479,7 @@ app.whenReady().then(() => {
   ipcMain.handle('get-file-metadata', async (event, filePath, sheetName = '') => {
     return new Promise((resolve, reject) => {
       const wrapperPath = path.join(__dirname, 'analysis_wrapper.R');
-      const rProcess = spawn('Rscript', ['--vanilla', wrapperPath, '--get-metadata', filePath, sheetName], { cwd: getWorkspaceRoot() });
+      const rProcess = spawn(getRScriptExecutable(), ['--vanilla', wrapperPath, '--get-metadata', filePath, sheetName], { cwd: getWorkspaceRoot() });
 
       let stdoutData = '';
       let stderrData = '';
@@ -4471,6 +4584,70 @@ app.whenReady().then(() => {
     });
   });
 
+  ipcMain.handle('get-r-versions', async () => {
+    try {
+      const selected = await setSelectedRVersion();
+      if (!selected.success) return selected;
+      const versions = await getInstalledRVersions();
+      return {
+        success: true,
+        selectedVersion: selected.version,
+        selectedSource: selectedRSource,
+        versions: versions.map(({ version, source }) => ({ version, source }))
+      };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('prepare-r-analysis-packages', async (_event, action = 'check') => {
+    if (!['check', 'install'].includes(action)) return { success: false, error: 'Invalid R package preparation action.' };
+    try {
+      const scriptPath = path.join(__dirname, 'r_package_preflight.R');
+      const result = await runSpawnCapture(getRScriptExecutable(), ['--no-save', '--no-restore', scriptPath, action], {
+        env: process.env,
+        windowsHide: true
+      });
+      const response = { success: result.code === 0, version: '', library: '', missing: [], outdated: [], offline: false, error: '' };
+      for (const line of String(result.stdout || '').split(/\r?\n/)) {
+        const [type, ...values] = line.split('\t');
+        if (type === 'version') response.version = values[0] || '';
+        else if (type === 'library') response.library = values.join('\t');
+        else if (type === 'missing') response.missing.push(values[0]);
+        else if (type === 'outdated') response.outdated.push({ package: values[0], installed: values[1], available: values[2] });
+        else if (type === 'offline') response.offline = values[0] === 'true';
+        else if (type === 'error') response.error = values.join('\t');
+      }
+      if (!response.success && !response.error) response.error = String(result.stderr || result.stdout || 'R package preparation failed.').trim();
+      return response;
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('set-r-version', async (_event, requestedVersion) => {
+    try {
+      const previousVersion = selectedRVersion;
+      const result = await setSelectedRVersion(requestedVersion);
+      const changed = result.success && result.version !== previousVersion;
+      if (changed) stopREditorWorker('R version changed');
+      const consoleProcess = changed && rConsoleProcesses.r;
+      if (consoleProcess) {
+        await new Promise((resolve) => {
+          consoleProcess.once('close', resolve);
+          try {
+            if (!consoleProcess.kill()) resolve();
+          } catch (_) {
+            resolve();
+          }
+        });
+      }
+      return { ...result, consoleNeedsRestart: Boolean(consoleProcess) };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
   ipcMain.handle('get-r-version', async () => {
     try {
       const versionDetails = await getRVersionDetails();
@@ -4483,6 +4660,8 @@ app.whenReady().then(() => {
       return {
         success: true,
         version: versionDetails.version || versionDetails.line || 'Unknown',
+        selectedVersion: selectedRVersion,
+        selectedSource: selectedRSource,
         raw: versionDetails.line || ''
       };
     } catch (error) {
@@ -4495,32 +4674,43 @@ app.whenReady().then(() => {
 
   ipcMain.handle('update-r-version', async () => {
     try {
-      const plan = await getRUpdatePlan();
-      if (!plan.success) {
-        return plan;
+      const rigCommand = fs.existsSync(path.join(os.homedir(), '.local', 'bin', process.platform === 'win32' ? 'rig.exe' : 'rig'))
+        ? path.join(os.homedir(), '.local', 'bin', process.platform === 'win32' ? 'rig.exe' : 'rig')
+        : 'rig';
+      if (rigCommand === 'rig' && !(await hasCommand('rig'))) {
+        return { success: false, error: 'Rig is required to install a new R version while preserving existing versions.' };
       }
 
-      const updateResult = await runShellCapture(plan.shellCommand);
-      const outputText = `${updateResult.stdout || ''}\n${updateResult.stderr || ''}`.trim();
-
-      if (updateResult.code === 0) {
-        const versionDetails = await getRVersionDetails();
-        return {
-          success: true,
-          output: outputText,
-          version: versionDetails.success ? (versionDetails.version || versionDetails.line || '') : ''
-        };
+      const env = { ...process.env, RIG_MODE: 'user' };
+      const installResult = await runSpawnCapture(rigCommand, ['add', 'release', '--json'], { env, windowsHide: true });
+      const outputText = `${installResult.stdout || ''}\n${installResult.stderr || ''}`.trim();
+      if (installResult.code !== 0) {
+        return { success: false, error: `Rig could not install the latest R release (exit code ${installResult.code}).`, output: outputText };
       }
 
-      const permissionError = /password is required|permission denied|authorization failed|not in the sudoers|operation not permitted/i.test(outputText);
+      let installed;
+      try {
+        installed = JSON.parse(installResult.stdout || '{}');
+      } catch (_) {
+        return { success: false, error: 'Rig installed R but returned unrecognized version information.', output: outputText };
+      }
+      const version = String(installed.version || '').trim();
+      if (!version) return { success: false, error: 'Rig did not report the installed R version.', output: outputText };
+
+      const selection = await setSelectedRVersion(version);
+      if (!selection.success) return { success: false, error: selection.error, version, output: outputText };
+      stopREditorWorker('R version changed');
+
+      const packageSetup = await runSpawnCapture(getRScriptExecutable(), [
+        '--no-save', '--no-restore', path.join(__dirname, 'r_package_preflight.R'), 'install'
+      ], { env: process.env, windowsHide: true });
+      const packageSetupOutput = `${packageSetup.stdout || ''}\n${packageSetup.stderr || ''}`.trim();
       return {
-        success: false,
-        error: permissionError
-          ? 'Administrator permission is required to update R.'
-          : `R update command exited with code ${updateResult.code}.`,
+        success: true,
+        version,
         output: outputText,
-        requiresManual: true,
-        command: plan.manualCommand || plan.shellCommand
+        packageSetupSuccess: packageSetup.code === 0,
+        packageSetupError: packageSetup.code === 0 ? '' : packageSetupOutput || 'R package setup failed.'
       };
     } catch (error) {
       return {
@@ -4627,7 +4817,7 @@ app.whenReady().then(() => {
     }
 
     try {
-      const command = language === 'python' ? (os.platform() === 'win32' ? 'python' : getPythonPath()) : 'R';
+      const command = language === 'python' ? (os.platform() === 'win32' ? 'python' : getPythonPath()) : getRExecutable();
       const args = language === 'python' ? ['-i', '-u'] : ['--vanilla', '--interactive'];
       const pythonConsoleEnv = language === 'python'
         ? (() => {
@@ -6548,7 +6738,7 @@ if (isTRUE(res$ok)) {
 `;
 
       const result = await new Promise((resolve, reject) => {
-        const proc = spawn('Rscript', ['-e', script], {
+        const proc = spawn(getRScriptExecutable(), ['-e', script], {
           stdio: ['pipe', 'pipe', 'pipe']
         });
         let stdout = "";
@@ -7419,6 +7609,150 @@ ${groundedExecutionClause} ${claudeCodeAgentClause}`
     }
   });
 
+  ipcMain.handle('select-fastq-file', async () => {
+    const response = await dialog.showOpenDialog({
+      title: 'Select FASTQ sample',
+      properties: ['openFile'],
+      filters: [{ name: 'FASTQ', extensions: ['fastq', 'fq', 'fastq.gz', 'fq.gz'] }]
+    });
+    return response.canceled ? { success: false, canceled: true } : { success: true, path: response.filePaths[0] };
+  });
+
+  ipcMain.handle('select-fastq-folder', async () => {
+    const response = await dialog.showOpenDialog({
+      title: 'Select folder with FASTQ samples',
+      properties: ['openDirectory']
+    });
+    return response.canceled ? { success: false, canceled: true } : { success: true, path: response.filePaths[0] };
+  });
+
+  ipcMain.handle('install-fastqc-environment', async (event) => {
+    if (fastqcProcess) return { success: false, error: 'A FastQC task is already running.' };
+    const manager = await getBioinformaticsEnvManager();
+    if (!manager) return { success: false, error: 'Micromamba, mamba, or conda was not found.' };
+
+    const status = await getFastqcEnvStatus(manager);
+    const action = status.environmentExists ? 'install' : 'create';
+    const args = [action, '-y', '-n', 'fastq_quality', '-c', 'conda-forge', '-c', 'bioconda', 'fastqc'];
+    fastqcProcess = spawn(manager, args, {
+      env: getBioinformaticsManagerEnv(manager),
+      windowsHide: true
+    });
+    event.sender.send('fastqc-output', { type: 'start', kind: 'setup', command: `${manager} ${args.join(' ')}` });
+    fastqcProcess.stdout?.on('data', (data) => event.sender.send('fastqc-output', { type: 'stdout', kind: 'setup', text: data.toString() }));
+    fastqcProcess.stderr?.on('data', (data) => event.sender.send('fastqc-output', { type: 'stderr', kind: 'setup', text: data.toString() }));
+    fastqcProcess.on('error', (error) => {
+      event.sender.send('fastqc-output', { type: 'error', kind: 'setup', text: error.message });
+      fastqcProcess = null;
+    });
+    fastqcProcess.on('close', (code) => {
+      event.sender.send('fastqc-output', { type: 'exit', kind: 'setup', code: typeof code === 'number' ? code : -1 });
+      fastqcProcess = null;
+    });
+    return { success: true };
+  });
+
+  ipcMain.handle('run-fastqc', async (event, payload = {}) => {
+    if (fastqcProcess) return { success: false, error: 'A FastQC task is already running.' };
+    const mode = payload.mode === 'auto' ? 'auto' : 'single';
+    const inputPath = path.resolve(String(payload.path || '').trim());
+    if (!payload.path || !fs.existsSync(inputPath)) return { success: false, error: 'Select a valid FASTQ file or folder.' };
+    const inputStat = fs.statSync(inputPath);
+    if (mode === 'single' && !inputStat.isFile()) return { success: false, error: 'Select one FASTQ file for One sample mode.' };
+    if (mode === 'auto' && !inputStat.isDirectory()) return { success: false, error: 'Select a folder for Auto mode.' };
+
+    const files = mode === 'single'
+      ? [inputPath]
+      : fs.readdirSync(inputPath, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && /\.(fastq|fq)(\.gz)?$/i.test(entry.name))
+        .map((entry) => path.join(inputPath, entry.name));
+    if (mode === 'single' && !/\.(fastq|fq)(\.gz)?$/i.test(inputPath)) {
+      return { success: false, error: 'The selected file must have a .fastq, .fq, .fastq.gz, or .fq.gz extension.' };
+    }
+    if (!files.length) return { success: false, error: 'No FASTQ files were found in the selected folder.' };
+
+    const manager = await getBioinformaticsEnvManager();
+    if (!manager) return { success: false, needsEnvironment: true, managerMissing: true, error: 'Micromamba, mamba, or conda was not found.' };
+    const status = await getFastqcEnvStatus(manager);
+    if (!status.environmentReady) return { success: false, needsEnvironment: true, error: 'The fastq_quality environment is missing FastQC.' };
+
+    const outputPath = path.join(mode === 'single' ? path.dirname(inputPath) : inputPath, 'fastqc_results');
+    if (process.platform === 'win32') fs.mkdirSync(outputPath, { recursive: true });
+    const args = ['--outdir', outputPath, ...files];
+    const env = {
+      ...getBioinformaticsManagerEnv(manager),
+      BIOINFORMATICS_ENV_PREFIX: status.environmentPrefix
+    };
+    const micromambaManager = isMicromambaManager(manager);
+    const runArgs = [
+      'run',
+      ...(micromambaManager ? [] : ['--no-capture-output']),
+      '-n', 'fastq_quality', 'fastqc', ...args
+    ];
+    fastqcProcess = spawn(
+      process.platform === 'win32' ? manager : 'bash',
+      process.platform === 'win32'
+        ? runArgs
+        : [ensureWritableBioinformaticsEnvScript('fastq_quality'), mode, inputPath],
+      { env, cwd: path.dirname(inputPath), windowsHide: true }
+    );
+    event.sender.send('fastqc-output', { type: 'start', kind: 'run', command: `fastqc --outdir "${outputPath}" ${files.map((file) => `"${file}"`).join(' ')}`, outputPath, fileCount: files.length });
+    fastqcProcess.stdout?.on('data', (data) => event.sender.send('fastqc-output', { type: 'stdout', kind: 'run', text: data.toString() }));
+    fastqcProcess.stderr?.on('data', (data) => event.sender.send('fastqc-output', { type: 'stderr', kind: 'run', text: data.toString() }));
+    fastqcProcess.on('error', (error) => {
+      event.sender.send('fastqc-output', { type: 'error', kind: 'run', text: error.message });
+      fastqcProcess = null;
+    });
+    fastqcProcess.on('close', (code) => {
+      event.sender.send('fastqc-output', { type: 'exit', kind: 'run', code: typeof code === 'number' ? code : -1, outputPath, fileCount: files.length });
+      fastqcProcess = null;
+    });
+    return { success: true, outputPath, fileCount: files.length };
+  });
+
+  ipcMain.handle('get-micromamba-environments', async () => {
+    try {
+      return await getMicromambaEnvironments();
+    } catch (error) {
+      return { success: false, found: false, envs: [], error: error?.message || 'Could not list Micromamba environments.' };
+    }
+  });
+
+  ipcMain.handle('get-micromamba-env-script', async (_event, environmentName = '') => {
+    try {
+      const environments = await getMicromambaEnvironments();
+      const environment = environments.envs?.find((item) => item.name === String(environmentName || '').trim());
+      if (!environments.success || !environment) return { success: false, error: environments.error || 'Micromamba environment was not found.' };
+      const scriptPath = ensureWritableBioinformaticsEnvScript(environment.name);
+      return {
+        success: true,
+        environment,
+        scriptPath,
+        content: fs.readFileSync(scriptPath, 'utf8')
+      };
+    } catch (error) {
+      return { success: false, error: error?.message || 'Could not load the environment script.' };
+    }
+  });
+
+  ipcMain.handle('save-micromamba-env-script', async (_event, payload = {}) => {
+    try {
+      const environmentName = String(payload.environmentName || '').trim();
+      const content = String(payload.content ?? '');
+      if (content.length > 512 * 1024) return { success: false, error: 'Environment scripts must be smaller than 512 KB.' };
+      const environments = await getMicromambaEnvironments();
+      if (!environments.success || !environments.envs?.some((item) => item.name === environmentName)) {
+        return { success: false, error: environments.error || 'Micromamba environment was not found.' };
+      }
+      const scriptPath = getWritableBioinformaticsScriptPath(environmentName);
+      fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
+      fs.writeFileSync(scriptPath, content, 'utf8');
+      return { success: true, scriptPath };
+    } catch (error) {
+      return { success: false, error: error?.message || 'Could not save the environment script.' };
+    }
+  });
+
   ipcMain.handle('get-ecc-finder-status', async (event, sourcePath = '') => {
     try {
       return await getEccFinderStatus(sourcePath);
@@ -7566,20 +7900,46 @@ ${groundedExecutionClause} ${claudeCodeAgentClause}`
         return { success: false, error: 'An ecc_finder job is already running.' };
       }
 
+      const dependencyStatus = await getEccFinderStatus(payload.sourcePath);
+      if (!dependencyStatus.dependenciesReady) {
+        return {
+          success: false,
+          needsDependencies: true,
+          environmentManagerMissing: !dependencyStatus.environmentManager,
+          error: dependencyStatus.environmentManager
+            ? 'The ecc_finder environment is missing required dependencies.'
+            : 'Micromamba, mamba, or conda is required to create the ecc_finder environment.'
+        };
+      }
+      const environmentManager = dependencyStatus.environmentManager;
+
       const workflowId = String(payload.workflow || 'map_ont').trim();
       const needsIndex = ['map_ont', 'map_sr'].includes(workflowId);
       const referenceFasta = String(payload.referenceFasta || '').trim();
 
       // Helper: run a bash command and stream events, resolve when done
       const runPhase = (command, cwd, kindLabel) => new Promise((resolve) => {
+        const useWrapper = process.platform !== 'win32' && environmentManager !== '__bundled__';
         const spawnCommand = process.platform === 'win32' ? 'cmd.exe' : 'bash';
         const spawnArgs = process.platform === 'win32'
           ? ['/d', '/s', '/c', command]
-          : ['-lc', command];
+          : useWrapper
+            ? [path.join(__dirname, 'scripts', 'bioinformatics_wrapper.sh'), ECC_FINDER_ENV_NAME, 'bash', '-lc', command]
+            : ['-lc', command];
+        const env = environmentManager === '__bundled__'
+          ? buildEccFinderEnv()
+          : {
+            ...process.env,
+            LC_ALL: 'en_US.UTF-8',
+            ...(isMicromambaManager(environmentManager) && path.isAbsolute(environmentManager)
+              ? { MAMBA_ROOT_PREFIX: getWritableMicromambaRoot() }
+              : {}),
+            BIOINFORMATICS_ENV_MANAGER: environmentManager || 'micromamba'
+          };
 
         eccFinderProcess = spawn(spawnCommand, spawnArgs, {
           cwd: cwd || undefined,
-          env: { ...process.env, LC_ALL: 'en_US.UTF-8' },
+          env,
           windowsHide: true
         });
 
@@ -7610,8 +7970,9 @@ ${groundedExecutionClause} ${claudeCodeAgentClause}`
       let resolvedIndexPath = String(payload.referenceIndex || '').trim();
 
       if (needsIndex && referenceFasta) {
-        const manager = await getEccFinderEnvManager();
-        const runPrefix = manager ? buildEccFinderEnvRunPrefix(manager) : '';
+        const runPrefix = process.platform === 'win32' && environmentManager !== '__bundled__'
+          ? buildEccFinderEnvRunPrefix(environmentManager)
+          : '';
         const technology = workflowId.endsWith('_sr') ? 'sr' : 'ont';
         const indexer = (workflowId === 'map_sr' && payload.aligner) ? String(payload.aligner) : 'minimap2';
 
@@ -7660,7 +8021,7 @@ ${groundedExecutionClause} ${claudeCodeAgentClause}`
 
       // ── Phase 2: Run eccDNA Finder pipeline ──────────────────────────────
       const mergedPayload = { ...payload, referenceIndex: resolvedIndexPath };
-      const built = buildEccFinderCommand(mergedPayload);
+      const built = buildEccFinderCommand(mergedPayload, environmentManager);
       if (!fs.existsSync(built.outputPath)) fs.mkdirSync(built.outputPath, { recursive: true });
 
       if (mainAppWindow && !mainAppWindow.isDestroyed()) {
@@ -7772,6 +8133,19 @@ ${groundedExecutionClause} ${claudeCodeAgentClause}`
 
     if (!samples.length) return { success: false, error: 'No samples provided.' };
 
+    const dependencyStatus = await getEccFinderStatus(basePayload.sourcePath);
+    if (!dependencyStatus.dependenciesReady) {
+      return {
+        success: false,
+        needsDependencies: true,
+        environmentManagerMissing: !dependencyStatus.environmentManager,
+        error: dependencyStatus.environmentManager
+          ? 'The ecc_finder environment is missing required dependencies.'
+          : 'Micromamba, mamba, or conda is required to create the ecc_finder environment.'
+      };
+    }
+    const environmentManager = dependencyStatus.environmentManager;
+
     const send = (data) => {
       if (mainAppWindow && !mainAppWindow.isDestroyed()) {
         mainAppWindow.webContents.send('ecc-loop-progress', data);
@@ -7779,14 +8153,26 @@ ${groundedExecutionClause} ${claudeCodeAgentClause}`
     };
 
     const runPhase = (command, cwd, sampleName) => new Promise((resolve) => {
+      const useWrapper = process.platform !== 'win32' && environmentManager !== '__bundled__';
       const spawnCommand = process.platform === 'win32' ? 'cmd.exe' : 'bash';
       const spawnArgs = process.platform === 'win32'
         ? ['/d', '/s', '/c', command]
-        : ['-lc', command];
+        : useWrapper
+          ? [path.join(__dirname, 'scripts', 'bioinformatics_wrapper.sh'), ECC_FINDER_ENV_NAME, 'bash', '-lc', command]
+          : ['-lc', command];
 
       eccFinderProcess = spawn(spawnCommand, spawnArgs, {
         cwd: cwd || undefined,
-        env: { ...process.env, LC_ALL: 'en_US.UTF-8' },
+        env: environmentManager === '__bundled__'
+          ? buildEccFinderEnv()
+          : {
+            ...process.env,
+            LC_ALL: 'en_US.UTF-8',
+            ...(isMicromambaManager(environmentManager) && path.isAbsolute(environmentManager)
+              ? { MAMBA_ROOT_PREFIX: getWritableMicromambaRoot() }
+              : {}),
+            BIOINFORMATICS_ENV_MANAGER: environmentManager || 'micromamba'
+          },
         windowsHide: true
       });
 
@@ -7821,7 +8207,7 @@ ${groundedExecutionClause} ${claudeCodeAgentClause}`
           ...(sample.query ? { query: sample.query } : {}),
         };
 
-        const built = buildEccFinderCommand(samplePayload);
+        const built = buildEccFinderCommand(samplePayload, environmentManager);
         if (!fs.existsSync(built.outputPath)) fs.mkdirSync(built.outputPath, { recursive: true });
 
         send({ type: 'cmd', sampleName: sample.sampleName, command: built.command });

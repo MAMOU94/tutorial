@@ -2889,10 +2889,65 @@
   }
 
   .plot-editor-stage {
-    background-color: #0c0c0c;
-    background-image:
-      radial-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-    background-size: 20px 20px;
+    background: #0c0c0c;
+  }
+
+  .plot-editor-stage-with-editor {
+    background: #eae0d5;
+  }
+
+  .plot-gallery-expanded-stage {
+    background: #0a0a0a;
+    /* Delayed start: warm up AFTER the column has opened, not simultaneously.
+       ease-in-out keeps the crossfade feeling organic rather than mechanical. */
+    transition: background-color 480ms 160ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .plot-gallery-expanded-stage-with-editor {
+    background: #eae0d5;
+  }
+
+  /* ── Gallery editor panel entrance ── */
+  @keyframes gallery-editor-slide-in {
+    from {
+      opacity: 0;
+      transform: translateX(24px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  @keyframes gallery-editor-fade-in-divider {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  .plot-gallery-editor-panel-entering {
+    /* expo-out: blazing fast start, imperceptible long tail — the smoothest curve */
+    will-change: transform, opacity;
+    animation: gallery-editor-slide-in 500ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .plot-gallery-editor-divider-entering {
+    /* Divider waits for the column to open before fading in */
+    animation: gallery-editor-fade-in-divider 300ms 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .plot-editor-panel-embedded {
+    animation-duration: 360ms;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .plot-gallery-editor-layout,
+    .plot-gallery-expanded-stage,
+    .plot-gallery-expanded-stage img,
+    .plot-gallery-editor-panel-entering,
+    .plot-gallery-editor-divider-entering {
+      transition: none !important;
+      animation: none !important;
+    }
   }
 
   .plot-editor-image-shell {
@@ -2903,7 +2958,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 0;
+    padding: clamp(16px, 2vw, 32px);
     overflow: hidden;
   }
 
@@ -2921,8 +2976,8 @@
     display: block;
     width: auto;
     height: auto;
-    max-width: 100%;
-    max-height: 100%;
+    max-width: 92%;
+    max-height: 92%;
     object-fit: contain;
     box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.7);
   }
@@ -3795,7 +3850,10 @@
 }
 
 .lateral-option-panel-theme.plot-panel-theme {
-  background: linear-gradient(135deg, rgba(0, 0, 0, 0.3) 0%, rgba(0, 0, 0, 0.3) 52%, rgba(0, 0, 0, 0.3) 100%) !important;
+  background:
+    radial-gradient(130% 86% at 92% 4%, rgba(56, 189, 248, 0.06), transparent 58%),
+    radial-gradient(110% 74% at 4% 96%, rgba(34, 211, 238, 0.04), transparent 62%),
+    linear-gradient(165deg, rgba(3, 6, 10, 0.99), rgba(0, 2, 5, 1)) !important;
 }
 
 .lateral-option-panel-theme.file-reader-panel-theme {
@@ -3803,11 +3861,14 @@
 }
 
 .plot-gallery-root {
-  background: rgba(0, 0, 0, 0.3) !important;
+  background:
+    radial-gradient(130% 86% at 92% 4%, rgba(56, 189, 248, 0.06), transparent 58%),
+    radial-gradient(110% 74% at 4% 96%, rgba(34, 211, 238, 0.04), transparent 62%),
+    linear-gradient(165deg, rgba(3, 6, 10, 0.99), rgba(0, 2, 5, 1)) !important;
 }
 
 .plot-gallery-viewer {
-  background: rgba(0, 0, 0, 0.5) !important;
+  background: transparent !important;
 }
 
 .lateral-option-panel-theme::before {

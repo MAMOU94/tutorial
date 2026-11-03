@@ -1,10 +1,27 @@
 # R script wrapper - Conditional Analysis Workflow (Step-by-Step)
 options(show.error.messages = TRUE)
 options(repos = c(CRAN = "https://cloud.r-project.org"))
-local_lib_rel <- "r-libs"
-local_lib <- file.path(getwd(), local_lib_rel)
-if (!dir.exists(local_lib)) dir.create(local_lib, recursive = TRUE)
-.libPaths(c(local_lib, .libPaths()))
+active_r_minor <- paste(R.version$major, R.version$minor, sep = ".")
+r_library_minor <- function(path) {
+  leaf <- basename(normalizePath(path.expand(path), winslash = "/", mustWork = FALSE))
+  if (grepl("^[0-9]+\\.[0-9]+$", leaf)) leaf else ""
+}
+is_other_r_library <- function(path) {
+  library_minor <- r_library_minor(path)
+  nzchar(library_minor) && !identical(library_minor, active_r_minor)
+}
+configured_r_libraries <- strsplit(Sys.getenv("R_LIBS_USER", unset = ""), .Platform$path.sep, fixed = TRUE)[[1]]
+configured_r_libraries <- configured_r_libraries[nzchar(trimws(configured_r_libraries))]
+configured_r_libraries <- configured_r_libraries[!vapply(configured_r_libraries, is_other_r_library, logical(1))]
+local_lib <- if (length(configured_r_libraries) > 0) {
+  path.expand(configured_r_libraries[[1]])
+} else {
+  file.path(path.expand("~"), "R", paste0(R.version$platform, "-library"), active_r_minor)
+}
+if (!dir.exists(local_lib)) dir.create(local_lib, recursive = TRUE, showWarnings = FALSE)
+compatible_libraries <- .libPaths()
+compatible_libraries <- compatible_libraries[!vapply(compatible_libraries, is_other_r_library, logical(1))]
+.libPaths(unique(c(local_lib, compatible_libraries)))
 
 invisible(dummy_msg_sink <- textConnection("dummy", "w"))
 # sink(dummy_msg_sink, type = "message") # allow messages/errors to surface
@@ -5917,6 +5934,48 @@ safe_viridis <- function(option, n) {
   rep("#4f46e5", n)
 }
 
+safe_matplotlib <- function(name, n) {
+  nm <- tolower(trimws(as.character(name)[1]))
+  palettes <- list(
+    tab10 = c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"),
+    tab20 = c("#1f77b4", "#aec7e8", "#ff7f0e", "#ffbb78", "#2ca02c", "#98df8a", "#d62728", "#ff9896", "#9467bd", "#c5b0d5", "#8c564b", "#c49c94", "#e377c2", "#f7b6d2", "#7f7f7f", "#c7c7c7", "#bcbd22", "#dbdb8d", "#17becf", "#9edae5"),
+    tab20b = c("#393b79", "#5254a3", "#6b6ecf", "#9c9ede", "#637939", "#8ca252", "#b5cf6b", "#cedb9c", "#8c6d31", "#bd9e39", "#e7ba52", "#e7cb94", "#8c564b", "#ad494a", "#d6616b", "#e7969c", "#7b4173", "#a55194", "#ce6dbd", "#de9ed6"),
+    tab20c = c("#3182bd", "#6baed6", "#9ecae1", "#c6dbef", "#e6550d", "#fd8d3c", "#fdae6b", "#fdd0a2", "#31a354", "#74c476", "#a1d99b", "#c7e9c0", "#756bb1", "#9e9ac8", "#bcbddc", "#dadaeb", "#636363", "#969696", "#bdbdbd", "#d9d9d9"),
+    coolwarm = c("#3b4cc0", "#688aef", "#9abbff", "#c9d7f0", "#edd1c2", "#f5a081", "#dd5f4b", "#b40426"),
+    bwr = c("#0000ff", "#8080ff", "#ffffff", "#ff8080", "#ff0000"),
+    seismic = c("#00004c", "#0000ff", "#ffffff", "#ff0000", "#4c0000")
+  )
+  fills <- palettes[[nm]]
+  if (is.null(fills)) return(NULL)
+  target_n <- max(1, as.integer(n))
+  if (nm %in% c("tab10", "tab20", "tab20b", "tab20c")) {
+    return(rep(fills, length.out = target_n))
+  }
+  grDevices::colorRampPalette(fills)(target_n)
+}
+
+safe_python_library <- function(name, n) {
+  nm <- tolower(trimws(as.character(name)[1]))
+  palettes <- list(
+    seaborn_deep = c("#4c72b0", "#dd8452", "#55a868", "#c44e52", "#8172b3", "#937860", "#da8bc3", "#8c8c8c", "#ccb974", "#64b5cd"),
+    seaborn_muted = c("#4878d0", "#ee854a", "#6acc64", "#d65f5f", "#956cb4", "#8c613c", "#dc7ec0", "#797979", "#d5bb67", "#82c6e2"),
+    seaborn_pastel = c("#a1c9f4", "#ffb482", "#8de5a1", "#ff9f9b", "#d0bbff", "#debb9b", "#fab0e4", "#cfcfcf", "#fffea3", "#b9f2f0"),
+    seaborn_bright = c("#023eff", "#ff7c00", "#1ac938", "#e8000b", "#8b2be2", "#9f4800", "#f14cc1", "#a3a3a3", "#ffc400", "#00d7ff"),
+    seaborn_dark = c("#001c7f", "#b1400d", "#12711c", "#8c0800", "#591e71", "#592f0d", "#a23582", "#3c3c3c", "#b8850a", "#006374"),
+    seaborn_colorblind = c("#0173b2", "#de8f05", "#029e73", "#d55e00", "#cc78bc", "#ca9161", "#fbafe4", "#949494", "#ece133", "#56b4e9"),
+    plotly_default = c("#636EFA", "#EF553B", "#00CC96", "#AB63FA", "#FFA15A", "#19D3F3", "#FF6692", "#B6E880", "#FF97FF", "#FECB52"),
+    plotly_d3 = c("#1F77B4", "#FF7F0E", "#2CA02C", "#D62728", "#9467BD", "#8C564B", "#E377C2", "#7F7F7F", "#BCBD22", "#17BECF"),
+    plotly_g10 = c("#3366CC", "#DC3912", "#FF9900", "#109618", "#990099", "#0099C6", "#DD4477", "#66AA00", "#B82E2E", "#316395"),
+    plotly_t10 = c("#4C78A8", "#F58518", "#E45756", "#72B7B2", "#54A24B", "#EECA3B", "#B279A2", "#FF9DA6", "#9D755D", "#BAB0AC"),
+    plotly_alphabet = c("#AA0DFE", "#3283FE", "#85660D", "#782AB6", "#565656", "#1C8356", "#16FF32", "#F7E1A0", "#E2E2E2", "#C4451C"),
+    plotly_dark24 = c("#2E91E5", "#E15F99", "#1CA71C", "#FB0D0D", "#DA16FF", "#222A2A", "#B68100", "#750D86", "#EB663B", "#511CFB"),
+    plotly_light24 = c("#FD3216", "#00FE35", "#6A76FC", "#FED4C4", "#FE00CE", "#0DF9FF", "#F6F926", "#FF9616", "#479B55", "#EEA6FB")
+  )
+  fills <- palettes[[nm]]
+  if (is.null(fills)) return(NULL)
+  rep(fills, length.out = max(1, as.integer(n)))
+}
+
 build_palette_bundle <- function(fills, palette_type = "qualitative") {
   cols <- as.character(fills)
   cols <- cols[!is.na(cols) & nzchar(trimws(cols))]
@@ -5997,6 +6056,19 @@ get_palette <- function(name) {
       "D")
     fills <- safe_viridis(opt, 12)
     return(build_palette_bundle(fills, "sequential"))
+  }
+
+  # Python / Matplotlib-compatible categorical and diverging palettes.
+  if (nm %in% c("tab10", "tab20", "tab20b", "tab20c", "coolwarm", "bwr", "seismic")) {
+    fills <- safe_matplotlib(nm, 12)
+    palette_type <- if (nm %in% c("tab10", "tab20", "tab20b", "tab20c")) "qualitative" else "diverging"
+    return(build_palette_bundle(fills, palette_type))
+  }
+
+  # Python / Seaborn and Plotly categorical palettes.
+  if (nm %in% c("seaborn_deep", "seaborn_muted", "seaborn_pastel", "seaborn_bright", "seaborn_dark", "seaborn_colorblind", "plotly_default", "plotly_d3", "plotly_g10", "plotly_t10", "plotly_alphabet", "plotly_dark24", "plotly_light24")) {
+    fills <- safe_python_library(nm, 12)
+    return(build_palette_bundle(fills, "qualitative"))
   }
 
   # Base R palettes
@@ -7368,7 +7440,7 @@ plot_exploratory_chart <- function(data, chart_type, x_var, y_var = NULL, output
     return(invisible(TRUE))
   }
 
-  if (!requireNamespace("ggplot2", quietly = TRUE, lib.loc = local_lib)) {
+  if (!isTRUE(load_or_install("ggplot2"))) {
     stop("ggplot2 package required for exploratory charts.")
   }
   library(ggplot2)

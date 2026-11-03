@@ -1166,15 +1166,19 @@ const normalizeRegressionStandardizePredictors = (value) => {
 
 const DEFAULT_PLOT_EDITOR_STATE = Object.freeze({
   title: '',
+  titleColor: '#111111',
   xLabel: '',
+  xLabelColor: '#111111',
   xLabelUnits: '',
   xUnitsOffsetX: 0,
   xUnitsOffsetY: 0,
   yLabel: '',
+  yLabelColor: '#111111',
   yLabelUnits: '',
   yUnitsOffsetX: 0,
   yUnitsOffsetY: 0,
   info: '',
+  infoColor: '#111111',
   titleSize: 14,
   xLabelSize: 12,
   yLabelSize: 12,
@@ -1191,6 +1195,12 @@ const DEFAULT_PLOT_EDITOR_STATE = Object.freeze({
   xMax: '',
   yMin: '',
   yMax: '',
+  titleXPosition: 50,
+  titleYPosition: 50,
+  xLabelXPosition: 50,
+  xLabelYPosition: 50,
+  yLabelXPosition: 50,
+  yLabelYPosition: 50,
   titlePosition: 'center',
   titleSteps: 0,
   xPosition: 'center',
@@ -2554,6 +2564,14 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
     const candidate = String(value || '').trim();
     return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(candidate) ? candidate : '';
   };
+  const normalizeLabelColor = (value, fallback = '#111111') => {
+    const candidate = String(value || '').trim();
+    return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(candidate) ? candidate : fallback;
+  };
+  const normalizeLabelPosition = (value, fallback = 50) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? Math.max(0, Math.min(100, Math.round(numeric))) : fallback;
+  };
   const normalizeLegendItem = (value, index = 0) => {
     const source = value && typeof value === 'object' ? value : {};
     const fallbackKey = `item_${index + 1}`;
@@ -2592,15 +2610,19 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
   );
   const [editorDraft, setEditorDraft] = useState({
     title: '',
+    titleColor: '#111111',
     xLabel: '',
+    xLabelColor: '#111111',
     xLabelUnits: '',
     xUnitsOffsetX: 0,
     xUnitsOffsetY: 0,
     yLabel: '',
+    yLabelColor: '#111111',
     yLabelUnits: '',
     yUnitsOffsetX: 0,
     yUnitsOffsetY: 0,
     info: '',
+    infoColor: '#111111',
     titleSize: 14,
     xLabelSize: 12,
     yLabelSize: 12,
@@ -2623,6 +2645,12 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
     xMax: '',
     yMin: '',
     yMax: '',
+    titleXPosition: 50,
+    titleYPosition: 50,
+    xLabelXPosition: 50,
+    xLabelYPosition: 50,
+    yLabelXPosition: 50,
+    yLabelYPosition: 50,
     customElements: [],
     legend: normalizeLegendConfig(DEFAULT_PLOT_EDITOR_STATE.legend)
   });
@@ -2631,15 +2659,19 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
     if (!isOpen || !hasEditor) return;
     setEditorDraft({
       title: String(editor?.title || ''),
+      titleColor: normalizeLabelColor(editor?.titleColor),
       xLabel: String(editor?.xLabel || ''),
+      xLabelColor: normalizeLabelColor(editor?.xLabelColor),
       xLabelUnits: String(editor?.xLabelUnits || ''),
       xUnitsOffsetX: normalizeOffsetValue(editor?.xUnitsOffsetX),
       xUnitsOffsetY: normalizeOffsetValue(editor?.xUnitsOffsetY),
       yLabel: String(editor?.yLabel || ''),
+      yLabelColor: normalizeLabelColor(editor?.yLabelColor),
       yLabelUnits: String(editor?.yLabelUnits || ''),
       yUnitsOffsetX: normalizeOffsetValue(editor?.yUnitsOffsetX),
       yUnitsOffsetY: normalizeOffsetValue(editor?.yUnitsOffsetY),
       info: String(editor?.info || ''),
+      infoColor: normalizeLabelColor(editor?.infoColor),
       titleSize: normalizeSizeValue(editor?.titleSize, 14),
       xLabelSize: normalizeSizeValue(editor?.xLabelSize, 12),
       yLabelSize: normalizeSizeValue(editor?.yLabelSize, 12),
@@ -2662,6 +2694,12 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
       xMax: normalizeOptionalNumericText(editor?.xMax),
       yMin: normalizeOptionalNumericText(editor?.yMin),
       yMax: normalizeOptionalNumericText(editor?.yMax),
+      titleXPosition: normalizeLabelPosition(editor?.titleXPosition),
+      titleYPosition: normalizeLabelPosition(editor?.titleYPosition),
+      xLabelXPosition: normalizeLabelPosition(editor?.xLabelXPosition),
+      xLabelYPosition: normalizeLabelPosition(editor?.xLabelYPosition),
+      yLabelXPosition: normalizeLabelPosition(editor?.yLabelXPosition),
+      yLabelYPosition: normalizeLabelPosition(editor?.yLabelYPosition),
       customElements: normalizeCustomElements(editor?.customElements),
       legend: normalizeLegendConfig(editor?.legend)
     });
@@ -2670,15 +2708,19 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
     hasEditor,
     editor?.plotKey,
     editor?.title,
+    editor?.titleColor,
     editor?.xLabel,
+    editor?.xLabelColor,
     editor?.xLabelUnits,
     editor?.xUnitsOffsetX,
     editor?.xUnitsOffsetY,
     editor?.yLabel,
+    editor?.yLabelColor,
     editor?.yLabelUnits,
     editor?.yUnitsOffsetX,
     editor?.yUnitsOffsetY,
     editor?.info,
+    editor?.infoColor,
     editor?.titleSize,
     editor?.xLabelSize,
     editor?.yLabelSize,
@@ -2701,6 +2743,12 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
     editor?.xMax,
     editor?.yMin,
     editor?.yMax,
+    editor?.titleXPosition,
+    editor?.titleYPosition,
+    editor?.xLabelXPosition,
+    editor?.xLabelYPosition,
+    editor?.yLabelXPosition,
+    editor?.yLabelYPosition,
     editor?.customElements
   ]);
 
@@ -2709,12 +2757,16 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
       setIsEntering(false);
       return;
     }
+    if (panelOnly) {
+      setIsEntering(true);
+      return;
+    }
     setIsEntering(false);
     const frameId = window.requestAnimationFrame(() => {
       setIsEntering(true);
     });
     return () => window.cancelAnimationFrame(frameId);
-  }, [isOpen, imageUrl, editor?.plotKey]);
+  }, [isOpen, panelOnly, editor?.plotKey]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -2724,7 +2776,7 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
       return;
     }
     setPreviewStatus('');
-  }, [isOpen, imageUrl, editor?.plotKey]);
+  }, [isOpen, editor?.plotKey]);
 
   const [editorPanelOpen, setEditorPanelOpen] = useState(true);
   const [panelWidth, setPanelWidth] = useState(380);
@@ -2773,15 +2825,19 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
     autoApplyTimerRef.current = setTimeout(() => {
       const normalized = {
         title: String(editorDraft.title || ''),
+        titleColor: normalizeLabelColor(editorDraft.titleColor),
         xLabel: String(editorDraft.xLabel || ''),
+        xLabelColor: normalizeLabelColor(editorDraft.xLabelColor),
         xLabelUnits: String(editorDraft.xLabelUnits || ''),
         xUnitsOffsetX: normalizeOffsetValue(editorDraft.xUnitsOffsetX),
         xUnitsOffsetY: normalizeOffsetValue(editorDraft.xUnitsOffsetY),
         yLabel: String(editorDraft.yLabel || ''),
+        yLabelColor: normalizeLabelColor(editorDraft.yLabelColor),
         yLabelUnits: String(editorDraft.yLabelUnits || ''),
         yUnitsOffsetX: normalizeOffsetValue(editorDraft.yUnitsOffsetX),
         yUnitsOffsetY: normalizeOffsetValue(editorDraft.yUnitsOffsetY),
         info: String(editorDraft.info || ''),
+        infoColor: normalizeLabelColor(editorDraft.infoColor),
         titleSize: Math.max(6, Math.min(72, Math.round(Number(editorDraft.titleSize) || 14))),
         xLabelSize: Math.max(6, Math.min(72, Math.round(Number(editorDraft.xLabelSize) || 12))),
         yLabelSize: Math.max(6, Math.min(72, Math.round(Number(editorDraft.yLabelSize) || 12))),
@@ -2804,6 +2860,12 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
         xMax: normalizeOptionalNumericText(editorDraft.xMax),
         yMin: normalizeOptionalNumericText(editorDraft.yMin),
         yMax: normalizeOptionalNumericText(editorDraft.yMax),
+        titleXPosition: normalizeLabelPosition(editorDraft.titleXPosition),
+        titleYPosition: normalizeLabelPosition(editorDraft.titleYPosition),
+        xLabelXPosition: normalizeLabelPosition(editorDraft.xLabelXPosition),
+        xLabelYPosition: normalizeLabelPosition(editorDraft.xLabelYPosition),
+        yLabelXPosition: normalizeLabelPosition(editorDraft.yLabelXPosition),
+        yLabelYPosition: normalizeLabelPosition(editorDraft.yLabelYPosition),
         customElements: normalizeCustomElements(editorDraft.customElements),
         legend: normalizeLegendConfig(editorDraft.legend)
       };
@@ -2906,15 +2968,19 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
   const commitEditorDraft = () => {
     const normalizedDraft = {
       title: String(editorDraft?.title || ''),
+      titleColor: normalizeLabelColor(editorDraft?.titleColor),
       xLabel: String(editorDraft?.xLabel || ''),
+      xLabelColor: normalizeLabelColor(editorDraft?.xLabelColor),
       xLabelUnits: String(editorDraft?.xLabelUnits || ''),
       xUnitsOffsetX: normalizeOffsetValue(editorDraft?.xUnitsOffsetX),
       xUnitsOffsetY: normalizeOffsetValue(editorDraft?.xUnitsOffsetY),
       yLabel: String(editorDraft?.yLabel || ''),
+      yLabelColor: normalizeLabelColor(editorDraft?.yLabelColor),
       yLabelUnits: String(editorDraft?.yLabelUnits || ''),
       yUnitsOffsetX: normalizeOffsetValue(editorDraft?.yUnitsOffsetX),
       yUnitsOffsetY: normalizeOffsetValue(editorDraft?.yUnitsOffsetY),
       info: String(editorDraft?.info || ''),
+      infoColor: normalizeLabelColor(editorDraft?.infoColor),
       titleSize: normalizeSizeValue(editorDraft?.titleSize, 14),
       xLabelSize: normalizeSizeValue(editorDraft?.xLabelSize, 12),
       yLabelSize: normalizeSizeValue(editorDraft?.yLabelSize, 12),
@@ -2943,6 +3009,12 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
       xMax: normalizeOptionalNumericText(editorDraft?.xMax),
       yMin: normalizeOptionalNumericText(editorDraft?.yMin),
       yMax: normalizeOptionalNumericText(editorDraft?.yMax),
+      titleXPosition: normalizeLabelPosition(editorDraft?.titleXPosition),
+      titleYPosition: normalizeLabelPosition(editorDraft?.titleYPosition),
+      xLabelXPosition: normalizeLabelPosition(editorDraft?.xLabelXPosition),
+      xLabelYPosition: normalizeLabelPosition(editorDraft?.xLabelYPosition),
+      yLabelXPosition: normalizeLabelPosition(editorDraft?.yLabelXPosition),
+      yLabelYPosition: normalizeLabelPosition(editorDraft?.yLabelYPosition),
       customElements: normalizeCustomElements(editorDraft?.customElements),
       legend: normalizeLegendConfig(editorDraft?.legend)
     };
@@ -2964,15 +3036,19 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
     }
     setEditorDraft({
       title: String(editor?.defaultTitle || ''),
+      titleColor: normalizeLabelColor(editor?.defaultTitleColor),
       xLabel: String(editor?.defaultXLabel || ''),
+      xLabelColor: normalizeLabelColor(editor?.defaultXLabelColor),
       xLabelUnits: String(editor?.defaultXLabelUnits || ''),
       xUnitsOffsetX: normalizeOffsetValue(editor?.defaultXUnitsOffsetX),
       xUnitsOffsetY: normalizeOffsetValue(editor?.defaultXUnitsOffsetY),
       yLabel: String(editor?.defaultYLabel || ''),
+      yLabelColor: normalizeLabelColor(editor?.defaultYLabelColor),
       yLabelUnits: String(editor?.defaultYLabelUnits || ''),
       yUnitsOffsetX: normalizeOffsetValue(editor?.defaultYUnitsOffsetX),
       yUnitsOffsetY: normalizeOffsetValue(editor?.defaultYUnitsOffsetY),
       info: String(editor?.defaultInfo || ''),
+      infoColor: normalizeLabelColor(editor?.defaultInfoColor),
       titleSize: normalizeSizeValue(editor?.defaultTitleSize, 14),
       xLabelSize: normalizeSizeValue(editor?.defaultXLabelSize, 12),
       yLabelSize: normalizeSizeValue(editor?.defaultYLabelSize, 12),
@@ -2995,6 +3071,12 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
       xMax: normalizeOptionalNumericText(editor?.defaultXMax),
       yMin: normalizeOptionalNumericText(editor?.defaultYMin),
       yMax: normalizeOptionalNumericText(editor?.defaultYMax),
+      titleXPosition: normalizeLabelPosition(editor?.defaultTitleXPosition),
+      titleYPosition: normalizeLabelPosition(editor?.defaultTitleYPosition),
+      xLabelXPosition: normalizeLabelPosition(editor?.defaultXLabelXPosition),
+      xLabelYPosition: normalizeLabelPosition(editor?.defaultXLabelYPosition),
+      yLabelXPosition: normalizeLabelPosition(editor?.defaultYLabelXPosition),
+      yLabelYPosition: normalizeLabelPosition(editor?.defaultYLabelYPosition),
       customElements: normalizeCustomElements(editor?.defaultCustomElements),
       legend: normalizeLegendConfig(editor?.defaultLegend)
     });
@@ -3139,11 +3221,11 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
 
           // Font size scales with image dimensions so it looks proportional
           const fontSize = Math.round(Math.max(W, H) * 0.018);
-          ctx.fillStyle = '#334155'; // slate-700 — matches CSS overlay colour
           ctx.textBaseline = 'middle';
 
           // 2. X-axis units — bottom-centre (mirrors: bottom 3.5%, left 50%, translateX(-50%))
           if (editorDraft.xLabelUnits) {
+            ctx.fillStyle = normalizeLabelColor(editorDraft.xLabelColor);
             const offX = Number(editorDraft.xUnitsOffsetX) || 0;
             const offY = Number(editorDraft.xUnitsOffsetY) || 0;
             ctx.save();
@@ -3157,6 +3239,7 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
 
           // 3. Y-axis units — mid-left, rotated −90° (mirrors: top 50%, left 2%, rotate(-90deg))
           if (editorDraft.yLabelUnits) {
+            ctx.fillStyle = normalizeLabelColor(editorDraft.yLabelColor);
             const offX = Number(editorDraft.yUnitsOffsetX) || 0;
             const offY = Number(editorDraft.yUnitsOffsetY) || 0;
             ctx.save();
@@ -3207,11 +3290,11 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
 
   return (
     <div
-      className={`${panelOnly ? 'plot-editor-gallery-panel-only absolute inset-0 z-[60]' : embedded ? 'plot-editor-gallery-embedded absolute inset-0 z-[60]' : 'plot-editor-fullscreen fixed left-14 top-12 right-0 bottom-0 z-[180]'} plot-editor-backdrop transition-all duration-300 ease-out ${isEntering ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+      className={`${panelOnly ? 'plot-editor-gallery-panel-only absolute inset-0 z-[60] opacity-100 pointer-events-auto' : embedded ? 'plot-editor-gallery-embedded absolute inset-0 z-[60]' : 'plot-editor-fullscreen fixed left-14 top-12 right-0 bottom-0 z-[180]'} plot-editor-backdrop ${panelOnly ? '' : `transition-all duration-300 ease-out ${isEntering ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}`}
       onClick={onClose}
     >
       <div
-        className={`plot-editor-container absolute inset-0 overflow-hidden rounded-none transition-all duration-300 ease-out flex flex-row ${panelOnly ? 'plot-editor-panel-only-container' : ''} ${isEntering ? 'translate-x-0 opacity-100' : '-translate-x-6 opacity-0'}`}
+        className={`plot-editor-container absolute inset-0 overflow-hidden rounded-none flex flex-row ${panelOnly ? 'plot-editor-panel-only-container translate-x-0 opacity-100' : `transition-all duration-300 ease-out ${isEntering ? 'translate-x-0 opacity-100' : '-translate-x-6 opacity-0'}`}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* ── LEFT: Plot area ───────────────────────────────── */}
@@ -3254,7 +3337,7 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
           </div>
 
           {/* Plot image or upload area */}
-          <div className={`plot-editor-stage flex-1 min-w-0 min-h-0 p-0 flex items-center justify-center transition-transform duration-500 ease-out ${isEntering ? 'scale-100' : 'scale-[0.99]'}`}>
+          <div className={`plot-editor-stage ${editorPanelOpen ? 'plot-editor-stage-with-editor' : ''} flex-1 min-w-0 min-h-0 p-0 flex items-center justify-center transition-transform duration-500 ease-out ${isEntering ? 'scale-100' : 'scale-[0.99]'}`}>
             {imageUrl ? (
               <div className="plot-editor-image-shell">
                 <div className="plot-editor-image-wrapper relative" style={{ lineHeight: 0 }}>
@@ -3276,9 +3359,10 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
                         transform: 'translateX(-50%)',
                         pointerEvents: 'none',
                         userSelect: 'none',
-                        lineHeight: 1.2
+                        lineHeight: 1.2,
+                        color: normalizeLabelColor(editorDraft.xLabelColor)
                       }}
-                      className="text-[11px] font-bold italic text-slate-300 whitespace-nowrap"
+                      className="text-[11px] font-bold italic whitespace-nowrap"
                     >
                       ({editorDraft.xLabelUnits})
                     </div>
@@ -3295,9 +3379,10 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
                         transformOrigin: 'center center',
                         pointerEvents: 'none',
                         userSelect: 'none',
-                        lineHeight: 1.2
+                        lineHeight: 1.2,
+                        color: normalizeLabelColor(editorDraft.yLabelColor)
                       }}
-                      className="text-[11px] font-bold italic text-slate-300 whitespace-nowrap"
+                      className="text-[11px] font-bold italic whitespace-nowrap"
                     >
                       ({editorDraft.yLabelUnits})
                     </div>
@@ -3356,7 +3441,7 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
         {/* ── RIGHT: Editor panel ──────────────────────────── */}
         {editorPanelOpen && (
           <div
-            className={`plot-editor-panel flex flex-col overflow-hidden rounded-none ${embedded || panelOnly ? 'plot-editor-panel-embedded' : ''}`}
+            className={`plot-editor-panel flex flex-col overflow-hidden rounded-none ${embedded && !panelOnly ? 'plot-editor-panel-embedded' : ''}`}
             style={panelOnly
               ? { width: '100%', minWidth: 0, maxWidth: 'none', flexShrink: 0 }
               : { width: panelWidth, minWidth: 260, maxWidth: 680, flexShrink: 0 }}
@@ -3424,9 +3509,21 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
 
               <AccordionSection sectionKey="labels" icon={<Type size={13} />} label="Labels" openSections={openSections} toggleSection={toggleSection}>
                 <div className="space-y-2.5 pt-0.5">
-                  {[{ field: 'title', label: 'Title' }, { field: 'xLabel', label: 'X Label' }, { field: 'yLabel', label: 'Y Label' }, { field: 'info', label: 'Info / Caption' }].map(({ field, label }) => (
+                  {[{ field: 'title', colorField: 'titleColor', label: 'Title' }, { field: 'xLabel', colorField: 'xLabelColor', label: 'X Label' }, { field: 'yLabel', colorField: 'yLabelColor', label: 'Y Label' }, { field: 'info', colorField: 'infoColor', label: 'Info / Caption' }].map(({ field, colorField, label }) => (
                     <div key={field}>
-                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1 ml-0.5">{label}</label>
+                      <div className="flex items-center justify-between mb-1 ml-0.5">
+                        <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-300">{label}</label>
+                        <label className="flex items-center gap-1.5 text-[9px] font-semibold uppercase tracking-wider text-stone-400">
+                          Text color
+                          <input
+                            type="color"
+                            aria-label={`${label} text color`}
+                            value={normalizeLabelColor(editorDraft[colorField])}
+                            onChange={e => setEditorDraft(prev => ({ ...prev, [colorField]: e.target.value }))}
+                            className="h-6 w-8 cursor-pointer rounded border border-white/10 bg-[#171615] p-0.5"
+                          />
+                        </label>
+                      </div>
                       {(field === 'xLabel' || field === 'yLabel') ? (
                         <div className="flex flex-col gap-1.5">
                           <div className="flex gap-1.5">
@@ -3479,42 +3576,41 @@ const ImageModal = ({ isOpen, onClose, imageUrl, title, editor, editorLanguage =
               </AccordionSection>
 
               <AccordionSection sectionKey="positioning" icon={<ChevronRight size={13} />} label="Positioning" openSections={openSections} toggleSection={toggleSection}>
-                <div className="space-y-1.5 pt-0.5">
-                  {['title', 'x', 'y'].map((axis) => {
-                    const labelMap = { title: 'Title', x: 'X Label', y: 'Y Label' };
-                    const posKey = axis === 'title' ? 'titlePosition' : `${axis}Position`;
-                    const stepsKey = axis === 'title' ? 'titleSteps' : `${axis}Steps`;
-                    return (
-                      <div key={axis} className="flex items-center justify-between gap-2 py-1 border-b border-white/[0.04] last:border-none">
-                        <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{labelMap[axis]}</div>
-                        <div className="flex items-center gap-2">
-                          <div className="flex gap-1 p-0.5 rounded-md bg-[#141414] border border-white/[0.06]">
-                            {['left', 'center', 'right'].map(pos => (
-                              <button
-                                key={pos}
-                                type="button"
-                                onClick={() => setEditorDraft(prev => ({ ...prev, [posKey]: pos }))}
-                                className={`text-[9.5px] px-2 py-0.5 rounded font-bold uppercase tracking-wider transition-all ${editorDraft[posKey] === pos
-                                  ? 'bg-white/10 text-white shadow-sm border border-white/20'
-                                  : 'text-slate-400 hover:text-slate-200 border border-transparent'
-                                  }`}
-                              >{pos}</button>
-                            ))}
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <label className="text-[9px] font-semibold uppercase text-slate-500">Nudge</label>
-                            <input
-                              type="number"
-                              value={editorDraft[stepsKey] ?? 0}
-                              onChange={e => setEditorDraft(prev => ({ ...prev, [stepsKey]: e.target.value }))}
-                              className="w-14 bg-[#141414] border border-white/[0.1] rounded-md px-1.5 py-0.5 text-[11px] font-medium text-slate-100 text-center"
-                              min={-40} max={40}
-                            />
-                          </div>
+                <div className="space-y-2 pt-0.5">
+                  <div className="px-1 text-[9px] text-stone-500">0% = left/top · 100% = right/bottom</div>
+                  {[
+                    { label: 'Title', x: 'titleXPosition', y: 'titleYPosition' },
+                    { label: 'X Label', x: 'xLabelXPosition', y: 'xLabelYPosition' },
+                    { label: 'Y Label', x: 'yLabelXPosition', y: 'yLabelYPosition' }
+                  ].map(({ label, x, y }) => (
+                    <div key={label} className="space-y-1.5 rounded-lg border border-white/[0.06] bg-[#171615] p-2">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-stone-300">{label}</div>
+                      {[['X', x], ['Y', y]].map(([axis, field]) => (
+                        <div key={field} className="flex items-center gap-2">
+                          <label htmlFor={`plot-position-${field}`} className="w-3 text-[9px] font-bold uppercase text-stone-400">{axis}</label>
+                          <input
+                            id={`plot-position-${field}`}
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={normalizeLabelPosition(editorDraft[field])}
+                            onChange={e => setEditorDraft(prev => ({ ...prev, [field]: e.target.value }))}
+                            className="min-w-0 flex-1 accent-[#c5ab91]"
+                          />
+                          <input
+                            type="number"
+                            aria-label={`${label} ${axis} position`}
+                            min="0"
+                            max="100"
+                            value={normalizeLabelPosition(editorDraft[field])}
+                            onChange={e => setEditorDraft(prev => ({ ...prev, [field]: e.target.value }))}
+                            className="w-14 rounded-md border border-white/[0.09] bg-[#11100f] px-1.5 py-1 text-[10px] text-stone-100 text-center"
+                          />
+                          <span className="text-[9px] text-stone-500">%</span>
                         </div>
-                      </div>
-                    );
-                  })}
+                      ))}
+                    </div>
+                  ))}
                 </div>
               </AccordionSection>
 
@@ -7016,6 +7112,10 @@ function App() {
     if (!Number.isFinite(numeric)) return 0;
     return Math.max(0, Math.min(40, Math.round(numeric)));
   };
+  const normalizeEditorPositionPercent = (value, fallback = 50) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? Math.max(0, Math.min(100, Math.round(numeric))) : fallback;
+  };
   // Allows negative pixel offsets for overlay nudging (-200..200)
   const normalizeEditorOffset = (value) => {
     const numeric = Number(value);
@@ -7125,6 +7225,7 @@ function App() {
     );
   }, [plotLabelStateByKey]);
   const isValidHexColor = (value) => /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(String(value || '').trim());
+  const normalizeEditorLabelColor = (value) => isValidHexColor(value) ? String(value).trim() : '#111111';
   const isValidLineType = (value) => (
     ['solid', 'dashed', 'dotted', 'dotdash', 'longdash', 'twodash']
       .includes(String(value || '').trim().toLowerCase())
@@ -7280,9 +7381,20 @@ function App() {
   const getPlotEditorState = useCallback((plotKey) => {
     const safeKey = normalizePlotKey(plotKey) || 'default';
     const existing = plotLabelStateByKey?.[safeKey];
+    const legacyHorizontalPosition = (position, steps) => {
+      const direction = position === 'left' ? -1 : (position === 'right' ? 1 : 0);
+      return Math.max(0, Math.min(100, Math.round(50 + direction * normalizeEditorStep(steps) * 5)));
+    };
+    const legacyVerticalPosition = (position, steps) => {
+      const direction = position === 'up' ? -1 : (position === 'down' ? 1 : 0);
+      return Math.max(0, Math.min(100, Math.round(50 + direction * normalizeEditorStep(steps) * 8)));
+    };
     return {
       ...DEFAULT_PLOT_EDITOR_STATE,
-      ...(existing && typeof existing === 'object' ? existing : {})
+      ...(existing && typeof existing === 'object' ? existing : {}),
+      titleXPosition: existing?.titleXPosition ?? legacyHorizontalPosition(existing?.titlePosition, existing?.titleSteps),
+      xLabelXPosition: existing?.xLabelXPosition ?? legacyHorizontalPosition(existing?.xPosition, existing?.xSteps),
+      yLabelYPosition: existing?.yLabelYPosition ?? legacyVerticalPosition(existing?.yPosition, existing?.ySteps)
     };
   }, [plotLabelStateByKey]);
   const toPlotLabelPayload = useCallback((editorState) => {
@@ -7310,11 +7422,15 @@ function App() {
     );
     return {
       title: String(safeState.title || ''),
+      title_color: normalizeEditorLabelColor(safeState.titleColor),
       x: String(safeState.xLabel || '').trim(),
+      x_color: normalizeEditorLabelColor(safeState.xLabelColor),
       x_units: String(safeState.xLabelUnits || '').trim(),
       y: String(safeState.yLabel || '').trim(),
+      y_color: normalizeEditorLabelColor(safeState.yLabelColor),
       y_units: String(safeState.yLabelUnits || '').trim(),
       caption: String(safeState.info || ''),
+      caption_color: normalizeEditorLabelColor(safeState.infoColor),
       title_size: normalizeEditorTextSize(safeState.titleSize, DEFAULT_PLOT_EDITOR_STATE.titleSize),
       x_size: normalizeEditorTextSize(safeState.xLabelSize, DEFAULT_PLOT_EDITOR_STATE.xLabelSize),
       y_size: normalizeEditorTextSize(safeState.yLabelSize, DEFAULT_PLOT_EDITOR_STATE.yLabelSize),
@@ -7331,6 +7447,12 @@ function App() {
       x_max: normalizeEditorNumericText(safeState.xMax),
       y_min: normalizeEditorNumericText(safeState.yMin),
       y_max: normalizeEditorNumericText(safeState.yMax),
+      title_x_position: normalizeEditorPositionPercent(safeState.titleXPosition),
+      title_y_position: normalizeEditorPositionPercent(safeState.titleYPosition),
+      x_label_x_position: normalizeEditorPositionPercent(safeState.xLabelXPosition),
+      x_label_y_position: normalizeEditorPositionPercent(safeState.xLabelYPosition),
+      y_label_x_position: normalizeEditorPositionPercent(safeState.yLabelXPosition),
+      y_label_y_position: normalizeEditorPositionPercent(safeState.yLabelYPosition),
       title_position: normalizeHorizontalPosition(safeState.titlePosition),
       title_steps: normalizeEditorStep(safeState.titleSteps),
       x_position: normalizeHorizontalPosition(safeState.xPosition),
@@ -7562,15 +7684,19 @@ function App() {
     };
     const next = { ...base };
     if (Object.prototype.hasOwnProperty.call(draft, 'title')) next.title = String(draft.title || '');
+    if (Object.prototype.hasOwnProperty.call(draft, 'titleColor')) next.titleColor = normalizeEditorLabelColor(draft.titleColor);
     if (Object.prototype.hasOwnProperty.call(draft, 'xLabel')) next.xLabel = String(draft.xLabel || '');
+    if (Object.prototype.hasOwnProperty.call(draft, 'xLabelColor')) next.xLabelColor = normalizeEditorLabelColor(draft.xLabelColor);
     if (Object.prototype.hasOwnProperty.call(draft, 'xLabelUnits')) next.xLabelUnits = String(draft.xLabelUnits || '');
     if (Object.prototype.hasOwnProperty.call(draft, 'xUnitsOffsetX')) next.xUnitsOffsetX = normalizeEditorOffset(draft.xUnitsOffsetX);
     if (Object.prototype.hasOwnProperty.call(draft, 'xUnitsOffsetY')) next.xUnitsOffsetY = normalizeEditorOffset(draft.xUnitsOffsetY);
     if (Object.prototype.hasOwnProperty.call(draft, 'yLabel')) next.yLabel = String(draft.yLabel || '');
+    if (Object.prototype.hasOwnProperty.call(draft, 'yLabelColor')) next.yLabelColor = normalizeEditorLabelColor(draft.yLabelColor);
     if (Object.prototype.hasOwnProperty.call(draft, 'yLabelUnits')) next.yLabelUnits = String(draft.yLabelUnits || '');
     if (Object.prototype.hasOwnProperty.call(draft, 'yUnitsOffsetX')) next.yUnitsOffsetX = normalizeEditorOffset(draft.yUnitsOffsetX);
     if (Object.prototype.hasOwnProperty.call(draft, 'yUnitsOffsetY')) next.yUnitsOffsetY = normalizeEditorOffset(draft.yUnitsOffsetY);
     if (Object.prototype.hasOwnProperty.call(draft, 'info')) next.info = String(draft.info || '');
+    if (Object.prototype.hasOwnProperty.call(draft, 'infoColor')) next.infoColor = normalizeEditorLabelColor(draft.infoColor);
     if (Object.prototype.hasOwnProperty.call(draft, 'titleSize')) next.titleSize = normalizeEditorTextSize(draft.titleSize, DEFAULT_PLOT_EDITOR_STATE.titleSize);
     if (Object.prototype.hasOwnProperty.call(draft, 'xLabelSize')) next.xLabelSize = normalizeEditorTextSize(draft.xLabelSize, DEFAULT_PLOT_EDITOR_STATE.xLabelSize);
     if (Object.prototype.hasOwnProperty.call(draft, 'yLabelSize')) next.yLabelSize = normalizeEditorTextSize(draft.yLabelSize, DEFAULT_PLOT_EDITOR_STATE.yLabelSize);
@@ -7589,6 +7715,11 @@ function App() {
     if (Object.prototype.hasOwnProperty.call(draft, 'xMax')) next.xMax = normalizeEditorNumericText(draft.xMax);
     if (Object.prototype.hasOwnProperty.call(draft, 'yMin')) next.yMin = normalizeEditorNumericText(draft.yMin);
     if (Object.prototype.hasOwnProperty.call(draft, 'yMax')) next.yMax = normalizeEditorNumericText(draft.yMax);
+    ['titleXPosition', 'titleYPosition', 'xLabelXPosition', 'xLabelYPosition', 'yLabelXPosition', 'yLabelYPosition'].forEach((field) => {
+      if (Object.prototype.hasOwnProperty.call(draft, field)) {
+        next[field] = normalizeEditorPositionPercent(draft[field]);
+      }
+    });
     if (Object.prototype.hasOwnProperty.call(draft, 'titlePosition')) next.titlePosition = normalizeHorizontalPosition(draft.titlePosition);
     if (Object.prototype.hasOwnProperty.call(draft, 'titleSteps')) next.titleSteps = normalizeEditorStep(draft.titleSteps);
     if (Object.prototype.hasOwnProperty.call(draft, 'xPosition')) next.xPosition = normalizeHorizontalPosition(draft.xPosition);
@@ -7825,15 +7956,19 @@ function App() {
     const normalizedDraft = draftState && typeof draftState === 'object'
       ? {
         title: String(draftState.title || ''),
+        titleColor: normalizeEditorLabelColor(draftState.titleColor),
         xLabel: String(draftState.xLabel || ''),
+        xLabelColor: normalizeEditorLabelColor(draftState.xLabelColor),
         xLabelUnits: String(draftState.xLabelUnits || ''),
         xUnitsOffsetX: normalizeEditorOffset(draftState.xUnitsOffsetX),
         xUnitsOffsetY: normalizeEditorOffset(draftState.xUnitsOffsetY),
         yLabel: String(draftState.yLabel || ''),
+        yLabelColor: normalizeEditorLabelColor(draftState.yLabelColor),
         yLabelUnits: String(draftState.yLabelUnits || ''),
         yUnitsOffsetX: normalizeEditorOffset(draftState.yUnitsOffsetX),
         yUnitsOffsetY: normalizeEditorOffset(draftState.yUnitsOffsetY),
         info: String(draftState.info || ''),
+        infoColor: normalizeEditorLabelColor(draftState.infoColor),
         titleSize: normalizeEditorTextSize(draftState.titleSize, DEFAULT_PLOT_EDITOR_STATE.titleSize),
         xLabelSize: normalizeEditorTextSize(draftState.xLabelSize, DEFAULT_PLOT_EDITOR_STATE.xLabelSize),
         yLabelSize: normalizeEditorTextSize(draftState.yLabelSize, DEFAULT_PLOT_EDITOR_STATE.yLabelSize),
@@ -7850,6 +7985,12 @@ function App() {
         xMax: normalizeEditorNumericText(draftState.xMax),
         yMin: normalizeEditorNumericText(draftState.yMin),
         yMax: normalizeEditorNumericText(draftState.yMax),
+        titleXPosition: normalizeEditorPositionPercent(draftState.titleXPosition),
+        titleYPosition: normalizeEditorPositionPercent(draftState.titleYPosition),
+        xLabelXPosition: normalizeEditorPositionPercent(draftState.xLabelXPosition),
+        xLabelYPosition: normalizeEditorPositionPercent(draftState.xLabelYPosition),
+        yLabelXPosition: normalizeEditorPositionPercent(draftState.yLabelXPosition),
+        yLabelYPosition: normalizeEditorPositionPercent(draftState.yLabelYPosition),
         titlePosition: normalizeHorizontalPosition(draftState.titlePosition),
         titleSteps: normalizeEditorStep(draftState.titleSteps),
         xPosition: normalizeHorizontalPosition(draftState.xPosition),
@@ -10342,15 +10483,19 @@ function App() {
     plotKey: activeFullscreenPlotKey,
     heading: String(selectedImage?.title || 'Selected Plot'),
     title: String(activeFullscreenEditorState.title || ''),
+    titleColor: normalizeEditorLabelColor(activeFullscreenEditorState.titleColor),
     xLabel: String(activeFullscreenEditorState.xLabel || ''),
+    xLabelColor: normalizeEditorLabelColor(activeFullscreenEditorState.xLabelColor),
     xLabelUnits: String(activeFullscreenEditorState.xLabelUnits || ''),
     xUnitsOffsetX: normalizeEditorOffset(activeFullscreenEditorState.xUnitsOffsetX),
     xUnitsOffsetY: normalizeEditorOffset(activeFullscreenEditorState.xUnitsOffsetY),
     yLabel: String(activeFullscreenEditorState.yLabel || ''),
+    yLabelColor: normalizeEditorLabelColor(activeFullscreenEditorState.yLabelColor),
     yLabelUnits: String(activeFullscreenEditorState.yLabelUnits || ''),
     yUnitsOffsetX: normalizeEditorOffset(activeFullscreenEditorState.yUnitsOffsetX),
     yUnitsOffsetY: normalizeEditorOffset(activeFullscreenEditorState.yUnitsOffsetY),
     info: String(activeFullscreenEditorState.info || ''),
+    infoColor: normalizeEditorLabelColor(activeFullscreenEditorState.infoColor),
     titleSize: normalizeEditorTextSize(activeFullscreenEditorState.titleSize, DEFAULT_PLOT_EDITOR_STATE.titleSize),
     xLabelSize: normalizeEditorTextSize(activeFullscreenEditorState.xLabelSize, DEFAULT_PLOT_EDITOR_STATE.xLabelSize),
     yLabelSize: normalizeEditorTextSize(activeFullscreenEditorState.yLabelSize, DEFAULT_PLOT_EDITOR_STATE.yLabelSize),
@@ -10367,6 +10512,12 @@ function App() {
     xMax: normalizeEditorNumericText(activeFullscreenEditorState.xMax),
     yMin: normalizeEditorNumericText(activeFullscreenEditorState.yMin),
     yMax: normalizeEditorNumericText(activeFullscreenEditorState.yMax),
+    titleXPosition: normalizeEditorPositionPercent(activeFullscreenEditorState.titleXPosition),
+    titleYPosition: normalizeEditorPositionPercent(activeFullscreenEditorState.titleYPosition),
+    xLabelXPosition: normalizeEditorPositionPercent(activeFullscreenEditorState.xLabelXPosition),
+    xLabelYPosition: normalizeEditorPositionPercent(activeFullscreenEditorState.xLabelYPosition),
+    yLabelXPosition: normalizeEditorPositionPercent(activeFullscreenEditorState.yLabelXPosition),
+    yLabelYPosition: normalizeEditorPositionPercent(activeFullscreenEditorState.yLabelYPosition),
     titlePosition: String(activeFullscreenEditorState.titlePosition || 'center'),
     titleSteps: normalizeEditorStep(activeFullscreenEditorState.titleSteps),
     xPosition: String(activeFullscreenEditorState.xPosition || 'center'),
@@ -10376,15 +10527,19 @@ function App() {
     customElements: normalizeCustomPlotElements(activeFullscreenEditorState.customElements),
     legend: normalizeLegendConfig(activeFullscreenEditorState.legend),
     defaultTitle: DEFAULT_PLOT_EDITOR_STATE.title,
+    defaultTitleColor: DEFAULT_PLOT_EDITOR_STATE.titleColor,
     defaultXLabel: DEFAULT_PLOT_EDITOR_STATE.xLabel,
+    defaultXLabelColor: DEFAULT_PLOT_EDITOR_STATE.xLabelColor,
     defaultXLabelUnits: DEFAULT_PLOT_EDITOR_STATE.xLabelUnits,
     defaultXUnitsOffsetX: DEFAULT_PLOT_EDITOR_STATE.xUnitsOffsetX,
     defaultXUnitsOffsetY: DEFAULT_PLOT_EDITOR_STATE.xUnitsOffsetY,
     defaultYLabel: DEFAULT_PLOT_EDITOR_STATE.yLabel,
+    defaultYLabelColor: DEFAULT_PLOT_EDITOR_STATE.yLabelColor,
     defaultYLabelUnits: DEFAULT_PLOT_EDITOR_STATE.yLabelUnits,
     defaultYUnitsOffsetX: DEFAULT_PLOT_EDITOR_STATE.yUnitsOffsetX,
     defaultYUnitsOffsetY: DEFAULT_PLOT_EDITOR_STATE.yUnitsOffsetY,
     defaultInfo: DEFAULT_PLOT_EDITOR_STATE.info,
+    defaultInfoColor: DEFAULT_PLOT_EDITOR_STATE.infoColor,
     defaultTitleSize: DEFAULT_PLOT_EDITOR_STATE.titleSize,
     defaultXLabelSize: DEFAULT_PLOT_EDITOR_STATE.xLabelSize,
     defaultYLabelSize: DEFAULT_PLOT_EDITOR_STATE.yLabelSize,
@@ -10401,6 +10556,12 @@ function App() {
     defaultXMax: DEFAULT_PLOT_EDITOR_STATE.xMax,
     defaultYMin: DEFAULT_PLOT_EDITOR_STATE.yMin,
     defaultYMax: DEFAULT_PLOT_EDITOR_STATE.yMax,
+    defaultTitleXPosition: DEFAULT_PLOT_EDITOR_STATE.titleXPosition,
+    defaultTitleYPosition: DEFAULT_PLOT_EDITOR_STATE.titleYPosition,
+    defaultXLabelXPosition: DEFAULT_PLOT_EDITOR_STATE.xLabelXPosition,
+    defaultXLabelYPosition: DEFAULT_PLOT_EDITOR_STATE.xLabelYPosition,
+    defaultYLabelXPosition: DEFAULT_PLOT_EDITOR_STATE.yLabelXPosition,
+    defaultYLabelYPosition: DEFAULT_PLOT_EDITOR_STATE.yLabelYPosition,
     defaultTitlePosition: DEFAULT_PLOT_EDITOR_STATE.titlePosition,
     defaultTitleSteps: DEFAULT_PLOT_EDITOR_STATE.titleSteps,
     defaultXPosition: DEFAULT_PLOT_EDITOR_STATE.xPosition,
@@ -11299,12 +11460,29 @@ function App() {
   const [isBioinformaticsModeEnabled, setIsBioinformaticsModeEnabled] = useState(false);
   const [bioinformaticsMode, setBioinformaticsMode] = useState('fastq_quality');
   const [fastqQualityTool, setFastqQualityTool] = useState('fastqc');
+  const [fastqcRunMode, setFastqcRunMode] = useState('single');
+  const [fastqcSamplePath, setFastqcSamplePath] = useState('');
+  const [fastqcFolderPath, setFastqcFolderPath] = useState('');
+  const [fastqcLog, setFastqcLog] = useState('');
+  const [isFastqcRunning, setIsFastqcRunning] = useState(false);
+  const [isFastqcInstalling, setIsFastqcInstalling] = useState(false);
+  const pendingFastqcRunRef = useRef(null);
   const [alignmentTool, setAlignmentTool] = useState('bowtie2');
   const [metagenomicsTool, setMetagenomicsTool] = useState('kraken2');
   const [eccDnaFinderTool, setEccDnaFinderTool] = useState('map_ont');
   const [eccDnaFinderForm, setEccDnaFinderForm] = useState(DEFAULT_ECCDNA_FINDER_FORM);
   const [eccDnaFinderStatus, setEccDnaFinderStatus] = useState(null);
+  // ── micromamba installation check ─────────────────────────────────────────
+  const [micromambaStatus, setMicromambaStatus] = useState(null); // null=unknown, {found,version,path}
+  const [isMicromambaChecking, setIsMicromambaChecking] = useState(false);
+  const [micromambaEnvironments, setMicromambaEnvironments] = useState([]);
+  const [isMicromambaMenuOpen, setIsMicromambaMenuOpen] = useState(false);
+  const [isMicromambaListLoading, setIsMicromambaListLoading] = useState(false);
+  const [micromambaScriptEditor, setMicromambaScriptEditor] = useState(null);
+  const [isMicromambaScriptSaving, setIsMicromambaScriptSaving] = useState(false);
+  const [micromambaScriptSaveStatus, setMicromambaScriptSaveStatus] = useState('');
   const [eccDnaFinderLog, setEccDnaFinderLog] = useState('');
+  const pendingEccRunRef = useRef(null);
   const [isEccDnaFinderRunning, setIsEccDnaFinderRunning] = useState(false);
   const [isEccDnaFinderInstalling, setIsEccDnaFinderInstalling] = useState(false);
   const [isEccDnaFinderInstallingDependencies, setIsEccDnaFinderInstallingDependencies] = useState(false);
@@ -11637,7 +11815,9 @@ function App() {
           ...previous.filter((plot) => String(plot?.id || '') !== plotId),
           importedPlot
         ].slice(-MAX_GENERATED_PLOTS));
-        setSelectedImage({ ...importedPlot, galleryEmbedded: false });
+        setSelectedPlotId(plotId);
+        setIsPlotsOverlayOpen(true);
+        setSelectedImage({ ...importedPlot, galleryEmbedded: true });
         setError(null);
       } catch (error) {
         setError(error?.message || 'Could not open editable plot file.');
@@ -12778,6 +12958,9 @@ function App() {
     setRConsolePromptState(safeState);
   }, []);
   const [rVersion, setRVersion] = useState('Detecting...');
+  const [rVersionSource, setRVersionSource] = useState('system');
+  const [rVersions, setRVersions] = useState([]);
+  const [isRVersionPickerOpen, setIsRVersionPickerOpen] = useState(false);
   const [rVersionStatus, setRVersionStatus] = useState('');
   const [isRVersionLoading, setIsRVersionLoading] = useState(false);
   const [isRVersionUpdating, setIsRVersionUpdating] = useState(false);
@@ -12876,6 +13059,7 @@ function App() {
   const [workspaceOpeningPath, setWorkspaceOpeningPath] = useState('');
   const analysisProgressTimerRef = useRef(null);
   const analysisLogBufferRef = useRef('');
+  const rPackagePreparationRef = useRef({});
   const [activeTopMenu, setActiveTopMenu] = useState('');
 
   const getPreferredLocalREditorModel = (models = []) => {
@@ -18695,16 +18879,23 @@ ${attachmentPromptContext || '(none)'}`;
   }, []);
 
   const refreshRVersion = useCallback(async () => {
-    if (!window.electronAPI?.getRVersion) {
+    if (!window.electronAPI?.getRVersion || !window.electronAPI?.getRVersions) {
       setRVersion('Unavailable');
       setRVersionStatus('R version check is not available in this build.');
       return;
     }
     setIsRVersionLoading(true);
     try {
+      const versionsResponse = await window.electronAPI.getRVersions();
+      if (versionsResponse?.success) {
+        setRVersions(Array.isArray(versionsResponse.versions) ? versionsResponse.versions : []);
+        setRVersion(versionsResponse.selectedVersion || 'Unknown');
+        setRVersionSource(versionsResponse.selectedSource || 'system');
+      }
       const response = await window.electronAPI.getRVersion();
       if (response?.success) {
         setRVersion(response.version || 'Unknown');
+        setRVersionSource(response.selectedSource || 'system');
         setRVersionStatus('');
       } else {
         setRVersion('Not detected');
@@ -18718,26 +18909,65 @@ ${attachmentPromptContext || '(none)'}`;
     }
   }, []);
 
+  const handleSelectRVersion = useCallback(async (version) => {
+    if (!window.electronAPI?.setRVersion) return;
+    setIsRVersionPickerOpen(false);
+    setIsRVersionLoading(true);
+    try {
+      const response = await window.electronAPI.setRVersion(version);
+      if (!response?.success) {
+        const message = response?.error || `Could not select R ${version}.`;
+        setRVersionStatus(message);
+        window.alert(message);
+        return;
+      }
+      const consoleResult = response.consoleNeedsRestart
+        ? await window.electronAPI.startRConsole('r')
+        : null;
+      await refreshRVersion();
+      setRVersionStatus(response.consoleNeedsRestart
+        ? consoleResult?.success
+          ? `Using R ${response.version}. The advanced R terminal restarted; its session variables were cleared.`
+          : `Using R ${response.version}, but the advanced R terminal could not restart. Start it again to use this version.`
+        : `Using R ${response.version}.`);
+    } catch (error) {
+      const message = `Could not select R ${version}: ${error.message}`;
+      setRVersionStatus(message);
+      window.alert(message);
+    } finally {
+      setIsRVersionLoading(false);
+    }
+  }, [refreshRVersion]);
+
   const handleUpdateRVersion = useCallback(async () => {
     if (isRVersionUpdating || !window.electronAPI?.updateRVersion) return;
-    const shouldProceed = window.confirm('Update R now? This may require administrator permissions and can take a few minutes.');
+    const shouldProceed = window.confirm('Install the latest R release side by side? Your existing R versions will stay installed. The app will select the new version and install its required analysis packages.');
     if (!shouldProceed) return;
 
     setIsRVersionUpdating(true);
-    setRVersionStatus('Updating R version...');
+    setRVersionStatus('Installing latest R version...');
 
     try {
       const response = await window.electronAPI.updateRVersion();
+      await refreshRVersion();
       if (response?.success) {
-        await refreshRVersion();
-        setRVersionStatus('R update completed successfully.');
+        const message = response.version
+          ? `R ${response.version} installed; existing versions were kept and R ${response.version} is now selected.${response.packageSetupSuccess ? ' Its required analysis packages are ready.' : ` Package setup needs attention: ${response.packageSetupError || 'installation failed.'}`}`
+          : 'The R release was installed successfully.';
+        setRVersionStatus(message);
       } else if (response?.requiresManual && response?.command) {
-        setRVersionStatus(`Manual update required: ${response.command}`);
+        const message = `${response.error || 'Manual update required.'}\n\nRun this command manually:\n${response.command}`;
+        setRVersionStatus(message);
+        window.alert(message);
       } else {
-        setRVersionStatus(response?.error || 'R update failed.');
+        const message = [response?.error || 'R update failed.', response?.output].filter(Boolean).join('\n\n');
+        setRVersionStatus(message);
+        window.alert(message);
       }
     } catch (err) {
-      setRVersionStatus(`R update failed: ${err.message}`);
+      const message = `R update failed: ${err.message}`;
+      setRVersionStatus(message);
+      window.alert(message);
     } finally {
       setIsRVersionUpdating(false);
     }
@@ -27718,6 +27948,56 @@ except Exception as _ngr_error:
     startAnalysisProgress('Preparing analysis input...');
 
     try {
+      if (!overrides?.colorOnly && window.electronAPI?.prepareRAnalysisPackages) {
+        const cachedAt = rPackagePreparationRef.current[rVersion] || 0;
+        if (Date.now() - cachedAt > 6 * 60 * 60 * 1000) {
+          startAnalysisProgress(`Checking required packages for R ${rVersion}...`);
+          const packageCheck = await window.electronAPI.prepareRAnalysisPackages('check');
+          if (!packageCheck?.success) {
+            throw new Error(packageCheck?.error || `Could not check packages for R ${rVersion}.`);
+          }
+
+          const missing = Array.isArray(packageCheck.missing) ? packageCheck.missing : [];
+          const outdated = Array.isArray(packageCheck.outdated) ? packageCheck.outdated : [];
+          const packageChanges = [
+            ...missing.map((name) => `Install ${name}`),
+            ...outdated.map((item) => `Update ${item.package} (${item.installed} → ${item.available})`)
+          ];
+          if (packageChanges.length > 0 && packageCheck.offline) {
+            const message = `R ${packageCheck.version || rVersion} needs package changes, but CRAN could not be reached. Connect to the internet and run the analysis again.\n\n${packageChanges.join('\n')}\n\nLibrary: ${packageCheck.library}`;
+            window.alert(message);
+            failAnalysisProgress('Analysis stopped: required R packages could not be downloaded.');
+            return null;
+          }
+          if (packageChanges.length > 0) {
+            const confirmed = window.confirm(
+              `R ${packageCheck.version || rVersion} needs packages in its own library before analysis:\n\n${packageChanges.join('\n')}\n\nLibrary: ${packageCheck.library}\n\nInstall/update these packages now?`
+            );
+            if (!confirmed) {
+              failAnalysisProgress('Analysis cancelled: R packages were not prepared.');
+              return null;
+            }
+            startAnalysisProgress(`Installing packages for R ${packageCheck.version || rVersion}...`);
+            const installResult = await window.electronAPI.prepareRAnalysisPackages('install');
+            if (!installResult?.success) {
+              throw new Error(installResult?.error || `Could not install packages for R ${rVersion}.`);
+            }
+            rPackagePreparationRef.current[rVersion] = Date.now();
+          } else if (packageCheck.offline) {
+            const proceed = window.confirm(
+              `Could not check CRAN for package updates for R ${packageCheck.version || rVersion}. The required packages are installed in:\n\n${packageCheck.library}\n\nContinue with the installed versions?`
+            );
+            if (!proceed) {
+              failAnalysisProgress('Analysis cancelled: package updates could not be checked.');
+              return null;
+            }
+            rPackagePreparationRef.current[rVersion] = Date.now();
+          } else {
+            rPackagePreparationRef.current[rVersion] = Date.now();
+          }
+        }
+      }
+
       const filePath = file?.path || '';
       if (window.electronAPI) {
         // Always analyze the rows selected in Data Explorer (falls back to all rows when fully selected).
@@ -33192,6 +33472,194 @@ except Exception as _ngr_error:
     return status;
   }, [eccDnaFinderForm.sourcePath]);
 
+  // ── micromamba detection ───────────────────────────────────────────────────
+  const checkMicromamba = useCallback(async () => {
+    if (!window.electronAPI?.runTerminalCmd) {
+      setMicromambaStatus({ found: false, version: '', path: '', reason: 'no-electron' });
+      return;
+    }
+    setIsMicromambaChecking(true);
+    try {
+      // Try to get path and version in one shot
+      const res = await window.electronAPI.runTerminalCmd('which micromamba 2>/dev/null && micromamba --version 2>/dev/null');
+      const stdout = (res?.stdout || '').trim();
+      if (res?.success && stdout) {
+        const lines = stdout.split('\n').map((l) => l.trim()).filter(Boolean);
+        const path = lines[0] || 'micromamba';
+        const version = lines[1] || 'installed';
+        setMicromambaStatus({ found: true, version, path });
+      } else {
+        // Fallback: try micromamba --version directly (works if on PATH without which)
+        const res2 = await window.electronAPI.runTerminalCmd('micromamba --version 2>/dev/null');
+        const v = (res2?.stdout || '').trim();
+        if (res2?.success && v) {
+          setMicromambaStatus({ found: true, version: v, path: 'micromamba' });
+        } else {
+          setMicromambaStatus({ found: false, version: '', path: '' });
+        }
+      }
+    } catch (err) {
+      setMicromambaStatus({ found: false, version: '', path: '', reason: err?.message });
+    } finally {
+      setIsMicromambaChecking(false);
+    }
+  }, []);
+
+  const handleMicromambaMenuToggle = useCallback(async () => {
+    if (isMicromambaMenuOpen) {
+      setIsMicromambaMenuOpen(false);
+      return;
+    }
+    setIsMicromambaMenuOpen(true);
+    setIsMicromambaListLoading(true);
+    try {
+      const response = await window.electronAPI?.getMicromambaEnvironments?.();
+      if (response?.success) {
+        setMicromambaEnvironments(Array.isArray(response.envs) ? response.envs : []);
+        setMicromambaStatus({ found: true, version: response.version || '', path: response.path || '', needsUpdate: false });
+      } else {
+        setMicromambaEnvironments([]);
+        setMicromambaStatus({ found: false, version: '', path: '', error: response?.error || 'Micromamba was not found.' });
+      }
+    } catch (error) {
+      setMicromambaEnvironments([]);
+      setMicromambaStatus({ found: false, version: '', path: '', error: error?.message || 'Could not list Micromamba environments.' });
+    } finally {
+      setIsMicromambaListLoading(false);
+    }
+  }, [isMicromambaMenuOpen]);
+
+  const handleOpenMicromambaEnvScript = useCallback(async (environment) => {
+    setIsMicromambaMenuOpen(false);
+    try {
+      const response = await window.electronAPI?.getMicromambaEnvScript?.(environment.name);
+      if (!response?.success) {
+        window.alert(response?.error || 'Could not open this environment script.');
+        return;
+      }
+      const content = String(response.content || '');
+      setMicromambaScriptEditor({ ...response, content, originalContent: content });
+      setMicromambaScriptSaveStatus('');
+    } catch (error) {
+      window.alert(error?.message || 'Could not open this environment script.');
+    }
+  }, []);
+
+  const handleSaveMicromambaEnvScript = useCallback(async () => {
+    if (!micromambaScriptEditor || isMicromambaScriptSaving) return;
+    setIsMicromambaScriptSaving(true);
+    setMicromambaScriptSaveStatus('Saving...');
+    try {
+      const response = await window.electronAPI?.saveMicromambaEnvScript?.({
+        environmentName: micromambaScriptEditor.environment.name,
+        content: micromambaScriptEditor.content
+      });
+      if (!response?.success) throw new Error(response?.error || 'Could not save the environment script.');
+      setMicromambaScriptEditor((current) => current ? { ...current, originalContent: current.content } : current);
+      setMicromambaScriptSaveStatus('Saved');
+    } catch (error) {
+      setMicromambaScriptSaveStatus(error?.message || 'Could not save the environment script.');
+    } finally {
+      setIsMicromambaScriptSaving(false);
+    }
+  }, [isMicromambaScriptSaving, micromambaScriptEditor]);
+
+  useEffect(() => {
+    checkMicromamba();
+  }, [checkMicromamba]);
+
+  const appendFastqcLog = useCallback((text) => {
+    setFastqcLog((previous) => {
+      const next = `${previous}${String(text || '')}`;
+      return next.length > 30000 ? next.slice(-30000) : next;
+    });
+  }, []);
+
+  const startFastqcRun = useCallback(async (payload) => {
+    setIsFastqcRunning(true);
+    try {
+      const result = await window.electronAPI.runFastQC(payload);
+      if (result?.success) return;
+      setIsFastqcRunning(false);
+      appendFastqcLog(`${result?.error || 'FastQC could not start.'}\n`);
+      if (result?.needsEnvironment) {
+        window.alert(result.managerMissing
+          ? 'Micromamba, mamba, or conda was not found. Install Micromamba, then run FastQC again.'
+          : 'The FastQC environment is missing. Run FastQC again to create it.');
+      }
+    } catch (error) {
+      setIsFastqcRunning(false);
+      appendFastqcLog(`${error?.message || 'FastQC could not start.'}\n`);
+    }
+  }, [appendFastqcLog]);
+
+  const handleRunFastqc = useCallback(async () => {
+    if (isFastqcRunning || isFastqcInstalling) return;
+    const payload = {
+      mode: fastqcRunMode,
+      path: fastqcRunMode === 'single' ? fastqcSamplePath : fastqcFolderPath
+    };
+    if (!payload.path) {
+      window.alert(fastqcRunMode === 'single' ? 'Choose a FASTQ sample first.' : 'Choose a folder containing FASTQ files first.');
+      return;
+    }
+    setFastqcLog('');
+    setIsFastqcRunning(true);
+    try {
+      const result = await window.electronAPI.runFastQC(payload);
+      if (result?.success) return;
+      setIsFastqcRunning(false);
+      if (result?.needsEnvironment) {
+        if (result.managerMissing) {
+          window.alert('Micromamba, mamba, or conda was not found. Install Micromamba, then run FastQC again.');
+          return;
+        }
+        if (!window.confirm('The fastq_quality environment is missing FastQC. Create it now?')) return;
+        pendingFastqcRunRef.current = payload;
+        setIsFastqcInstalling(true);
+        appendFastqcLog('[Creating the fastq_quality environment with FastQC...]\n');
+        const install = await window.electronAPI.installFastqcEnvironment();
+        if (install?.success) return;
+        pendingFastqcRunRef.current = null;
+        setIsFastqcInstalling(false);
+        appendFastqcLog(`${install?.error || 'Could not create the FastQC environment.'}\n`);
+        window.alert(install?.error || 'Could not create the FastQC environment.');
+        return;
+      }
+      appendFastqcLog(`${result?.error || 'FastQC could not start.'}\n`);
+      window.alert(result?.error || 'FastQC could not start.');
+    } catch (error) {
+      setIsFastqcRunning(false);
+      setIsFastqcInstalling(false);
+      pendingFastqcRunRef.current = null;
+      appendFastqcLog(`${error?.message || 'FastQC could not start.'}\n`);
+    }
+  }, [appendFastqcLog, fastqcFolderPath, fastqcRunMode, fastqcSamplePath, isFastqcInstalling, isFastqcRunning]);
+
+  useEffect(() => {
+    if (!window.electronAPI?.onFastQCOutput) return undefined;
+    return window.electronAPI.onFastQCOutput((data) => {
+      if (data?.type === 'start') {
+        if (data.kind === 'setup') setIsFastqcInstalling(true);
+        else setIsFastqcRunning(true);
+        appendFastqcLog(`\n$ ${data.command}\n`);
+      } else if (data?.type === 'stdout' || data?.type === 'stderr' || data?.type === 'error') {
+        appendFastqcLog(data.text || '');
+      } else if (data?.type === 'exit') {
+        if (data.kind === 'setup') {
+          setIsFastqcInstalling(false);
+          appendFastqcLog(`\n[FastQC environment setup exited with code ${data.code}]\n`);
+          const pending = pendingFastqcRunRef.current;
+          pendingFastqcRunRef.current = null;
+          if (data.code === 0 && pending) startFastqcRun(pending);
+        } else {
+          setIsFastqcRunning(false);
+          appendFastqcLog(`\n[FastQC exited with code ${data.code}; output: ${data.outputPath}]\n`);
+        }
+      }
+    });
+  }, [appendFastqcLog, startFastqcRun]);
+
   useEffect(() => {
     if (bioinformaticsMode !== 'eccdna_finder') return undefined;
     let cancelled = false;
@@ -33238,6 +33706,9 @@ except Exception as _ngr_error:
           setIsEccDnaFinderInstallingDependencies(false);
           appendEccDnaFinderLog(`\n[ecc_finder dependency installation exited with code ${eventData.code}]\n`);
           refreshEccDnaFinderStatus();
+          const pendingRun = pendingEccRunRef.current;
+          pendingEccRunRef.current = null;
+          if (eventData.code === 0 && pendingRun) pendingRun();
         } else if (isIndex) {
           setIsEccIndexing(false);
           const ok = eventData.code === 0;
@@ -33383,36 +33854,96 @@ except Exception as _ngr_error:
     }
   }, [appendEccDnaFinderLog, eccDnaFinderForm.sourcePath, isEccDnaFinderInstallingDependencies, isEccDnaFinderRunning]);
 
+  const ensureEccDnaFinderEnvironment = useCallback(async (startRun) => {
+    if (!window.electronAPI?.getEccFinderStatus || isEccDnaFinderRunning || isEccDnaFinderInstallingDependencies) return;
+    try {
+      const status = await window.electronAPI.getEccFinderStatus(eccDnaFinderForm.sourcePath);
+      setEccDnaFinderStatus(status);
+      if (!status?.installed) {
+        window.alert(status?.error || 'Install the bioinformatics tool source before running it.');
+        return;
+      }
+      if (status?.dependenciesReady) {
+        await startRun();
+        return;
+      }
+      if (!status?.environmentManager) {
+        window.alert('Micromamba, mamba, or conda was not found. Install Micromamba, then press Run again to create this analysis environment.');
+        return;
+      }
+      const missing = [
+        ...(status.missingBinaries || []),
+        ...(status.missingPythonModules || [])
+      ];
+      const details = missing.length ? `\n\nMissing: ${missing.slice(0, 12).join(', ')}${missing.length > 12 ? ', …' : ''}` : '';
+      if (!window.confirm(`The ecc_finder environment is not ready. Create or repair it now?${details}`)) return;
+
+      pendingEccRunRef.current = startRun;
+      setIsEccDnaFinderInstallingDependencies(true);
+      appendEccDnaFinderLog('\n[Preparing the ecc_finder environment before running...]\n');
+      const result = await window.electronAPI.installEccFinderDependencies({ sourcePath: eccDnaFinderForm.sourcePath });
+      if (result?.success) return;
+
+      pendingEccRunRef.current = null;
+      setIsEccDnaFinderInstallingDependencies(false);
+      appendEccDnaFinderLog(`${result?.error || 'Failed to create the ecc_finder environment.'}\n`);
+      window.alert(result?.error || 'Failed to create the ecc_finder environment.');
+    } catch (error) {
+      pendingEccRunRef.current = null;
+      setIsEccDnaFinderInstallingDependencies(false);
+      window.alert(error?.message || 'Could not prepare the ecc_finder environment.');
+    }
+  }, [appendEccDnaFinderLog, eccDnaFinderForm.sourcePath, isEccDnaFinderInstallingDependencies, isEccDnaFinderRunning]);
+
+  const startEccDnaFinderRun = useCallback(async (payload) => {
+    setIsEccDnaFinderRunning(true);
+    try {
+      const result = await window.electronAPI.runEccFinder(payload);
+      if (result?.success) return;
+      setIsEccDnaFinderRunning(false);
+      appendEccDnaFinderLog(`${result?.error || 'Failed to start ecc_finder.'}\n`);
+      if (result?.needsDependencies) {
+        window.alert(result.environmentManagerMissing
+          ? 'Micromamba, mamba, or conda is required to create the ecc_finder environment.'
+          : 'The ecc_finder dependencies are missing. Press Run again to create the environment.');
+      }
+    } catch (error) {
+      setIsEccDnaFinderRunning(false);
+      appendEccDnaFinderLog(`${error?.message || 'Failed to start ecc_finder.'}\n`);
+    }
+  }, [appendEccDnaFinderLog]);
+
   const handleRunEccDnaFinder = useCallback(async () => {
     if (!window.electronAPI?.runEccFinder || isEccDnaFinderRunning) return;
     setEccDnaFinderLog('');
-    setIsEccDnaFinderRunning(true);
-    const payload = {
-      ...eccDnaFinderForm,
-      workflow: eccDnaFinderTool
-    };
-    const result = await window.electronAPI.runEccFinder(payload);
-    if (!result?.success) {
-      setIsEccDnaFinderRunning(false);
-      appendEccDnaFinderLog(`${result?.error || 'Failed to start ecc_finder.'}\n`);
-    }
-  }, [appendEccDnaFinderLog, eccDnaFinderForm, eccDnaFinderTool, isEccDnaFinderRunning]);
+    const payload = { ...eccDnaFinderForm, workflow: eccDnaFinderTool };
+    await ensureEccDnaFinderEnvironment(() => startEccDnaFinderRun(payload));
+  }, [eccDnaFinderForm, eccDnaFinderTool, ensureEccDnaFinderEnvironment, isEccDnaFinderRunning, startEccDnaFinderRun]);
 
   const handleRunEccLoop = useCallback(async () => {
     if (!window.electronAPI?.runEccLoop || eccLoopRunning || !eccLoopSamples.length) return;
-    setEccLoopRunning(true);
-    setEccLoopResults([]);
-    setEccLoopProgress({ current: 0, total: eccLoopSamples.length, currentName: '' });
-    const result = await window.electronAPI.runEccLoop({
+    const payload = {
       samples: eccLoopSamples,
       basePayload: { ...eccDnaFinderForm, workflow: eccDnaFinderTool },
       resolvedIndexPath: eccDnaFinderForm.referenceIndex || ''
-    });
-    if (!result?.success) {
-      appendEccDnaFinderLog(`[Loop] ${result?.error || 'Batch loop failed.'}\n`);
-    }
-    setEccLoopRunning(false);
-  }, [appendEccDnaFinderLog, eccDnaFinderForm, eccDnaFinderTool, eccLoopRunning, eccLoopSamples]);
+    };
+    const startLoop = async () => {
+      setEccLoopRunning(true);
+      setEccLoopResults([]);
+      setEccLoopProgress({ current: 0, total: eccLoopSamples.length, currentName: '' });
+      try {
+        const result = await window.electronAPI.runEccLoop(payload);
+        if (result?.success) return;
+        setEccLoopRunning(false);
+        appendEccDnaFinderLog(`[Loop] ${result?.error || 'Batch loop failed.'}\n`);
+        if (result?.needsDependencies) window.alert(result.error);
+      } catch (error) {
+        setEccLoopRunning(false);
+        appendEccDnaFinderLog(`[Loop] ${error?.message || 'Batch loop failed.'}\n`);
+      }
+    };
+    await ensureEccDnaFinderEnvironment(startLoop);
+  }, [appendEccDnaFinderLog, eccDnaFinderForm, eccDnaFinderTool, eccLoopRunning, eccLoopSamples, ensureEccDnaFinderEnvironment]);
 
   const handleBuildEccIndex = useCallback(async () => {
     if (!window.electronAPI?.buildEccIndex || isEccIndexing) return;
@@ -39116,6 +39647,59 @@ except Exception as _ngr_error:
                     </button>
                   ))}
                 </div>
+                {fastqQualityTool === 'fastqc' && (
+                  <div className="analysis-config-subpanel space-y-4 p-4">
+                    <label className="text-xs font-black uppercase text-zinc-400 tracking-widest block">FastQC run mode</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { id: 'single', label: 'One sample' },
+                        { id: 'auto', label: 'Auto (folder)' }
+                      ].map((option) => (
+                        <button
+                          key={option.id}
+                          type="button"
+                          onClick={() => setFastqcRunMode(option.id)}
+                          className={`analysis-workflow-choice tone-cyan px-3 py-2 text-center text-xs font-bold transition-colors ${fastqcRunMode === option.id ? 'is-active' : ''}`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="analysis-variable-input min-w-0 flex-1 truncate px-3 py-2 text-xs" title={fastqcRunMode === 'single' ? fastqcSamplePath : fastqcFolderPath}>
+                        {fastqcRunMode === 'single' ? (fastqcSamplePath || 'No FASTQ sample selected') : (fastqcFolderPath || 'No FASTQ folder selected')}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const response = fastqcRunMode === 'single'
+                            ? await window.electronAPI.selectFastqFile()
+                            : await window.electronAPI.selectFastqFolder();
+                          if (response?.success) {
+                            if (fastqcRunMode === 'single') setFastqcSamplePath(response.path);
+                            else setFastqcFolderPath(response.path);
+                          }
+                        }}
+                        className="analysis-workflow-choice tone-cyan shrink-0 px-3 py-2 text-[10px] font-bold"
+                      >
+                        Browse
+                      </button>
+                    </div>
+                    <div className="flex justify-center">
+                      <button
+                        type="button"
+                        onClick={handleRunFastqc}
+                        disabled={isFastqcRunning || isFastqcInstalling || !(fastqcRunMode === 'single' ? fastqcSamplePath : fastqcFolderPath)}
+                        className="analysis-generate-button inline-flex items-center justify-center gap-2 rounded-xl px-7 py-2.5 text-xs font-bold tracking-wider transition-all cursor-pointer disabled:opacity-50 w-full sm:w-auto"
+                      >
+                        {isFastqcInstalling ? 'Preparing FastQC...' : isFastqcRunning ? 'Running FastQC...' : 'Run FastQC'}
+                      </button>
+                    </div>
+                    {fastqcLog && (
+                      <pre className="analysis-config-subpanel max-h-40 overflow-auto whitespace-pre-wrap p-3 font-mono text-[10px] leading-relaxed text-zinc-300">{fastqcLog}</pre>
+                    )}
+                  </div>
+                )}
               </div>
             ) : bioinformaticsMode === 'alignment' ? (
               <div className="analysis-config-subpanel space-y-4 border-slate-200/70 dark:border-slate-700/60 animate-in slide-in-from-top-4 fade-in duration-300">
@@ -39870,7 +40454,7 @@ except Exception as _ngr_error:
       <header className="fixed top-0 left-14 right-0 z-[220] h-12 border-b border-slate-900 bg-black/95 shadow-xl">
         <div className="h-full px-3 sm:px-4 flex items-center gap-2 overflow-visible">
           <div ref={topMenuRef} className="relative flex items-center gap-2 shrink-0">
-            {['File', 'Edit', 'View', 'Windows', 'Help'].map((label) => {
+            {['File', 'Edit', 'View', 'Help'].map((label) => {
               const isFileMenu = label === 'File';
               const isActive = activeTopMenu === label;
               return (
@@ -39987,26 +40571,96 @@ except Exception as _ngr_error:
                 ? mainBarDisabledClass
                 : mainBarIdleClass
             )}
-            title="Update installed R"
+            title={rVersionStatus || "Install the latest R release alongside your existing versions and prepare its analysis packages."}
           >
             <RefreshCw size={12} className={isRVersionUpdating ? "animate-spin" : ""} />
-            {isRVersionUpdating ? "Updating..." : "Update 4.5.3"}
+            {isRVersionUpdating ? "Installing..." : "Install latest R"}
           </button>
 
-          <button
-            type="button"
-            onClick={refreshRVersion}
-            disabled={isRVersionLoading || isRVersionUpdating}
-            className={"h-8 px-3 rounded-md border inline-flex items-center gap-1.5 text-[10px] sm:text-[11px] font-black uppercase tracking-[0.12em] transition-colors shrink-0 " + (
-              (isRVersionLoading || isRVersionUpdating)
-                ? mainBarDisabledClass
-                : mainBarIdleClass
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsRVersionPickerOpen((open) => !open)}
+              disabled={isRVersionLoading || isRVersionUpdating}
+              aria-haspopup="menu"
+              aria-expanded={isRVersionPickerOpen}
+              className={"h-8 px-3 rounded-md border inline-flex items-center gap-1.5 text-[10px] sm:text-[11px] font-black uppercase tracking-[0.12em] transition-colors shrink-0 " + (
+                (isRVersionLoading || isRVersionUpdating)
+                  ? mainBarDisabledClass
+                  : mainBarIdleClass
+              )}
+              title={`Choose an installed R version (${rVersionSource})`}
+            >
+              {isRVersionLoading ? "Checking..." : ("R " + rVersion)}
+              <ChevronDown size={12} />
+            </button>
+            {isRVersionPickerOpen && (
+              <div role="menu" aria-label="Installed R versions" className="absolute left-0 top-full z-[240] mt-1 min-w-36 rounded-md border border-slate-700/80 bg-black/95 p-1 shadow-2xl">
+                {rVersions.map((item) => (
+                  <button
+                    key={`${item.version}-${item.source}`}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={item.version === rVersion}
+                    onClick={() => handleSelectRVersion(item.version)}
+                    className={`w-full rounded px-2 py-1.5 text-left text-[11px] font-semibold transition-colors ${item.version === rVersion ? 'bg-slate-800 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}
+                  >
+                    R {item.version} <span className="ml-1 text-[9px] font-medium normal-case text-slate-500">{item.source}</span>
+                  </button>
+                ))}
+                {rVersions.length === 0 && <div className="px-2 py-1.5 text-[11px] text-slate-400">No R versions found</div>}
+              </div>
             )}
-            title="Refresh detected R version"
-          >
-            <RefreshCw size={12} className={isRVersionLoading ? "animate-spin" : ""} />
-            {isRVersionLoading ? "Checking..." : ("R " + rVersion)}
-          </button>
+          </div>
+
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={handleMicromambaMenuToggle}
+              disabled={isMicromambaChecking}
+              aria-haspopup="menu"
+              aria-expanded={isMicromambaMenuOpen}
+              title={micromambaStatus?.found
+                ? `Micromamba ${micromambaStatus.version || ''} · Click to list environments`
+                : micromambaStatus?.error || 'Click to check Micromamba and list environments'}
+              aria-label="List Micromamba environments"
+              className={`h-8 px-3 rounded-md border inline-flex items-center justify-center gap-2 text-[10px] sm:text-[11px] font-black uppercase tracking-[0.12em] transition-colors shrink-0 ${mainBarIdleClass} ${isMicromambaChecking ? 'cursor-wait' : ''}`}
+            >
+              Micromamba
+              <span className={`h-2 w-2 shrink-0 rounded-full ${micromambaStatus === null ? 'bg-slate-500' : micromambaStatus.found ? 'bg-emerald-400' : 'bg-red-500'}`} />
+              <ChevronDown size={11} />
+            </button>
+            {isMicromambaMenuOpen && (
+              <div role="menu" aria-label="Micromamba environments" className="absolute right-0 top-full z-[260] mt-1 w-72 max-w-[calc(100vw-24px)] overflow-hidden rounded-lg border border-zinc-700 bg-[#111] shadow-2xl">
+                <div className="border-b border-zinc-800 px-3 py-2">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-200">Environments</div>
+                  {micromambaStatus?.version && <div className="mt-0.5 truncate text-[9px] text-zinc-500">Micromamba {micromambaStatus.version}</div>}
+                </div>
+                <div className="max-h-72 overflow-y-auto p-1">
+                  {isMicromambaListLoading ? (
+                    <div className="px-3 py-3 text-xs text-zinc-400">Loading environments…</div>
+                  ) : micromambaEnvironments.length ? (
+                    [...micromambaEnvironments].sort((a, b) => a.name.localeCompare(b.name)).map((environment) => (
+                      <button
+                        key={`${environment.name}-${environment.prefix}`}
+                        type="button"
+                        role="menuitem"
+                        onClick={() => handleOpenMicromambaEnvScript(environment)}
+                        className="block w-full rounded-md px-3 py-2 text-left transition-colors hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-500"
+                        title={`Open ${environment.name} script · ${environment.prefix}`}
+                      >
+                        <span className="block text-xs font-semibold text-zinc-100">{environment.name === 'fastq_quality' ? 'FastQC' : environment.name}</span>
+                        <span className="mt-0.5 block truncate text-[9px] text-zinc-500">{environment.prefix}</span>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="px-3 py-3 text-xs text-zinc-400">{micromambaStatus?.error || 'No environments found.'}</div>
+                  )}
+                </div>
+                <div className="border-t border-zinc-800 px-3 py-2 text-[9px] text-zinc-500">Choose an environment to edit its runner script.</div>
+              </div>
+            )}
+          </div>
 
           <button
             type="button"
@@ -40035,6 +40689,7 @@ except Exception as _ngr_error:
             <Dna size={12} />
             Bioinformatics Mode
           </button>
+
         </div>
       </header>
 
@@ -40199,37 +40854,35 @@ except Exception as _ngr_error:
             </button>
           </div>
           <div className="flex-1 min-h-0 overflow-hidden p-3 md:p-4">
-            {isPlotsOverlayOpen ? (
-              <PlotsGalleryPanel
-                plots={generatedPlots}
-                initialPlotId={selectedPlotId}
-                onClearPlots={handleClearGeneratedPlots}
-                onDeletePlot={handleDeleteGeneratedPlot}
-                onEditPlot={openGalleryPlotEditor}
-                onDownloadPlot={handleGalleryPlotDownload}
-                editorPlot={selectedImage?.galleryEmbedded ? selectedImage : null}
-                renderEditor={(plot, onClose, options = {}) => (
-                  <ImageModal
-                    isOpen
-                    onClose={onClose}
-                    imageUrl={plot.url}
-                    title={plot.title}
-                    editor={activeImageEditor}
-                    editorLanguage={editorLanguage}
-                    onTapImage={cycleFullscreenPlotPalette}
-                    embedded
-                    panelOnly={options.panelOnly === true}
-                    editablePlotMetadata={{
-                      ...plot,
-                      analysisContext: editablePlotAnalysisContext,
-                      analysisResult: analysisResults.find((entry) => (
-                        String(entry?.id || '').trim() === String(plot?.analysisResultId || '').trim()
-                      ))?.data || null
-                    }}
-                  />
-                )}
-              />
-            ) : null}
+            <PlotsGalleryPanel
+              plots={generatedPlots}
+              initialPlotId={selectedPlotId}
+              onClearPlots={handleClearGeneratedPlots}
+              onDeletePlot={handleDeleteGeneratedPlot}
+              onEditPlot={openGalleryPlotEditor}
+              onDownloadPlot={handleGalleryPlotDownload}
+              editorPlot={selectedImage?.galleryEmbedded ? selectedImage : null}
+              renderEditor={(plot, onClose, options = {}) => (
+                <ImageModal
+                  isOpen
+                  onClose={onClose}
+                  imageUrl={plot.url}
+                  title={plot.title}
+                  editor={activeImageEditor}
+                  editorLanguage={editorLanguage}
+                  onTapImage={cycleFullscreenPlotPalette}
+                  embedded
+                  panelOnly={options.panelOnly === true}
+                  editablePlotMetadata={{
+                    ...plot,
+                    analysisContext: editablePlotAnalysisContext,
+                    analysisResult: analysisResults.find((entry) => (
+                      String(entry?.id || '').trim() === String(plot?.analysisResultId || '').trim()
+                    ))?.data || null
+                  }}
+                />
+              )}
+            />
           </div>
         </div>
       </div>
@@ -40249,6 +40902,52 @@ except Exception as _ngr_error:
             editorTheme={activeCodeMirrorTheme}
             isAyuDarkTheme={isAyuDarkTheme}
           />
+        )}
+
+        {micromambaScriptEditor && (
+          <DraggableWindow
+            id="micromamba-env-script-editor"
+            title={`${micromambaScriptEditor.environment?.name === 'fastq_quality' ? 'FastQC' : micromambaScriptEditor.environment?.name} environment script`}
+            onClose={() => {
+              if (micromambaScriptEditor.content !== micromambaScriptEditor.originalContent
+                && !window.confirm('Discard unsaved script changes?')) return;
+              setMicromambaScriptEditor(null);
+            }}
+            onFocus={() => handleWindowFocus('micromamba-env-script-editor')}
+            zIndex={100000}
+            initialPosition={{ x: 140, y: 100 }}
+            initialSize={{ width: 860, height: 620 }}
+            contentClassName="bg-[#111214]"
+          >
+            <div className="flex h-full min-h-0 flex-col bg-[#111214] text-zinc-200">
+              <div className="border-b border-zinc-800 px-4 py-2 text-xs text-zinc-500 break-all">
+                {micromambaScriptEditor.scriptPath}
+              </div>
+              <div className="min-h-0 flex-1">
+                <CodeMirror
+                  value={micromambaScriptEditor.content}
+                  onChange={(content) => setMicromambaScriptEditor((current) => current ? { ...current, content } : current)}
+                  height="100%"
+                  theme={activeCodeMirrorTheme}
+                  basicSetup={{ lineNumbers: true, foldGutter: true }}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-3 border-t border-zinc-800 px-4 py-3">
+                <span className={`text-xs ${micromambaScriptSaveStatus === 'Saved' ? 'text-emerald-400' : 'text-amber-300'}`}>
+                  {micromambaScriptSaveStatus}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleSaveMicromambaEnvScript}
+                  disabled={isMicromambaScriptSaving || micromambaScriptEditor.content === micromambaScriptEditor.originalContent}
+                  className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Save size={15} />
+                  {isMicromambaScriptSaving ? 'Saving…' : 'Save script'}
+                </button>
+              </div>
+            </div>
+          </DraggableWindow>
         )}
 
         {/* R Console Floating Window */}
@@ -41150,17 +41849,17 @@ except Exception as _ngr_error:
 
           {isBioinformaticsModeEnabled && (
             <>
-              <div className="mt-8 ngr-config-panel-wrap">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="analysis-config-step-badge px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-black uppercase tracking-widest border border-primary/20">
+              <div className="mt-5 ngr-config-panel-wrap">
+                <div className="flex items-center gap-2.5 mb-4">
+                  <div className="analysis-config-step-badge px-2.5 py-0.5 rounded-full bg-[#181818] text-zinc-300 text-[10px] font-semibold uppercase tracking-wider border-0">
                     Step 02
                   </div>
-                  <h3 className="analysis-config-title text-lg font-bold text-gray-900 dark:text-white">Bioinformatics Configuration</h3>
+                  <h3 className="analysis-config-title text-base font-bold text-zinc-100 font-sans tracking-tight">Bioinformatics Configuration</h3>
                 </div>
-                <p className="analysis-config-subtitle mb-6">
+                <p className="analysis-config-subtitle text-xs text-zinc-400 mb-4">
                   Advanced genomic processing and sequence analysis pipelines for high-throughput biological data.
                 </p>
-                <div className="analysis-config-shell ngr-config-panel glass-panel rounded-3xl p-7 md:p-8 space-y-8 animate-in fade-in duration-700 delay-150">
+                <div className="analysis-config-shell ngr-config-panel rounded-2xl p-5 md:p-6 space-y-6 bg-[#121212] border-0 shadow-xl animate-in fade-in duration-300">
                   <div>
                     {renderBioinformaticsConfigurationPanels()}
                   </div>

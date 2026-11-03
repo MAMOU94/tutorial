@@ -56,6 +56,8 @@
                               "analysis_wrapper.R",
                               "analysis_wrapper.R.golden",
                               "analysis_worker.R",
+                              "scripts/bioinformatics_wrapper.sh",
+                              "r_package_preflight.R",
                               "data_transform_wrapper.R",
                               "missing_value_predictor.py",
                               "qwen_agent.py",

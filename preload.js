@@ -76,6 +76,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   offPipInstallOutput: () => ipcRenderer.removeAllListeners('pip-install-output'),
   getRVersion: () => ipcRenderer.invoke('get-r-version'),
+  getRVersions: () => ipcRenderer.invoke('get-r-versions'),
+  prepareRAnalysisPackages: (action = 'check') => ipcRenderer.invoke('prepare-r-analysis-packages', action),
+  setRVersion: (version) => ipcRenderer.invoke('set-r-version', version),
   updateRVersion: () => ipcRenderer.invoke('update-r-version'),
   listWorkspaceEntries: (relativePath = '') => ipcRenderer.invoke('list-workspace-entries', relativePath),
   openWorkspaceEntry: (relativePath = '') => ipcRenderer.invoke('open-workspace-entry', relativePath),
@@ -345,6 +348,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('ecc-finder-output', listener);
   },
   findFastqFiles: (payload) => ipcRenderer.invoke('find-fastq-files', payload),
+  selectFastqFile: () => ipcRenderer.invoke('select-fastq-file'),
+  selectFastqFolder: () => ipcRenderer.invoke('select-fastq-folder'),
+  installFastqcEnvironment: () => ipcRenderer.invoke('install-fastqc-environment'),
+  runFastQC: (payload) => ipcRenderer.invoke('run-fastqc', payload),
+  getMicromambaEnvironments: () => ipcRenderer.invoke('get-micromamba-environments'),
+  getMicromambaEnvScript: (environmentName) => ipcRenderer.invoke('get-micromamba-env-script', environmentName),
+  saveMicromambaEnvScript: (payload) => ipcRenderer.invoke('save-micromamba-env-script', payload),
+  onFastQCOutput: (callback) => {
+    const listener = (event, data) => callback(data);
+    ipcRenderer.on('fastqc-output', listener);
+    return () => ipcRenderer.removeListener('fastqc-output', listener);
+  },
   runEccLoop: (payload) => ipcRenderer.invoke('run-ecc-loop', payload),
   stopEccLoop: () => ipcRenderer.invoke('stop-ecc-loop'),
   onEccLoopProgress: (callback) => {

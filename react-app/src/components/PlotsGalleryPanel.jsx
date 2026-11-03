@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { memo, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Download,
   Trash2,
@@ -6,10 +6,93 @@ import {
   Check,
   X,
   Pencil,
-  FlaskConical,
-  Dna,
-  Layers3,
 } from 'lucide-react';
+
+const PlotCard = memo(function PlotCard({
+  plot,
+  index,
+  isSelected,
+  onSelect,
+  renderPlotMedia,
+  getPlotMediaType,
+  handleCopy,
+  handleDownload,
+  onDeletePlot,
+  copiedId
+}) {
+  return (
+    <div
+      onClick={() => onSelect(plot, index)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect(plot, index);
+        }
+      }}
+      role="button"
+      tabIndex={0}
+      className={`group overflow-hidden rounded-xl border text-left shadow-lg transition-all hover:-translate-y-0.5 hover:border-cyan-400/70 hover:shadow-cyan-950/30 ${
+        isSelected
+          ? 'border-cyan-400 ring-2 ring-cyan-500/30'
+          : 'border-zinc-700/80'
+      }`}
+      title="Open plot fullscreen"
+      aria-label={`Open ${plot.title || `plot ${index + 1}`} fullscreen`}
+    >
+      <div className="flex min-h-[190px] items-center justify-center bg-white p-2">
+        {renderPlotMedia(plot, 'max-h-[260px] min-h-[190px] w-full object-contain', plot.title || `Plot ${index + 1}`)}
+      </div>
+      <div className="flex items-center justify-between gap-2 border-t border-zinc-800 bg-[#141414] px-3 py-2">
+        <span className="truncate text-[11px] font-semibold text-zinc-200">
+          {plot.title || `Plot ${index + 1}`}
+        </span>
+        <div className="flex shrink-0 items-center gap-1">
+          {getPlotMediaType(plot) === 'image' && (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                handleCopy(plot);
+              }}
+              className="flex h-6 w-6 items-center justify-center rounded border border-zinc-700 bg-zinc-900 text-zinc-400 hover:text-zinc-100"
+              title="Copy plot"
+              aria-label="Copy plot"
+            >
+              {copiedId === (plot.id || index) ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              handleDownload(plot);
+            }}
+            className="flex h-6 w-6 items-center justify-center rounded border border-zinc-700 bg-zinc-900 text-zinc-400 hover:text-zinc-100"
+            title={plot.editable === true ? 'Download plot and editable package' : 'Download plot'}
+            aria-label="Download plot"
+          >
+            <Download size={11} />
+          </button>
+          {onDeletePlot && (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onDeletePlot(plot.id || index);
+              }}
+              className="flex h-6 w-6 items-center justify-center rounded border border-rose-900/70 bg-rose-950/40 text-rose-300 hover:text-white"
+              title="Delete plot"
+              aria-label="Delete plot"
+            >
+              <Trash2 size={11} />
+            </button>
+          )}
+          <span className="ml-1 font-mono text-[9px] text-zinc-500">#{index + 1}</span>
+        </div>
+      </div>
+    </div>
+  );
+});
 
 export default function PlotsGalleryPanel({
   plots = [],
@@ -34,6 +117,15 @@ export default function PlotsGalleryPanel({
   const [isExpandedReady, setIsExpandedReady] = useState(false);
   const [isExpandedClosing, setIsExpandedClosing] = useState(false);
   const [editorPanelWidth, setEditorPanelWidth] = useState(470);
+  const [isResizingEditor, setIsResizingEditor] = useState(false);
+  // True once the expanded overlay has been shown at least once in this session
+  // (avoids re-triggering the scale-in animation when clicking Edit on an already-open plot)
+  const overlayEverShownRef = useRef(false);
+  const lastEditorPlotIdentityRef = useRef('');
+  const editorResultIdentity = `${editorPlot?.analysisResultId || editorPlot?.analysis_result_id || ''}:${editorPlot?.plotKey || editorPlot?.plot_key || ''}`;
+  const editorPlotIdentity = editorPlot
+    ? String(editorPlot?.id || (editorResultIdentity !== ':' ? editorResultIdentity : (editorPlot?.url || editorPlot?.base64 || ''))).trim()
+    : '';
 
   // Keep selected index within bounds
   useEffect(() => {
@@ -71,15 +163,53 @@ export default function PlotsGalleryPanel({
 
   useEffect(() => {
     if (!expandedPlot) return undefined;
-    const frameId = window.requestAnimationFrame(() => setIsExpandedReady(true));
+    // Only animate the entrance scale if the overlay wasn't already visible
+    if (overlayEverShownRef.current) {
+      // Already open – skip the scale-in so the plot doesn't jump
+      setIsExpandedReady(true);
+      return undefined;
+    }
+    const frameId = window.requestAnimationFrame(() => {
+      setIsExpandedReady(true);
+      overlayEverShownRef.current = true;
+    });
     return () => window.cancelAnimationFrame(frameId);
   }, [expandedPlot]);
 
   const openExpandedPlot = useCallback((plot) => {
     setIsExpandedClosing(false);
     setIsExpandedReady(false);
+    overlayEverShownRef.current = false; // allow entrance animation for fresh open
     setExpandedPlot(plot);
   }, []);
+
+  useEffect(() => {
+    if (!editorPlot) {
+      lastEditorPlotIdentityRef.current = '';
+      return;
+    }
+    const getIdentity = (plot) => {
+      const id = String(plot?.id || '').trim();
+      if (id) return id;
+      const resultId = String(plot?.analysisResultId || plot?.analysis_result_id || '').trim();
+      const plotKey = String(plot?.plotKey || plot?.plot_key || '').trim();
+      if (resultId || plotKey) return `${resultId}:${plotKey}:${String(plot?.title || '').trim()}`;
+      return String(plot?.url || plot?.base64 || '').trim();
+    };
+    const editorIdentity = getIdentity(editorPlot);
+    if (!editorIdentity || lastEditorPlotIdentityRef.current === editorIdentity) return;
+    const matchingPlot = plots.find((plot) => getIdentity(plot) === editorIdentity)
+      || plots.find((plot) => String(plot?.url || plot?.base64 || '').trim() === String(editorPlot?.url || editorPlot?.base64 || '').trim());
+    if (!matchingPlot) return;
+    lastEditorPlotIdentityRef.current = editorIdentity;
+    // Only open the expanded overlay if the plot isn't already being shown.
+    // Calling openExpandedPlot while the overlay is already open resets
+    // isExpandedReady → false which causes the flash/glitch.
+    if (getIdentity(expandedPlot) !== getIdentity(matchingPlot)) {
+      openExpandedPlot(matchingPlot);
+    }
+  }, [editorPlot, expandedPlot, plots, openExpandedPlot]);
+
 
   const handleEditPlot = useCallback((plot) => {
     setIsExpandedClosing(false);
@@ -94,6 +224,7 @@ export default function PlotsGalleryPanel({
   const onEditorResizeMouseDown = useCallback((event) => {
     event.preventDefault();
     event.stopPropagation();
+    setIsResizingEditor(true);
     const startX = event.clientX;
     const startWidth = editorPanelWidth;
     const onMove = (moveEvent) => {
@@ -101,6 +232,7 @@ export default function PlotsGalleryPanel({
       setEditorPanelWidth(Math.max(260, Math.min(720, startWidth + delta)));
     };
     const onUp = () => {
+      setIsResizingEditor(false);
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
@@ -225,24 +357,15 @@ export default function PlotsGalleryPanel({
     const sectionDefinitions = [
       {
         key: 'biostat',
-        label: 'Biostat Mode Plots',
-        description: 'Statistical plots with the plot editor available.',
-        icon: FlaskConical,
-        accent: 'text-cyan-300 border-cyan-400/30 bg-cyan-400/10'
+        label: 'Biostat Mode Plots'
       },
       {
         key: 'bioinfo',
-        label: 'Bioinfo Mode Plots',
-        description: 'Bioinformatics workflow plots and visual outputs.',
-        icon: Dna,
-        accent: 'text-emerald-300 border-emerald-400/30 bg-emerald-400/10'
+        label: 'Bioinfo Mode Plots'
       },
       {
         key: 'advanced',
-        label: 'Advanced Mode Plots',
-        description: 'Plots from advanced workflows; editing is not available.',
-        icon: Layers3,
-        accent: 'text-violet-300 border-violet-400/30 bg-violet-400/10'
+        label: 'Advanced Mode Plots'
       }
     ];
     return sectionDefinitions.map((section) => ({
@@ -253,94 +376,10 @@ export default function PlotsGalleryPanel({
     }));
   }, [getPlotSection, plots]);
 
-  const renderPlotCard = (plot, idx) => {
-    const isSelected = idx === selectedIndex;
-    return (
-      <div
-        key={plot.id || idx}
-        onClick={() => {
-          setSelectedIndex(idx);
-          openExpandedPlot(plot);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            setSelectedIndex(idx);
-            openExpandedPlot(plot);
-          }
-        }}
-        role="button"
-        tabIndex={0}
-        className={`group overflow-hidden rounded-xl border text-left shadow-lg transition-all hover:-translate-y-0.5 hover:border-cyan-400/70 hover:shadow-cyan-950/30 ${
-          isSelected
-            ? 'border-cyan-400 ring-2 ring-cyan-500/30'
-            : 'border-zinc-700/80'
-        }`}
-        title="Open plot fullscreen"
-        aria-label={`Open ${plot.title || `plot ${idx + 1}`} fullscreen`}
-      >
-        <div className="flex min-h-[190px] items-center justify-center bg-white p-2">
-          {renderPlotMedia(
-            plot,
-            'max-h-[260px] min-h-[190px] w-full object-contain',
-            plot.title || `Plot ${idx + 1}`
-          )}
-        </div>
-        <div className="flex items-center justify-between gap-2 border-t border-zinc-800 bg-[#141414] px-3 py-2">
-          <span className="truncate text-[11px] font-semibold text-zinc-200">
-            {plot.title || `Plot ${idx + 1}`}
-          </span>
-          <div className="flex shrink-0 items-center gap-1">
-            {getPlotMediaType(plot) === 'image' && (
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  handleCopy(plot);
-                }}
-                className="flex h-6 w-6 items-center justify-center rounded border border-zinc-700 bg-zinc-900 text-zinc-400 hover:text-zinc-100"
-                title="Copy plot"
-                aria-label="Copy plot"
-              >
-                {copiedId === (plot.id || idx) ? (
-                  <Check size={11} className="text-emerald-400" />
-                ) : (
-                  <Copy size={11} />
-                )}
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                handleDownload(plot);
-              }}
-              className="flex h-6 w-6 items-center justify-center rounded border border-zinc-700 bg-zinc-900 text-zinc-400 hover:text-zinc-100"
-              title={plot.editable === true ? 'Download plot and editable package' : 'Download plot'}
-              aria-label="Download plot"
-            >
-              <Download size={11} />
-            </button>
-            {onDeletePlot && (
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onDeletePlot(plot.id || idx);
-                }}
-                className="flex h-6 w-6 items-center justify-center rounded border border-rose-900/70 bg-rose-950/40 text-rose-300 hover:text-white"
-                title="Delete plot"
-                aria-label="Delete plot"
-              >
-                <Trash2 size={11} />
-              </button>
-            )}
-            <span className="ml-1 font-mono text-[9px] text-zinc-500">#{idx + 1}</span>
-          </div>
-        </div>
-      </div>
-    );
-  };
+  const handleSelectPlot = useCallback((plot, index) => {
+    setSelectedIndex(index);
+    openExpandedPlot(plot);
+  }, [openExpandedPlot]);
 
   // Empty state
   if (plots.length === 0) {
@@ -453,20 +492,13 @@ export default function PlotsGalleryPanel({
       <div className="plot-gallery-viewer min-h-0 flex-1 overflow-y-auto bg-[#0a0a0a] p-3 md:p-4 custom-scrollbar">
         <div className="space-y-6">
           {plotSections.map((section) => {
-            const SectionIcon = section.icon;
             return (
               <section key={section.key} aria-labelledby={`plot-gallery-${section.key}`}>
                 <div className="mb-3 flex items-center justify-between gap-3 border-b border-zinc-800/80 pb-2">
-                  <div className="flex min-w-0 items-center gap-2.5">
-                    <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md border ${section.accent}`}>
-                      <SectionIcon size={14} />
-                    </span>
-                    <div className="min-w-0">
-                      <h3 id={`plot-gallery-${section.key}`} className="truncate text-xs font-black uppercase tracking-[0.12em] text-zinc-100">
-                        {section.label}
-                      </h3>
-                      <p className="mt-0.5 truncate text-[10px] text-zinc-500">{section.description}</p>
-                    </div>
+                  <div className="min-w-0">
+                    <h3 id={`plot-gallery-${section.key}`} className="truncate text-xs font-black uppercase tracking-[0.12em] text-zinc-100">
+                      {section.label}
+                    </h3>
                   </div>
                   <span className="shrink-0 rounded-full border border-zinc-700 bg-zinc-900 px-2 py-0.5 font-mono text-[10px] text-zinc-400">
                     {section.plots.length}
@@ -474,7 +506,21 @@ export default function PlotsGalleryPanel({
                 </div>
                 {section.plots.length > 0 ? (
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {section.plots.map(({ plot, index }) => renderPlotCard(plot, index))}
+                    {section.plots.map(({ plot, index }) => (
+                      <PlotCard
+                        key={plot.id || index}
+                        plot={plot}
+                        index={index}
+                        isSelected={index === selectedIndex}
+                        onSelect={handleSelectPlot}
+                        renderPlotMedia={renderPlotMedia}
+                        getPlotMediaType={getPlotMediaType}
+                        handleCopy={handleCopy}
+                        handleDownload={handleDownload}
+                        onDeletePlot={onDeletePlot}
+                        copiedId={copiedId}
+                      />
+                    ))}
                   </div>
                 ) : (
                   <div className="rounded-lg border border-dashed border-zinc-800 bg-zinc-950/40 px-3 py-4 text-center text-[10px] text-zinc-600">
@@ -489,7 +535,9 @@ export default function PlotsGalleryPanel({
 
       {expandedPlot && (
         <div
-          className={`absolute inset-0 z-30 flex flex-col bg-black/95 p-3 md:p-5 transition-opacity duration-200 ease-out ${isExpandedReady && !isExpandedClosing ? 'opacity-100' : 'opacity-0'}`}
+          className={`absolute inset-0 z-30 flex flex-col bg-black/95 p-3 md:p-5 transition-opacity duration-[350ms] ease-out ${
+            isExpandedReady && !isExpandedClosing ? 'opacity-100' : 'opacity-0'
+          }`}
           role="dialog"
           aria-modal="true"
           aria-label={expandedPlot.title || 'Plot viewer'}
@@ -551,22 +599,39 @@ export default function PlotsGalleryPanel({
               </button>
             </div>
           </div>
-          <div className="flex min-h-0 flex-1 overflow-hidden py-3">
-            <div className="flex min-w-0 flex-1 items-center justify-center overflow-auto px-2">
+          <div
+            className={`plot-gallery-editor-layout grid min-h-0 flex-1 overflow-hidden py-3 ${
+              isResizingEditor ? '' : 'transition-[grid-template-columns] duration-[520ms] ease-[cubic-bezier(0.4,0,0.2,1)]'
+            }`}
+            style={{
+              willChange: 'grid-template-columns',
+              gridTemplateColumns: editorPlot && typeof renderEditor === 'function'
+                ? `minmax(0, 1fr) 4px minmax(260px, min(42%, ${editorPanelWidth}px))`
+                : 'minmax(0, 1fr) 0px 0px'
+            }}
+          >
+            {/* Stage: background crossfades as soon as editorPlot intent is set */}
+            <div className={`plot-gallery-expanded-stage ${
+              editorPlot ? 'plot-gallery-expanded-stage-with-editor' : ''
+            } flex min-w-0 items-center justify-center overflow-auto p-4 md:p-6`}>
               {renderPlotMedia(
                 expandedPlot,
-                `max-h-full max-w-full rounded-lg bg-white object-contain transition-[width,height,transform] duration-300 ease-out ${isExpandedReady && !isExpandedClosing ? 'scale-100' : 'scale-95'}`,
+                `max-h-full max-w-full rounded-lg bg-white object-contain transition-[max-width,max-height,transform] duration-[480ms] ease-[cubic-bezier(0.16,1,0.3,1)] ${
+                  isExpandedReady && !isExpandedClosing ? 'scale-100' : 'scale-[0.97]'
+                }`,
                 expandedPlot.title || 'Expanded plot'
               )}
             </div>
             {editorPlot && typeof renderEditor === 'function' && (
               <>
+                {/* Divider – fades in with a slight delay after column opens */}
                 <div
+                  key={`divider-${editorPlotIdentity}`}
                   role="separator"
                   aria-orientation="vertical"
                   aria-label="Resize plot editor panel"
                   onMouseDown={onEditorResizeMouseDown}
-                  className="group relative z-10 w-1 shrink-0 cursor-col-resize border-l border-r border-white/[0.06] bg-black/40 transition-colors hover:bg-cyan-500/70 active:bg-cyan-500"
+                  className="plot-gallery-editor-divider-entering group relative z-10 w-1 shrink-0 cursor-col-resize border-l border-r border-white/[0.06] bg-black/40 hover:bg-cyan-500/70 active:bg-cyan-500 transition-colors duration-150"
                   title="Drag to resize editor panel"
                 >
                   <div className="pointer-events-none absolute inset-y-0 left-0 right-0 flex flex-col items-center justify-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
@@ -575,15 +640,17 @@ export default function PlotsGalleryPanel({
                     ))}
                   </div>
                 </div>
+                {/* Editor panel – slides in from the right using GPU-composited @keyframes */}
                 <div
-                  className="relative h-full min-w-[260px] max-w-[42%] shrink-0 overflow-hidden border-l border-zinc-800/80 bg-[#0a0a0a]"
-                  style={{ width: editorPanelWidth }}
+                  key={`editor-${editorPlotIdentity}`}
+                  className="plot-gallery-editor-panel-entering relative h-full min-w-0 overflow-hidden border-l border-zinc-800/80 bg-[#0a0a0a]"
+                  style={{ width: '100%' }}
                 >
-                {renderEditor(
-                  editorPlot,
-                  () => onEditPlot?.(null),
-                  { panelOnly: true }
-                )}
+                  {renderEditor(
+                    editorPlot,
+                    () => onEditPlot?.(null),
+                    { panelOnly: true }
+                  )}
                 </div>
               </>
             )}

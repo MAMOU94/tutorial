@@ -5,6 +5,16 @@ options(repos = c(CRAN = "https://cloud.r-project.org"))
 # system Rscript. Missing packages may be installed into that user library,
 # never into the project directory.
 
+active_r_minor <- paste(R.version$major, strsplit(R.version$minor, "\\.")[[1]][1], sep = ".")
+r_library_minor <- function(path) {
+  leaf <- basename(normalizePath(path.expand(path), winslash = "/", mustWork = FALSE))
+  if (grepl("^[0-9]+\\.[0-9]+$", leaf)) leaf else ""
+}
+is_other_r_library <- function(path) {
+  library_minor <- r_library_minor(path)
+  nzchar(library_minor) && !identical(library_minor, active_r_minor)
+}
+
 r_user_library <- {
   configured <- strsplit(Sys.getenv("R_LIBS_USER", unset = ""), .Platform$path.sep, fixed = TRUE)[[1]]
   configured <- configured[nzchar(trimws(configured))]
@@ -12,16 +22,19 @@ r_user_library <- {
     path.expand("~"),
     "R",
     paste0(R.version$platform, "-library"),
-    paste(R.version$major, R.version$minor, sep = ".")
+    active_r_minor
   )
+  configured <- configured[!vapply(configured, is_other_r_library, logical(1))]
   candidate <- if (length(configured) > 0) path.expand(configured[[1]]) else fallback
   if (!dir.exists(candidate)) {
     tryCatch(dir.create(candidate, recursive = TRUE, showWarnings = FALSE), error = function(e) NULL)
   }
   candidate
 }
+compatible_libraries <- .libPaths()
+compatible_libraries <- compatible_libraries[!vapply(compatible_libraries, is_other_r_library, logical(1))]
 if (dir.exists(r_user_library)) {
-  .libPaths(unique(c(r_user_library, .libPaths())))
+  .libPaths(unique(c(r_user_library, compatible_libraries)))
 }
 
 invisible(dummy_msg_sink <- textConnection("dummy", "w"))
@@ -45,7 +58,7 @@ load_or_install_system_package <- function(package) {
       package,
       lib = r_user_library,
       repos = getOption("repos"),
-      dependencies = TRUE,
+      dependencies = NA,
       quiet = TRUE
     )
     isTRUE(load_system_package(package))
@@ -504,6 +517,13 @@ normalize_steps <- function(value, fallback = 0L, max_val = 40L) {
   if (length(numeric_val) == 0 || !is.finite(numeric_val[1])) return(as.integer(fallback))
   bounded <- max(0, min(max_val, round(numeric_val[1])))
   as.integer(bounded)
+}
+
+normalize_position_percent <- function(value, fallback = 50) {
+  if (is.null(value) || length(value) == 0) return(as.numeric(fallback))
+  numeric_val <- suppressWarnings(as.numeric(value[1]))
+  if (length(numeric_val) == 0 || !is.finite(numeric_val[1])) return(as.numeric(fallback))
+  max(0, min(100, numeric_val[1]))
 }
 
 resolve_horizontal_justification <- function(position, steps, unit = 0.05) {
@@ -1574,6 +1594,10 @@ resolve_labels_for_plot <- function(plot_key = "default") {
   # Backward-compatible fallback for legacy flat payload.
   fallback_fields <- c(
     "title", "x", "y", "caption",
+    "title_color", "x_color", "y_color", "caption_color",
+    "title_x_position", "title_y_position",
+    "x_label_x_position", "x_label_y_position",
+    "y_label_x_position", "y_label_y_position",
     "title_size", "x_size", "y_size", "axis_tick_size",
     "x_scale_type", "y_scale_type",
     "x_tick_mode", "y_tick_mode",
@@ -1787,6 +1811,12 @@ apply_custom_labels <- function(p, plot_key = "default") {
   x_steps <- normalize_steps(labels_cfg$x_steps, fallback = 0L)
   y_position <- normalize_position(labels_cfg$y_position, c("up", "center", "down"), "center")
   y_steps <- normalize_steps(labels_cfg$y_steps, fallback = 0L)
+  title_x <- normalize_position_percent(labels_cfg$title_x_position, fallback = resolve_horizontal_justification(title_position, title_steps) * 100)
+  title_y <- normalize_position_percent(labels_cfg$title_y_position, fallback = resolve_vertical_justification("center", 0) * 100)
+  x_label_x <- normalize_position_percent(labels_cfg$x_label_x_position, fallback = resolve_horizontal_justification(x_position, x_steps) * 100)
+  x_label_y <- normalize_position_percent(labels_cfg$x_label_y_position, fallback = 50)
+  y_label_x <- normalize_position_percent(labels_cfg$y_label_x_position, fallback = 50)
+  y_label_y <- normalize_position_percent(labels_cfg$y_label_y_position, fallback = resolve_vertical_justification(y_position, y_steps) * 100)
   title_size <- suppressWarnings(as.numeric(labels_cfg$title_size))
   x_size <- suppressWarnings(as.numeric(labels_cfg$x_size))
   y_size <- suppressWarnings(as.numeric(labels_cfg$y_size))
@@ -1850,18 +1880,34 @@ apply_custom_labels <- function(p, plot_key = "default") {
   if (length(axis_tick_size) == 0 || !is.finite(axis_tick_size[1])) axis_tick_size <- NA_real_ else axis_tick_size <- max(6, min(72, axis_tick_size[1]))
 
   title_theme_args <- list(
-    hjust = resolve_horizontal_justification(title_position, title_steps)
+    hjust = title_x / 100,
+    vjust = 0.5 + (50 - title_y) * 0.05
   )
+  optional_label_color <- function(value) {
+    if (is.null(value) || length(value) == 0) return(NULL)
+    candidate <- trimws(as.character(value[1]))
+    if (!nzchar(candidate) || !is_valid_color_value(candidate)) return(NULL)
+    candidate
+  }
+  title_color <- optional_label_color(labels_cfg$title_color)
+  x_color <- optional_label_color(labels_cfg$x_color)
+  y_color <- optional_label_color(labels_cfg$y_color)
+  caption_color <- optional_label_color(labels_cfg$caption_color)
+  if (!is.null(title_color)) title_theme_args$color <- title_color
   if (!is.na(title_size)) title_theme_args$size <- title_size
 
   x_theme_args <- list(
-    hjust = resolve_horizontal_justification(x_position, x_steps)
+    hjust = x_label_x / 100,
+    vjust = 0.5 + (50 - x_label_y) * 0.05
   )
+  if (!is.null(x_color)) x_theme_args$color <- x_color
   if (!is.na(x_size)) x_theme_args$size <- x_size
 
   y_theme_args <- list(
-    vjust = resolve_vertical_justification(y_position, y_steps)
+    hjust = 1 - y_label_y / 100,
+    vjust = 1 + (50 - y_label_x) * 0.04
   )
+  if (!is.null(y_color)) y_theme_args$color <- y_color
   if (!is.na(y_size)) y_theme_args$size <- y_size
 
   theme_args <- list(
@@ -1869,6 +1915,12 @@ apply_custom_labels <- function(p, plot_key = "default") {
     axis.title.x = do.call(ggplot2::element_text, x_theme_args),
     axis.title.y = do.call(ggplot2::element_text, y_theme_args)
   )
+  theme_args$axis.title.y.left <- do.call(ggplot2::element_text, y_theme_args)
+  right_y_theme_args <- y_theme_args
+  right_y_theme_args$hjust <- y_label_y / 100
+  right_y_theme_args$vjust <- 1 - (50 - y_label_x) * 0.04
+  theme_args$axis.title.y.right <- do.call(ggplot2::element_text, right_y_theme_args)
+  if (!is.null(caption_color)) theme_args$plot.caption <- ggplot2::element_text(color = caption_color)
   if (!is.na(axis_tick_size)) {
     theme_args$axis.text <- ggplot2::element_text(size = axis_tick_size)
   }
@@ -2344,34 +2396,51 @@ resolve_base_label_config <- function(plot_key = "default", default_title = "", 
   x_steps <- normalize_steps(labels_cfg$x_steps, fallback = 0L)
   y_position <- normalize_position(labels_cfg$y_position, c("up", "center", "down"), "center")
   y_steps <- normalize_steps(labels_cfg$y_steps, fallback = 0L)
+  title_x <- normalize_position_percent(labels_cfg$title_x_position, fallback = resolve_horizontal_justification(title_position, title_steps) * 100)
+  title_y <- normalize_position_percent(labels_cfg$title_y_position, fallback = 50)
+  x_label_x <- normalize_position_percent(labels_cfg$x_label_x_position, fallback = resolve_horizontal_justification(x_position, x_steps) * 100)
+  x_label_y <- normalize_position_percent(labels_cfg$x_label_y_position, fallback = 50)
+  y_label_x <- normalize_position_percent(labels_cfg$y_label_x_position, fallback = 50)
+  y_label_y <- normalize_position_percent(labels_cfg$y_label_y_position, fallback = resolve_vertical_justification(y_position, y_steps) * 100)
+  resolve_color <- function(value) {
+    if (is.null(value) || !is_valid_color_value(value)) return("#111111")
+    trimws(as.character(value[1]))
+  }
 
   list(
     title = resolve_text_value(labels_cfg$title, default_title),
     x = resolve_text_value(labels_cfg$x, default_x),
     y = resolve_text_value(labels_cfg$y, default_y),
     caption = if (isTRUE(show_caption)) resolve_text_value(labels_cfg$caption, default_caption) else "",
+    title_color = resolve_color(labels_cfg$title_color),
+    x_color = resolve_color(labels_cfg$x_color),
+    y_color = resolve_color(labels_cfg$y_color),
+    caption_color = resolve_color(labels_cfg$caption_color),
     title_cex = resolve_cex_value(labels_cfg$title_size, fallback_pt = 14),
     x_cex = resolve_cex_value(labels_cfg$x_size, fallback_pt = 12),
     y_cex = resolve_cex_value(labels_cfg$y_size, fallback_pt = 12),
-    title_adj = resolve_horizontal_justification(title_position, title_steps, unit = 0.03),
-    x_adj = resolve_horizontal_justification(x_position, x_steps, unit = 0.03),
-    y_adj = max(0, min(1, resolve_vertical_justification(y_position, y_steps, unit = 0.04)))
+    title_adj = title_x / 100,
+    title_line_offset = (title_y - 50) / -10,
+    x_adj = x_label_x / 100,
+    x_line_offset = (x_label_y - 50) / 10,
+    y_adj = 1 - y_label_y / 100,
+    y_line_offset = (y_label_x - 50) / -10
   )
 }
 
 render_base_label_config <- function(cfg, title_line = 1.2, x_line = 2.6, y_line = 2.8, caption_line = 4.4) {
   if (!is.list(cfg)) return(invisible(NULL))
   if (nzchar(cfg$title)) {
-    mtext(cfg$title, side = 3, line = title_line, cex = cfg$title_cex, font = 2, adj = cfg$title_adj)
+    mtext(cfg$title, side = 3, line = title_line + cfg$title_line_offset, cex = cfg$title_cex, font = 2, adj = cfg$title_adj, col = cfg$title_color)
   }
   if (nzchar(cfg$x)) {
-    mtext(cfg$x, side = 1, line = x_line, cex = cfg$x_cex, font = 2, adj = cfg$x_adj)
+    mtext(cfg$x, side = 1, line = x_line + cfg$x_line_offset, cex = cfg$x_cex, font = 2, adj = cfg$x_adj, col = cfg$x_color)
   }
   if (nzchar(cfg$y)) {
-    mtext(cfg$y, side = 2, line = y_line, cex = cfg$y_cex, font = 2, adj = cfg$y_adj)
+    mtext(cfg$y, side = 2, line = y_line + cfg$y_line_offset, cex = cfg$y_cex, font = 2, adj = cfg$y_adj, col = cfg$y_color)
   }
   if (nzchar(cfg$caption)) {
-    mtext(cfg$caption, side = 1, line = caption_line, cex = 0.85, adj = 1, col = "#475569")
+    mtext(cfg$caption, side = 1, line = caption_line, cex = 0.85, adj = 1, col = cfg$caption_color)
   }
   invisible(NULL)
 }
@@ -6007,6 +6076,48 @@ safe_viridis <- function(option, n) {
   rep("#4f46e5", n)
 }
 
+safe_matplotlib <- function(name, n) {
+  nm <- tolower(trimws(as.character(name)[1]))
+  palettes <- list(
+    tab10 = c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"),
+    tab20 = c("#1f77b4", "#aec7e8", "#ff7f0e", "#ffbb78", "#2ca02c", "#98df8a", "#d62728", "#ff9896", "#9467bd", "#c5b0d5", "#8c564b", "#c49c94", "#e377c2", "#f7b6d2", "#7f7f7f", "#c7c7c7", "#bcbd22", "#dbdb8d", "#17becf", "#9edae5"),
+    tab20b = c("#393b79", "#5254a3", "#6b6ecf", "#9c9ede", "#637939", "#8ca252", "#b5cf6b", "#cedb9c", "#8c6d31", "#bd9e39", "#e7ba52", "#e7cb94", "#8c564b", "#ad494a", "#d6616b", "#e7969c", "#7b4173", "#a55194", "#ce6dbd", "#de9ed6"),
+    tab20c = c("#3182bd", "#6baed6", "#9ecae1", "#c6dbef", "#e6550d", "#fd8d3c", "#fdae6b", "#fdd0a2", "#31a354", "#74c476", "#a1d99b", "#c7e9c0", "#756bb1", "#9e9ac8", "#bcbddc", "#dadaeb", "#636363", "#969696", "#bdbdbd", "#d9d9d9"),
+    coolwarm = c("#3b4cc0", "#688aef", "#9abbff", "#c9d7f0", "#edd1c2", "#f5a081", "#dd5f4b", "#b40426"),
+    bwr = c("#0000ff", "#8080ff", "#ffffff", "#ff8080", "#ff0000"),
+    seismic = c("#00004c", "#0000ff", "#ffffff", "#ff0000", "#4c0000")
+  )
+  fills <- palettes[[nm]]
+  if (is.null(fills)) return(NULL)
+  target_n <- max(1, as.integer(n))
+  if (nm %in% c("tab10", "tab20", "tab20b", "tab20c")) {
+    return(rep(fills, length.out = target_n))
+  }
+  grDevices::colorRampPalette(fills)(target_n)
+}
+
+safe_python_library <- function(name, n) {
+  nm <- tolower(trimws(as.character(name)[1]))
+  palettes <- list(
+    seaborn_deep = c("#4c72b0", "#dd8452", "#55a868", "#c44e52", "#8172b3", "#937860", "#da8bc3", "#8c8c8c", "#ccb974", "#64b5cd"),
+    seaborn_muted = c("#4878d0", "#ee854a", "#6acc64", "#d65f5f", "#956cb4", "#8c613c", "#dc7ec0", "#797979", "#d5bb67", "#82c6e2"),
+    seaborn_pastel = c("#a1c9f4", "#ffb482", "#8de5a1", "#ff9f9b", "#d0bbff", "#debb9b", "#fab0e4", "#cfcfcf", "#fffea3", "#b9f2f0"),
+    seaborn_bright = c("#023eff", "#ff7c00", "#1ac938", "#e8000b", "#8b2be2", "#9f4800", "#f14cc1", "#a3a3a3", "#ffc400", "#00d7ff"),
+    seaborn_dark = c("#001c7f", "#b1400d", "#12711c", "#8c0800", "#591e71", "#592f0d", "#a23582", "#3c3c3c", "#b8850a", "#006374"),
+    seaborn_colorblind = c("#0173b2", "#de8f05", "#029e73", "#d55e00", "#cc78bc", "#ca9161", "#fbafe4", "#949494", "#ece133", "#56b4e9"),
+    plotly_default = c("#636EFA", "#EF553B", "#00CC96", "#AB63FA", "#FFA15A", "#19D3F3", "#FF6692", "#B6E880", "#FF97FF", "#FECB52"),
+    plotly_d3 = c("#1F77B4", "#FF7F0E", "#2CA02C", "#D62728", "#9467BD", "#8C564B", "#E377C2", "#7F7F7F", "#BCBD22", "#17BECF"),
+    plotly_g10 = c("#3366CC", "#DC3912", "#FF9900", "#109618", "#990099", "#0099C6", "#DD4477", "#66AA00", "#B82E2E", "#316395"),
+    plotly_t10 = c("#4C78A8", "#F58518", "#E45756", "#72B7B2", "#54A24B", "#EECA3B", "#B279A2", "#FF9DA6", "#9D755D", "#BAB0AC"),
+    plotly_alphabet = c("#AA0DFE", "#3283FE", "#85660D", "#782AB6", "#565656", "#1C8356", "#16FF32", "#F7E1A0", "#E2E2E2", "#C4451C"),
+    plotly_dark24 = c("#2E91E5", "#E15F99", "#1CA71C", "#FB0D0D", "#DA16FF", "#222A2A", "#B68100", "#750D86", "#EB663B", "#511CFB"),
+    plotly_light24 = c("#FD3216", "#00FE35", "#6A76FC", "#FED4C4", "#FE00CE", "#0DF9FF", "#F6F926", "#FF9616", "#479B55", "#EEA6FB")
+  )
+  fills <- palettes[[nm]]
+  if (is.null(fills)) return(NULL)
+  rep(fills, length.out = max(1, as.integer(n)))
+}
+
 build_palette_bundle <- function(fills, palette_type = "qualitative") {
   cols <- as.character(fills)
   cols <- cols[!is.na(cols) & nzchar(trimws(cols))]
@@ -6087,6 +6198,19 @@ get_palette <- function(name) {
       "D")
     fills <- safe_viridis(opt, 12)
     return(build_palette_bundle(fills, "sequential"))
+  }
+
+  # Python / Matplotlib-compatible categorical and diverging palettes.
+  if (nm %in% c("tab10", "tab20", "tab20b", "tab20c", "coolwarm", "bwr", "seismic")) {
+    fills <- safe_matplotlib(nm, 12)
+    palette_type <- if (nm %in% c("tab10", "tab20", "tab20b", "tab20c")) "qualitative" else "diverging"
+    return(build_palette_bundle(fills, palette_type))
+  }
+
+  # Python / Seaborn and Plotly categorical palettes.
+  if (nm %in% c("seaborn_deep", "seaborn_muted", "seaborn_pastel", "seaborn_bright", "seaborn_dark", "seaborn_colorblind", "plotly_default", "plotly_d3", "plotly_g10", "plotly_t10", "plotly_alphabet", "plotly_dark24", "plotly_light24")) {
+    fills <- safe_python_library(nm, 12)
+    return(build_palette_bundle(fills, "qualitative"))
   }
 
   # Base R palettes
@@ -7458,7 +7582,7 @@ plot_exploratory_chart <- function(data, chart_type, x_var, y_var = NULL, output
     return(invisible(TRUE))
   }
 
-  if (!requireNamespace("ggplot2", quietly = TRUE)) {
+  if (!isTRUE(load_or_install_system_package("ggplot2"))) {
     stop("ggplot2 package required for exploratory charts.")
   }
   library(ggplot2)
@@ -7502,13 +7626,19 @@ plot_exploratory_chart <- function(data, chart_type, x_var, y_var = NULL, output
     } else {
       character(0)
     }
+    category_fill_values <- get_level_color_map(
+      x_var,
+      df$category,
+      local_pick_cols(nrow(df))
+    )
 
     if (chart_type == "bar") {
-      p <- ggplot(df, aes(x = reorder(category, count), y = count)) +
+      p <- ggplot(df, aes(x = reorder(category, count), y = count, fill = category)) +
         labs(title = paste("Bar Chart of", x_var), x = x_var, y = "Count") +
+        scale_fill_manual(values = category_fill_values, drop = FALSE) +
         theme_minimal()
       if (isTRUE(show_bars)) {
-        p <- p + geom_col(fill = exploratory_main_color, color = exploratory_border_color, linewidth = 0.28)
+        p <- p + geom_col(color = exploratory_border_color, linewidth = 0.28, show.legend = FALSE)
       }
       if (isTRUE(show_value_labels)) {
         p <- p + geom_text(aes(label = label_text), hjust = -0.05, color = exploratory_label_color, size = 3.1)
@@ -7552,11 +7682,12 @@ plot_exploratory_chart <- function(data, chart_type, x_var, y_var = NULL, output
       df <- df[order(-df$count), ]
       df$cum_pct <- cumsum(df$count) / sum(df$count) * 100
       max_count <- max(df$count)
-      p <- ggplot(df, aes(x = factor(category, levels = category))) +
+      p <- ggplot(df, aes(x = factor(category, levels = category), fill = category)) +
         labs(title = paste("Pareto Chart of", x_var), x = x_var, y = "Count") +
+        scale_fill_manual(values = category_fill_values, drop = FALSE) +
         theme_minimal()
       if (isTRUE(show_bars)) {
-        p <- p + geom_col(fill = exploratory_main_color, color = exploratory_border_color, linewidth = 0.28)
+        p <- p + geom_col(color = exploratory_border_color, linewidth = 0.28, show.legend = FALSE)
       }
       if (isTRUE(show_cumulative_line)) {
         p <- p + geom_line(aes(y = cum_pct * max_count / 100, group = 1), color = exploratory_line_color, linewidth = 1)

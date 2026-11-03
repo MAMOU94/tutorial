@@ -211,11 +211,23 @@
   line-height: 1.4 !important;
 }
 
-/* Plot Container */
-.plot-container {
-  background: #0d0d0d !important;
+/* Info Panel */
+.info-panel {
+  background: #181818 !important;
   border: none !important;
   border-radius: 10px !important;
+  transition: background 0.2s ease !important;
+}
+
+.info-panel:hover {
+  background: #1c1c1c !important;
+}
+
+/* Plot Container */
+.plot-container {
+  background: #101010 !important;
+  border: none !important;
+  border-radius: 12px !important;
   overflow: hidden !important;
 }
 
