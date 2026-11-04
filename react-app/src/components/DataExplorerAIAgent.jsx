@@ -188,7 +188,7 @@ const buildRequestBody = (model, messages, url) => {
     return JSON.stringify({ model, messages: chatMessages, stream: true });
   }
   const fullPrompt = messages
-    .map((m) => (m.role === 'user' ? `User: ${getMessageText(m.content)}` : `Assistant: ${getMessageText(m.content)}`))
+    .map((m) => `${m.role === 'system' ? 'System' : m.role === 'user' ? 'User' : 'Assistant'}: ${getMessageText(m.content)}`)
     .join('\n\n');
   const images = messages.flatMap((message) => getMessageImages(message.content));
   return JSON.stringify({ model, prompt: fullPrompt, ...(images.length > 0 ? { images } : {}), stream: true });
@@ -716,6 +716,9 @@ export default function DataExplorerAIAgent({
   defaultApiKey = '',
   isRTheme = false,
   theme = 'ayu-dark',
+  systemPrompt = '',
+  additionalContext = '',
+  onResponseComplete = null,
   floating = false,
   clearRef = null,
   chatMode = 'agent'
@@ -1018,9 +1021,13 @@ export default function DataExplorerAIAgent({
 
   const buildApiMessages = useCallback((history, userQuestion, attachment = null, isFreeMode = false) => {
     const apiMsgs = [];
-    if (!isFreeMode) {
-      const datasetCtx = buildDatasetContext(columns, fullData, selectedRowIndices, allColumns);
-      const systemContent = `${SYSTEM_PROMPT}\n\n--- CURRENT DATASET CONTEXT ---\n${datasetCtx}\n\nUse the current selection by default. If the user explicitly names a column or row, apply the requested action to that explicit target in the active dataset. Do not refuse a valid Data Explorer operation merely because the target is outside the current visual selection.`;
+    if (!isFreeMode || systemPrompt || additionalContext) {
+      let systemContent = systemPrompt || SYSTEM_PROMPT;
+      if (!isFreeMode && !systemPrompt) {
+        const datasetCtx = buildDatasetContext(columns, fullData, selectedRowIndices, allColumns);
+        systemContent += `\n\n--- CURRENT DATASET CONTEXT ---\n${datasetCtx}\n\nUse the current selection by default. If the user explicitly names a column or row, apply the requested action to that explicit target in the active dataset. Do not refuse a valid Data Explorer operation merely because the target is outside the current visual selection.`;
+      }
+      if (additionalContext) systemContent += `\n\n${additionalContext}`;
       apiMsgs.push({ role: 'system', content: systemContent });
     }
     history.forEach((m) => {
@@ -1036,7 +1043,7 @@ export default function DataExplorerAIAgent({
       : userQuestion;
     apiMsgs.push({ role: 'user', content: userContent });
     return apiMsgs;
-  }, [allColumns, columns, fullData, selectedRowIndices]);
+  }, [additionalContext, allColumns, columns, fullData, selectedRowIndices, systemPrompt]);
 
   const buildSubscriptionPrompt = useCallback((apiMessages) => (
     apiMessages.map((message) => {
@@ -1294,6 +1301,9 @@ export default function DataExplorerAIAgent({
         if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: fullText, actions: parsedActions };
         return next;
       });
+      if (fullText.trim() && typeof onResponseComplete === 'function') {
+        try { await onResponseComplete(fullText); } catch { /* Keep a completed answer if its export fails. */ }
+      }
     } catch (err) {
       if (err.name === 'AbortError') return;
       setError(`Agent error: ${providerId === 'ollama' ? formatLocalConnectionError(err) : err.message}`);
@@ -1309,7 +1319,7 @@ export default function DataExplorerAIAgent({
       setIsStreaming(false);
       abortRef.current = null;
     }
-  }, [antigravityAuthStatus.connected, antigravityEffort, antigravityModel, buildApiMessages, buildSubscriptionPrompt, chatMode, claudeCodeAuthStatus.loggedIn, codexAuthStatus.loggedIn, codexModel, codexReasoningEffort, columns, defaultOllamaUrl, fullData, imageAttachment, input, isStreaming, localModels, messages, ollamaCloudApiKey, ollamaCloudUrl, ollamaMode, onCreateDataset, openCodeAuthStatus.connected, openCodeModel, providerId, providerSettings, selectedModel]);
+  }, [antigravityAuthStatus.connected, antigravityEffort, antigravityModel, buildApiMessages, buildSubscriptionPrompt, chatMode, claudeCodeAuthStatus.loggedIn, codexAuthStatus.loggedIn, codexModel, codexReasoningEffort, columns, defaultOllamaUrl, fullData, imageAttachment, input, isStreaming, localModels, messages, ollamaCloudApiKey, ollamaCloudUrl, ollamaMode, onCreateDataset, onResponseComplete, openCodeAuthStatus.connected, openCodeModel, providerId, providerSettings, selectedModel]);
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
@@ -1588,6 +1598,14 @@ export default function DataExplorerAIAgent({
   };
 
   const suggestions = useMemo(() => {
+    if (systemPrompt) {
+      return [
+        'Analyze the report and table WARN/FAIL modules with biological interpretation and next steps.',
+        'What biological or technical causes could explain the warning and failure flags?',
+        'Which bioinformatics checks or preprocessing steps should come next?',
+        'Summarize the report and state its main limitations.'
+      ];
+    }
     const base = [
       'Create a summary table for the dataset',
       'Calculate the total of the first column',
@@ -1599,7 +1617,7 @@ export default function DataExplorerAIAgent({
       if (columns.length > 1) base.push(`Delete column "${columns[columns.length - 1]}"`);
     }
     return base.slice(0, 4);
-  }, [columns]);
+  }, [columns, systemPrompt]);
 
   const themeClass = isRTheme ? 'r-theme' : isAyuTheme ? 'ayu-theme' : 'std-theme';
 
@@ -1997,7 +2015,7 @@ export default function DataExplorerAIAgent({
             <div className="flex flex-col items-center justify-center h-full gap-3 select-none" style={{ opacity: 0.25 }}>
               <span className="text-[11px] font-medium tracking-wide text-zinc-400">
                 {chatMode === 'free'
-                  ? 'Chat freely with the AI — no data context sent…'
+                  ? systemPrompt ? 'Ask for a complete FastQC module review…' : additionalContext ? 'Ask about the supplied report…' : 'Chat freely with the AI — no data context sent…'
                   : 'Ask the AI to explore, clean, or transform your data…'
                 }
               </span>
@@ -2096,7 +2114,7 @@ export default function DataExplorerAIAgent({
               !activeModelLabel
                 ? 'Click the model pill to select a provider & model…'
                 : chatMode === 'free'
-                ? 'Chat freely with the AI…  (no data context sent)'
+                ? systemPrompt ? 'Ask about the selected FastQC report…' : additionalContext ? 'Ask about the supplied report…' : 'Chat freely with the AI…  (no data context sent)'
                 : 'Ask the data assistant to explore or modify your data…'
             }
           />

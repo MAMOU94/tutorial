@@ -7710,6 +7710,90 @@ ${groundedExecutionClause} ${claudeCodeAgentClause}`
     return { success: true, outputPath, fileCount: files.length };
   });
 
+  ipcMain.handle('select-fastqc-html', async () => {
+    const response = await dialog.showOpenDialog({
+      title: 'Open FastQC HTML Report',
+      defaultPath: getWorkspaceRoot(),
+      properties: ['openFile'],
+      filters: [
+        { name: 'HTML Reports', extensions: ['html', 'htm'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    });
+    return response.canceled ? { success: false, canceled: true } : { success: true, path: response.filePaths[0] };
+  });
+
+  ipcMain.handle('scan-fastqc-reports', async () => {
+    try {
+      const root = getWorkspaceRoot();
+      const htmlFiles = [];
+      const walk = (dir, depth = 0) => {
+        if (depth > 6) return;
+        let entries;
+        try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+        for (const entry of entries) {
+          if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+          const fullPath = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            walk(fullPath, depth + 1);
+          } else if (entry.isFile() && /\.(html|htm)$/i.test(entry.name)) {
+            if (/fastqc/i.test(entry.name) || /fastqc/i.test(dir)) {
+              htmlFiles.push({ name: entry.name, path: fullPath, relativePath: path.relative(root, fullPath) });
+            }
+          }
+        }
+      };
+      walk(root);
+      return { success: true, files: htmlFiles };
+    } catch (error) {
+      return { success: false, files: [], error: error?.message || 'Failed to scan for FastQC reports.' };
+    }
+  });
+
+  ipcMain.handle('read-fastqc-html', async (event, filePath = '') => {
+    try {
+      const resolved = path.resolve(String(filePath || '').trim());
+      const workspaceRoot = path.resolve(getWorkspaceRoot());
+      if (resolved !== workspaceRoot && !resolved.startsWith(workspaceRoot + path.sep)) {
+        return { success: false, error: 'File must be inside the workspace.' };
+      }
+      if (!/\.(html|htm)$/i.test(resolved)) {
+        return { success: false, error: 'Only HTML files are supported.' };
+      }
+      const stats = fs.statSync(resolved);
+      if (stats.size > 15 * 1024 * 1024) return { success: false, error: 'HTML file is too large (>15MB).' };
+      const html = fs.readFileSync(resolved, 'utf8');
+      const dataUrl = `data:text/html;base64,${Buffer.from(html, 'utf8').toString('base64')}`;
+      return { success: true, dataUrl, html, name: path.basename(resolved) };
+    } catch (error) {
+      return { success: false, error: error?.message || 'Failed to read the FastQC HTML report.' };
+    }
+  });
+
+  ipcMain.handle('export-fastqc-analysis-report', async (_event, payload = {}) => {
+    try {
+      const reportName = path.basename(String(payload.reportName || 'FastQC_Report'));
+      const reportStem = path.basename(reportName, path.extname(reportName))
+        .replace(/[^a-z0-9_-]+/gi, '_')
+        .replace(/^[_-]+|[_-]+$/g, '')
+        .slice(0, 80) || 'FastQC_Report';
+      const content = String(payload.content || '').trim();
+      if (!content) return { success: false, error: 'The FastQC analysis is empty.' };
+      if (Buffer.byteLength(content, 'utf8') > 5 * 1024 * 1024) {
+        return { success: false, error: 'The FastQC analysis is too large to export.' };
+      }
+
+      const workspaceRoot = path.resolve(getWorkspaceRoot());
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const filePath = path.join(workspaceRoot, `FastQC_Analysis_${reportStem}_${timestamp}.txt`);
+      const report = `FastQC analysis report\nSource report: ${reportName}\nGenerated: ${new Date().toISOString()}\n\n${content}\n`;
+      fs.writeFileSync(filePath, report, { encoding: 'utf8', flag: 'wx' });
+      return { success: true, path: filePath, name: path.basename(filePath) };
+    } catch (error) {
+      return { success: false, error: error?.message || 'Could not export the FastQC analysis.' };
+    }
+  });
+
   ipcMain.handle('get-micromamba-environments', async () => {
     try {
       return await getMicromambaEnvironments();
