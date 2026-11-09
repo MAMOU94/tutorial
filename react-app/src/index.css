@@ -2695,74 +2695,168 @@
     box-shadow: inset 0 1px 0 rgba(34, 211, 238, 0.22), 0 24px 44px -32px rgba(2, 6, 23, 0.92);
   }
 
-  /* CodeMirror Autocomplete - Black Style matching Console Suggestions */
+}
+
+/* CodeMirror creates this popup dynamically, so keep its styles outside Tailwind's pruned layers. */
   .cm-tooltip-autocomplete {
-    background: #131313 !important;
-    border: 1px solid #333333 !important;
+    width: max-content !important;
+    min-width: 160px !important;
+    background: #141414 !important;
+    border: 1px solid #262626 !important;
     border-radius: 8px !important;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.9) !important;
+    box-shadow: 0 16px 32px rgba(0, 0, 0, 0.55) !important;
     padding: 0 !important;
-    overflow: hidden !important;
+    overflow: visible !important;
+  }
+
+  .cm-tooltip.cm-tooltip-autocomplete {
+    max-width: max-content;
+  }
+
+  .cm-tooltip-autocomplete.cm-r-completions-left {
+    left: 12px !important;
+  }
+
+  .cm-tooltip.cm-completionInfo {
+    z-index: 100;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    white-space: normal;
+  }
+
+  .cm-completionInfo-left {
+    animation: completion-info-slide-in 160ms ease-out both;
+  }
+
+  .cm-completion-help {
+    width: 240px;
+    padding: 12px;
+    border: 1px solid #303030;
+    border-radius: 8px;
+    background: #141414;
+    color: #d4d4d4;
+    box-shadow: 0 16px 32px rgba(0, 0, 0, 0.55);
+    font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  }
+
+  .cm-completion-help strong {
+    display: block;
+    color: #f0f0f0;
+    font-size: 13px;
+  }
+
+  .cm-completion-help p {
+    margin: 6px 0 10px;
+    color: #a1a1aa;
+  }
+
+  .cm-completion-help span {
+    display: block;
+    margin-bottom: 3px;
+    color: #737373;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .cm-completion-help code {
+    display: block;
+    color: #c7e98f;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  @keyframes completion-info-slide-in {
+    from { opacity: 0; transform: translateX(-8px); }
+    to { opacity: 1; transform: translateX(0); }
   }
 
   .cm-tooltip-autocomplete ul {
+    max-height: calc(100vh - 32px) !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
     margin: 0 !important;
     padding: 0 !important;
+    border-radius: 7px !important;
     background: transparent !important;
     border: none !important;
   }
 
   .cm-tooltip-autocomplete ul li {
     background: transparent !important;
-    color: #999999 !important;
-    padding: 8px 12px !important;
-    font-size: 13px !important;
+    color: #d4d4d4 !important;
+    padding: 3px 8px !important;
+    font-size: 12px !important;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
-    display: flex !important;
+    display: grid !important;
     align-items: center !important;
-    justify-content: space-between !important;
-    gap: 8px !important;
-    transition: background 0.15s ease !important;
+    grid-template-columns: 16px max-content minmax(max-content, 1fr) !important;
+    column-gap: 8px !important;
   }
 
   .cm-tooltip-autocomplete ul li:hover {
     background: #1e1e1e !important;
-    color: #999999 !important;
+    color: #d4d4d4 !important;
   }
 
   .cm-tooltip-autocomplete ul li[aria-selected] {
-    background: #00F5FF !important;
-    color: #000000 !important;
+    background: #242424 !important;
+    color: #f0f0f0 !important;
   }
 
   .cm-tooltip-autocomplete ul li[aria-selected] .cm-completionLabel {
-    color: #000000 !important;
-    font-weight: 700 !important;
-  }
-
-  .cm-tooltip-autocomplete ul li[aria-selected] .cm-completionDetail {
-    color: #555555 !important;
+    color: #f0f0f0 !important;
+    font-weight: 500 !important;
   }
 
   .cm-tooltip-autocomplete .cm-completionLabel {
-    color: #999999 !important;
-    font-weight: 600 !important;
+    min-width: 0 !important;
+    margin-right: 1cm !important;
+    overflow: visible !important;
+    white-space: nowrap !important;
+    color: #d4d4d4 !important;
+    font-weight: 400 !important;
   }
 
   .cm-tooltip-autocomplete .cm-completionDetail {
+    display: inline-block !important;
+    min-width: 0 !important;
+    margin-left: 0 !important;
+    overflow: visible !important;
     color: #666666 !important;
-    font-size: 11px !important;
+    font-size: 10px !important;
+    font-style: normal !important;
+    font-weight: 400 !important;
+    text-align: right !important;
+    white-space: normal !important;
   }
 
   .cm-tooltip-autocomplete .cm-completionIcon {
-    color: #666666 !important;
-    margin-right: 6px !important;
-    opacity: 0.6 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 16px !important;
+    height: 16px !important;
+    margin: 0 8px 0 0 !important;
+    padding: 0 !important;
+    border-radius: 4px !important;
+    background: #242424 !important;
+    color: #c8c8c8 !important;
+    font-size: 10px !important;
+    line-height: 1 !important;
+    opacity: 1 !important;
+    box-sizing: border-box !important;
+  }
+
+  .cm-tooltip-autocomplete .cm-completionIcon::after {
+    content: "m" !important;
+    font: inherit !important;
   }
 
   .cm-tooltip-autocomplete ul li[aria-selected] .cm-completionIcon {
-    color: #000000 !important;
-    opacity: 0.8 !important;
+    background: #303030 !important;
+    color: #e0e0e0 !important;
   }
 
   /* Scrollbar for CodeMirror autocomplete */
@@ -2771,7 +2865,7 @@
   }
 
   .cm-tooltip-autocomplete ul::-webkit-scrollbar-track {
-    background: #131313 !important;
+    background: #141414 !important;
   }
 
   .cm-tooltip-autocomplete ul::-webkit-scrollbar-thumb {
@@ -2782,6 +2876,8 @@
   .cm-tooltip-autocomplete ul::-webkit-scrollbar-thumb:hover {
     background: #444444 !important;
   }
+
+@layer components {
 
   /* VS Code Terminal Style for Console Output */
   .console-output-vscode {
