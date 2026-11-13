@@ -19545,6 +19545,10 @@ ${attachmentPromptContext || '(none)'}`;
         }
         let applied = null;
         let shouldOverwrite = false;
+        const databaseSourceToPreserve = databaseSource?.target
+          && currentSheet === databaseSource.sheetName
+          ? databaseSource
+          : null;
         if (shouldSyncToExplorer) {
           shouldOverwrite = Boolean(rExplorerOverwriteActiveSheetRef.current && currentSheet);
           const effectiveOperationKey = incomingDfName || incomingDfObject || operationKey;
@@ -19552,6 +19556,9 @@ ${attachmentPromptContext || '(none)'}`;
             overwrite: shouldOverwrite,
             rowNames: normalizedDataset.rowNames
           });
+          if (shouldOverwrite && applied?.applied && applied.sheetName === currentSheet && databaseSourceToPreserve) {
+            setDatabaseSource(databaseSourceToPreserve);
+          }
         }
         if (captureMemory) {
           rememberDataMemoryDataset(
@@ -27479,6 +27486,7 @@ except Exception as _ngr_error:
     persistSheetDatasetCache(sheetName, displayColumns, dataset.rows);
     applyLoadedDataset(displayColumns, dataset.rows);
     setDatabaseSource({
+      sheetName,
       target: dataset.target,
       connectionId: dataset.connectionId,
       originalRows: dataset.rows,
