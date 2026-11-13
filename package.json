@@ -29,6 +29,7 @@
           "dependencies": {
                     "electron-squirrel-startup": "^1.0.1",
                     "node-pty": "^1.1.0",
+                    "odbc": "2.4.9",
                     "react": "^19.2.5",
                     "react-dom": "^19.2.5"
           },
@@ -88,7 +89,9 @@
                               "icon": "assets/icon-app.png",
                               "category": "Science",
                               "executableName": "ngr",
-                              "executableArgs": ["--no-sandbox"],
+                              "executableArgs": [
+                                        "--no-sandbox"
+                              ],
                               "maintainer": "NGR <ngr@ngr.app>"
                     }
           }

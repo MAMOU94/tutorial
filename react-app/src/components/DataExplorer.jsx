@@ -39,6 +39,7 @@ import {
 } from 'lucide-react';
 import DataExplorerAIAgent from './DataExplorerAIAgent.jsx';
 import DataExplorerCalculations from './DataExplorerCalculations.jsx';
+import { ApplyDatabaseEditsButton } from './DatabaseConnectionPanel.jsx';
 import { isMissingDataValue } from '../utils/dataQuality';
 
 const DEFAULT_FLOATING_TOOL_PRESET = { width: 320, minWidth: 320, defaultX: 24, defaultY: 140, minHeight: 220 };
@@ -1952,6 +1953,8 @@ export default function DataExplorer({
   handleDeleteSheet,
   sourceFileName = '',
   isVirtualSource = false,
+  databaseSource = null,
+  onDatabaseEditsApplied,
   addColumnName, setAddColumnName,
   addColumnValue, setAddColumnValue,
   handleAddColumn,
@@ -6014,6 +6017,12 @@ export default function DataExplorer({
               <div className="flex items-center gap-3 ml-auto flex-shrink-0">
                 <div className="data-explorer-meta-actions">
                   {isVirtualSource ? <span className="data-explorer-meta-chip">Workspace</span> : null}
+                  <ApplyDatabaseEditsButton
+                    source={databaseSource}
+                    rows={fullData}
+                    columns={columns}
+                    onCommit={onDatabaseEditsApplied}
+                  />
                   {!hideFullscreenToggle && !embedded && (
                     <button
                       type="button"

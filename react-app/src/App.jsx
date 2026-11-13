@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, useDeferredValue } from 'react';
 import DataExplorer from './components/DataExplorer';
+import DatabaseConnectionPanel from './components/DatabaseConnectionPanel.jsx';
 import AnalysisResult from './components/AnalysisResult';
 import DraggableWindow from './components/DraggableWindow';
 import RichTextEditor from './components/ui/RichTextEditor';
@@ -22,13 +23,14 @@ import RIdeInCodeDiffViewer from './components/RIdeInCodeDiffViewer';
 import PlotsGalleryPanel from './components/PlotsGalleryPanel';
 import EditorOpenedFilesBar from './components/EditorOpenedFilesBar';
 import DataExplorerAIAgent from './components/DataExplorerAIAgent.jsx';
+import useMicromamba from './hooks/useMicromamba';
 import CodeMirror from '@uiw/react-codemirror';
 import { r } from 'codemirror-lang-r';
 import { rLanguage } from 'codemirror-lang-r';
 import { python } from '@codemirror/lang-python';
 import { vscodeDark } from '@uiw/codemirror-theme-vscode';
 import { autocompletion, selectedCompletionIndex, setSelectedCompletion, startCompletion } from '@codemirror/autocomplete';
-import { Decoration, EditorView, ViewPlugin, WidgetType, tooltips } from '@codemirror/view';
+import { Decoration, EditorView, ViewPlugin, WidgetType, showTooltip, tooltips } from '@codemirror/view';
 import { StateEffect, StateField } from '@codemirror/state';
 import { HighlightStyle, LanguageSupport, LRLanguage, syntaxHighlighting } from '@codemirror/language';
 import { parseMixed } from '@lezer/common';
@@ -1423,64 +1425,305 @@ const R_FUNCTION_SUGGESTIONS = [
 ];
 
 const R_FUNCTION_EXAMPLES = {
-  mean: 'mean(values, na.rm = TRUE)',
-  median: 'median(values, na.rm = TRUE)',
-  sum: 'sum(values, na.rm = TRUE)',
-  subset: 'subset(data, value > 0)',
-  lapply: 'lapply(items, length)',
-  apply: 'apply(matrix, 2, mean)',
-  aggregate: 'aggregate(value ~ group, data, mean)',
-  lm: 'lm(y ~ x, data = data)',
-  't.test': 't.test(value ~ group, data = data)',
-  cor: 'cor(x, y, use = "complete.obs")',
-  ggplot: 'ggplot(data, aes(x, y)) + geom_point()',
-  geom_bar: 'ggplot(data, aes(category)) + geom_bar()',
-  geom_boxplot: 'ggplot(data, aes(group, value)) + geom_boxplot()',
-  geom_histogram: 'ggplot(data, aes(value)) + geom_histogram()',
-  geom_line: 'ggplot(data, aes(x, y)) + geom_line()',
-  geom_point: 'ggplot(data, aes(x, y)) + geom_point()',
-  geom_smooth: 'ggplot(data, aes(x, y)) + geom_smooth()',
-  labs: '+ labs(title = "Title", x = "X", y = "Y")',
-  theme_classic: '+ theme_classic()',
-  'dplyr::filter': 'data |> dplyr::filter(value > 0)',
-  'dplyr::arrange': 'data |> dplyr::arrange(desc(value))',
-  'dplyr::select': 'data |> dplyr::select(group, value)',
-  'dplyr::mutate': 'data |> dplyr::mutate(rate = value / total)',
-  'dplyr::summarise': 'data |> dplyr::summarise(avg = mean(value))',
-  'dplyr::group_by': 'data |> dplyr::group_by(group)',
-  'dplyr::left_join': 'dplyr::left_join(samples, metadata, by = "sample_id")',
-  'dplyr::rename': 'data |> dplyr::rename(new_name = old_name)',
+  c: 'c(10, 20, 30, 40)',
+  seq: 'seq(1, 10, by = 2)        # 1 3 5 7 9',
+  rep: 'rep("A", times = 3)       # "A" "A" "A"',
+  length: 'length(my_vector)',
+  sum: 'sum(c(5, 10, 15), na.rm = TRUE)',
+  mean: 'mean(scores, na.rm = TRUE)',
+  median: 'median(scores, na.rm = TRUE)',
+  sd: 'sd(scores, na.rm = TRUE)',
+  var: 'var(scores, na.rm = TRUE)',
+  min: 'min(scores, na.rm = TRUE)',
+  max: 'max(scores, na.rm = TRUE)',
+  range: 'range(scores)             # min and max',
+  unique: 'unique(colors)',
+  sort: 'sort(scores, decreasing = TRUE)',
+  order: 'data[order(data$age), ]',
+  sample: 'sample(1:100, size = 10)',
+  'set.seed': 'set.seed(42); sample(1:10, 5)',
+  paste: 'paste("Player", 1:3, sep = "-")  # "Player-1" ...',
+  paste0: 'paste0("item_", c("a","b","c"))  # "item_a" ...',
+  sprintf: 'sprintf("Score = %d points", 95)',
+  subset: 'subset(data, age > 10 & team == "Blue")',
+  transform: 'transform(data, total = score1 + score2)',
+  with: 'with(data, mean(score))',
+  ifelse: 'ifelse(scores >= 50, "Pass", "Try again")',
+  'is.na': 'is.na(data$score)        # TRUE if blank',
+  'na.omit': 'clean_data <- na.omit(data)',
+  'complete.cases': 'data[complete.cases(data), ]',
+  factor: 'factor(data$size, levels = c("S","M","L"))',
+  'as.numeric': 'as.numeric(c("1", "2", "3"))',
+  'as.character': 'as.character(c(10, 20, 30))',
+  'as.factor': 'as.factor(data$group)',
+  'data.frame': 'data.frame(name = c("Sam","Lea"), score = c(95, 88))',
+  list: 'list(title = "Game", scores = c(10, 20), active = TRUE)',
+  matrix: 'matrix(1:9, nrow = 3, ncol = 3)',
+  apply: 'apply(my_matrix, 2, mean)   # column averages',
+  lapply: 'lapply(my_list, length)',
+  sapply: 'sapply(data, class)',
+  tapply: 'tapply(data$score, data$team, mean)',
+  split: 'split(data, data$team)',
+  aggregate: 'aggregate(score ~ team, data, mean)',
+  table: 'table(data$flavor, data$size)',
+  'prop.table': 'prop.table(table(data$vote))',
+  head: 'head(data, 6)',
+  tail: 'tail(data, 6)',
+  str: 'str(data)',
+  summary: 'summary(data)',
+  print: 'print("Hello, world!")',
+  View: 'View(data)',
+  help: 'help(mean)',
+  library: 'library(ggplot2)',
+  require: 'require(dplyr)',
+  'install.packages': 'install.packages("ggplot2")',
+  'update.packages': 'update.packages(ask = FALSE)',
+  setwd: 'setwd("/home/user/my_folder")',
+  getwd: 'getwd()',
+  dir: 'dir(pattern = "\\\\.csv$")',
+  'read.csv': 'data <- read.csv("students.csv")',
+  'read.table': 'data <- read.table("data.tsv", sep = "\\\\t", header = TRUE)',
+  'write.csv': 'write.csv(data, "results.csv", row.names = FALSE)',
+  lm: 'fit <- lm(weight ~ height, data = data)',
+  glm: 'fit <- glm(passed ~ hours, family = binomial, data = data)',
+  aov: 'fit <- aov(score ~ method, data = data)',
+  anova: 'anova(fit)',
+  't.test': 't.test(score ~ group, data = data)',
+  'wilcox.test': 'wilcox.test(score ~ group, data = data)',
+  cor: 'cor(data$height, data$shoe_size)',
+  'cor.test': 'cor.test(data$height, data$shoe_size)',
+  'chisq.test': 'chisq.test(table(data$pet, data$snack))',
+  'shapiro.test': 'shapiro.test(data$scores)',
+  predict: 'predict(fit, newdata = data.frame(height = 140))',
+  confint: 'confint(fit, level = 0.95)',
+  prcomp: 'pca <- prcomp(data[, 1:4], scale. = TRUE)',
+  kmeans: 'k <- kmeans(data_scaled, centers = 3)',
+  hclust: 'hc <- hclust(dist(data_scaled))',
+  dist: 'dist(data_scaled)',
+  plot: 'plot(data$age, data$height, main = "Age vs Height")',
+  hist: 'hist(data$score, breaks = 10, col = "skyblue")',
+  boxplot: 'boxplot(score ~ group, data = data, col = "coral")',
+  barplot: 'barplot(table(data$fruit), col = "gold")',
+  pairs: 'pairs(data[, 1:4])',
+  qqnorm: 'qqnorm(residuals(fit)); qqline(residuals(fit))',
+  qqline: 'qqline(residuals(fit))',
+  density: 'plot(density(data$score))',
+  curve: 'curve(x^2, from = -3, to = 3)',
+  abline: 'abline(h = 50, col = "red", lty = 2)',
+  legend: 'legend("topright", legend = c("A","B"), col = 1:2, pch = 16)',
+  title: 'title(main = "My Awesome Chart")',
+  par: 'par(mfrow = c(2, 2))      # 2x2 grid of plots',
+  ggplot: 'ggplot(data, aes(x = age, y = height)) + geom_point()',
+  aes: 'aes(x = age, y = height, color = team)',
+  geom_point: 'geom_point(aes(color = team), size = 3)',
+  geom_line: 'geom_line(aes(group = player_id), linewidth = 1)',
+  geom_bar: 'geom_bar(aes(fill = category))',
+  geom_histogram: 'geom_histogram(bins = 20, fill = "steelblue")',
+  geom_boxplot: 'geom_boxplot(aes(fill = group))',
+  geom_violin: 'geom_violin(aes(fill = group))',
+  geom_density: 'geom_density(aes(fill = group), alpha = 0.5)',
+  geom_smooth: 'geom_smooth(method = "lm", color = "tomato")',
+  facet_wrap: 'facet_wrap(~ group)',
+  facet_grid: 'facet_grid(team ~ level)',
+  theme: 'theme(axis.text.x = element_text(angle = 45, hjust = 1))',
+  theme_minimal: 'theme_minimal(base_size = 14)',
+  theme_classic: 'theme_classic(base_size = 14)',
+  labs: 'labs(title = "Growth Chart", x = "Age", y = "Height (cm)")',
+  scale_color_manual: 'scale_color_manual(values = c("Red" = "tomato", "Blue" = "deepskyblue"))',
+  scale_fill_manual: 'scale_fill_manual(values = c("A" = "gold", "B" = "violet"))',
+  coord_flip: 'coord_flip()              # turn bars sideways',
+  'dplyr::filter': 'data |> dplyr::filter(score > 80)',
+  'dplyr::select': 'data |> dplyr::select(name, age, score)',
+  'dplyr::mutate': 'data |> dplyr::mutate(double_score = score * 2)',
+  'dplyr::summarise': 'data |> dplyr::group_by(team) |> dplyr::summarise(avg_score = mean(score))',
+  'dplyr::group_by': 'data |> dplyr::group_by(team)',
+  'dplyr::arrange': 'data |> dplyr::arrange(dplyr::desc(score))',
+  'dplyr::left_join': 'dplyr::left_join(players, badges, by = "player_id")',
+  'dplyr::rename': 'data |> dplyr::rename(student_name = name)',
   'dplyr::across': 'data |> dplyr::summarise(dplyr::across(where(is.numeric), mean))',
-  aes: 'ggplot(data, aes(x = time, y = count)) + geom_line()',
-  facet_wrap: 'ggplot(data, aes(x, y)) + geom_point() + facet_wrap(~ group)',
-  theme_minimal: '+ theme_minimal()',
-  'tidyr::pivot_longer': 'tidyr::pivot_longer(data, cols = starts_with("x"))',
-  'tidyr::pivot_wider': 'tidyr::pivot_wider(data, names_from = key, values_from = value)'
+  'tidyr::pivot_longer': 'tidyr::pivot_longer(data, cols = c(day1, day2), names_to = "day", values_to = "score")',
+  'tidyr::pivot_wider': 'tidyr::pivot_wider(data, names_from = day, values_from = score)'
 };
 
 const R_FUNCTION_EXPLANATIONS = {
-  mean: 'Calculates the arithmetic average of numeric values. Set na.rm = TRUE to skip missing values.',
-  median: 'Returns the middle value after sorting the data, which is less affected by extreme values than the mean.',
-  aggregate: 'Splits values into groups and applies a summary function such as mean or sum to each group.',
-  lapply: 'Runs a function on every item in a list and returns the results as a list.',
-  apply: 'Applies a function to each row or column of a matrix or array.',
-  lm: 'Fits a linear regression model that estimates how one or more predictors relate to an outcome.',
-  ggplot: 'Starts a layered plot. Map variables with aes(), then add geometry and labels with +.',
-  geom_point: 'Adds one point per observation, commonly used to show the relationship between two numeric variables.',
-  geom_bar: 'Draws bars for categories. By default it counts rows; use geom_col() when heights are already calculated.',
-  geom_histogram: 'Groups a numeric variable into bins and displays how many observations fall in each bin.',
-  labs: 'Sets the plot title and the labels shown on the x axis, y axis, and legend.',
-  'dplyr::filter': 'Keeps rows that satisfy a logical condition, such as a value being above a threshold.',
-  'dplyr::select': 'Chooses which columns to keep, rename, or exclude from a data frame.',
-  'dplyr::mutate': 'Creates new columns or changes existing ones using values from each row.',
-  'dplyr::summarise': 'Reduces data to summary values, often after grouping with group_by().',
-  'dplyr::group_by': 'Defines groups so later operations such as summarise() run separately for each group.',
-  'dplyr::arrange': 'Sorts rows by one or more columns; wrap a column in desc() for descending order.',
-  'dplyr::left_join': 'Adds matching columns from another table while keeping every row from the left table.',
-  'dplyr::rename': 'Changes column names while leaving the rows and values unchanged.',
-  'dplyr::across': 'Applies the same function to a selected set of columns, commonly inside summarise() or mutate().',
-  'tidyr::pivot_longer': 'Turns multiple columns into key and value rows, useful for converting wide data to tidy long form.',
-  'tidyr::pivot_wider': 'Turns key and value rows into separate columns, converting long data to a wider table.'
+  c: 'Puts things together in one neat row, like stringing colorful beads on a necklace!\nKid rule: c(10, 20, 30) makes a row of numbers you can play with.',
+  seq: 'Counts numbers in order for you, like skip-counting by 2s: 2, 4, 6, 8, 10!\nKid rule: Give it a start, an end, and how big each step should be.',
+  rep: 'A copycat machine! Repeats the same word or number over and over again.\nKid rule: rep("Yay", 3) gives you "Yay" "Yay" "Yay".',
+  length: 'Counts how many toys are in your box, or how many words are in your list.\nKid rule: length(my_list) tells you the total count.',
+  sum: 'Adds all your numbers together into one big total, like counting all your piggy bank coins!\nKid rule: sum(5, 10, 15) equals 30.',
+  mean: 'The fair-share number! If you shared all your candies equally among friends, this is how many each kid would get.\nKid rule: Adds everything up and divides by how many kids there are.',
+  median: 'The kid standing right in the middle when everyone lines up from shortest to tallest.\nKid rule: Half the numbers are smaller, and half are bigger.',
+  sd: 'Tells you how spread out your numbers are. Low means all huddled together like best friends; high means scattered all over the playground!\nKid rule: Measures how far numbers wander from the middle.',
+  var: 'Measures how wildly your numbers bounce and jump around from the average.\nKid rule: A bigger number means more crazy bouncing.',
+  min: 'Finds the smallest baby number in the whole group.\nKid rule: The lowest score or the tiniest number.',
+  max: 'Finds the biggest giant number in the whole group.\nKid rule: The high score or top number.',
+  range: 'Shows you the smallest and the biggest numbers together, from bottom to top.\nKid rule: Gives you the low and high boundaries.',
+  unique: 'Removes all duplicates so you only see one of each toy — no doubles allowed!\nKid rule: Great when you want to know all the different colors or names you have.',
+  sort: 'Lines up your numbers or words in order, like shortest to tallest or A to Z.\nKid rule: Put your mess of numbers in a neat, tidy line.',
+  order: 'Tells you who won 1st place, 2nd place, and 3rd place so you can rearrange your table.\nKid rule: Gives you the ranking positions to sort your rows.',
+  sample: 'Reaches into a magic hat and pulls out random surprises, like drawing lucky raffle tickets!\nKid rule: Picks random items without any cheating.',
+  'set.seed': 'Freezes the magic dice so your random game rolls the exact same numbers every time.\nKid rule: Makes your experiment reproducible so friends get the exact same results.',
+  paste: 'Glues words together with a space in between, like building a sentence out of word cards!\nKid rule: paste("Super", "Hero") makes "Super Hero".',
+  paste0: 'Glues words tightly together with zero space in between.\nKid rule: paste0("Cat", "1") sticks them right together into "Cat1".',
+  sprintf: 'A fill-in-the-blanks robot! Drops numbers neatly into a sentence template.\nKid rule: sprintf("Score: %d", 100) builds "Score: 100".',
+  subset: 'Picks out only the toys that pass your secret rule (like "only pick red cars").\nKid rule: Keeps only the rows you care about and ignores the rest.',
+  transform: 'Gives your table a makeover! Adds new columns or updates old ones.\nKid rule: Like adding a new sticker column to your chart.',
+  with: 'Opens up a toy box so you can play with its toys without typing its long name every time.\nKid rule: Lets you use column names directly and easily.',
+  ifelse: 'A question game: If the answer is YES, do this; if the answer is NO, do that!\nKid rule: ifelse(score > 50, "Winner!", "Try again!").',
+  'is.na': 'A detective that checks: "Is this spot empty or missing a puzzle piece?"\nKid rule: Says TRUE if a value is missing (NA), FALSE if it is there.',
+  'na.omit': 'Throws away any row that has a missing puzzle piece so only complete rows remain.\nKid rule: Cleans your table so there are no blank holes.',
+  'complete.cases': 'Gives a thumbs-up (TRUE) to rows where all puzzle pieces are present with nothing missing.\nKid rule: Lets you keep only the rows that are 100% complete.',
+  factor: 'Sorts items into labeled buckets (like "small", "medium", "big") so the computer knows they are categories.\nKid rule: Turns plain words into official category groups.',
+  'as.numeric': 'Turns word-numbers (like "42") into real math numbers you can add and multiply.\nKid rule: Use this when the computer treats numbers like text.',
+  'as.character': 'Turns numbers or categories into plain words in quotes.\nKid rule: Turns 123 into "123".',
+  'as.factor': 'Puts official category badges on a list of words or names.\nKid rule: Quick way to make a column into groups.',
+  'data.frame': 'A neat spreadsheet table with rows and named columns, just like a classroom attendance sheet!\nKid rule: Each row is a person or thing, each column is a piece of info.',
+  list: 'A magic backpack that can hold anything inside: numbers, words, tables, or even other backpacks!\nKid rule: Perfect when you have lots of different types of things to keep together.',
+  matrix: 'A neat grid of numbers arranged in rows and columns, like a chocolate bar with squares.\nKid rule: All numbers must be the same type.',
+  apply: 'A helper robot that marches down every row or across every column doing a math chore for you!\nKid rule: 1 means by rows, 2 means by columns.',
+  lapply: 'Hands every item in your backpack to a robot helper and gives you back a list of answers.\nKid rule: Does the same task for each item in a list.',
+  sapply: 'Like lapply, but tidies up the answer into a simple line of numbers if it can.\nKid rule: Makes the result neat and easy to read.',
+  tapply: 'Splits your toys into teams first, then calculates a score for each team.\nKid rule: Like finding the average age for boys, then for girls.',
+  split: 'Cuts one big table into smaller mini-tables, one for each group or team.\nKid rule: Like sorting Lego bricks into separate color boxes.',
+  aggregate: 'Groups your data and calculates math on each group in one quick step.\nKid rule: Finds the average or total for each group automatically.',
+  table: 'Counts how many of each item you have, like tallying who chose chocolate vs vanilla ice cream!\nKid rule: Shows a quick count for each category.',
+  'prop.table': 'Turns count tallies into percentages, like showing what slice of the pizza each group gets.\nKid rule: Converts counts into proportions that add up to 1.',
+  head: 'Peeks at the first 6 rows at the top of your table so you can see how it starts.\nKid rule: Check the top of your data without getting overwhelmed.',
+  tail: 'Peeks at the bottom few rows of your table to see how it ends.\nKid rule: Makes sure the end of your file loaded correctly.',
+  str: 'An X-ray machine! Shows what your table looks like on the inside — column names and types.\nKid rule: Run this first to see what kind of data you have.',
+  summary: 'A quick report card for your table, showing lowest, average, and highest scores.\nKid rule: Instant snapshot of your numbers and categories.',
+  print: 'Shows words or numbers on your screen so you can read them.\nKid rule: Makes the computer talk to you in the console.',
+  View: 'Pops open your table in a nice spreadsheet window so you can scroll through it like Excel.\nKid rule: Great for browsing your whole table visually.',
+  help: 'Opens the instruction manual to explain how any tool or function works.\nKid rule: Type ?function_name or help(function_name) when you are stuck.',
+  library: 'Opens a toolbox you installed so you can use all its cool tools and superpowers.\nKid rule: Run library(packageName) at the top of your script.',
+  require: 'Asks politely for a toolbox. If it is missing, it quietly says FALSE without crashing.\nKid rule: Great for checking if a package is available.',
+  'install.packages': 'Downloads a brand new toolbox from the internet toy store onto your computer.\nKid rule: You only need to install a package once!',
+  'update.packages': 'Gives all your downloaded toolboxes the newest updates and bug fixes.\nKid rule: Keeps your tools fresh and up to date.',
+  setwd: 'Tells the computer which folder to work inside right now.\nKid rule: Sets your home base so you can find your files easily.',
+  getwd: 'Asks the computer: "Which folder are we working inside right now?"\nKid rule: Tells you your current folder path.',
+  dir: 'Lists all the files and folders sitting inside your current folder.\nKid rule: Like looking inside your desk drawer to see what is there.',
+  'read.csv': 'Opens a CSV file from your computer and loads it into R as a friendly table.\nKid rule: How you import Excel/CSV data into R.',
+  'read.table': 'Reads a text file with rows and columns separated by tabs or spaces into R.\nKid rule: Imports plain text data tables.',
+  'write.csv': 'Saves your table onto your computer as a CSV file to share with friends or open in Excel.\nKid rule: Saves your hard work to your hard drive!',
+  lm: 'Draws the best straight trend line through dots to guess future numbers!\nKid rule: Like guessing how tall a kid will be based on their age.',
+  glm: 'A smart guessing machine for yes-or-no questions (like: will it rain tomorrow or not?).\nKid rule: Works even when answers are yes/no instead of numbers.',
+  aov: 'Compares 3 or more groups to see if one group really scored higher than the others.\nKid rule: Like checking if Team A, Team B, or Team C baked better cookies.',
+  anova: 'A referee that checks whether the differences between your groups or models are real or just luck.\nKid rule: Confirms if your test results really matter.',
+  't.test': 'Compares two groups (like boys vs girls) to see if their average scores are truly different.\nKid rule: The classic 2-group comparison test.',
+  'wilcox.test': 'Compares two groups even when your numbers are crazy and do not make a neat bell shape.\nKid rule: The fair comparison test when numbers have outliers.',
+  cor: 'Checks if two things move together: like as you grow taller, your shoes get bigger too!\nKid rule: 1 means they move together, -1 means opposites, 0 means no link.',
+  'cor.test': 'Tests whether two things are genuinely connected or if they just matched by pure coincidence.\nKid rule: Gives you a p-value to prove the connection is real.',
+  'chisq.test': 'Checks if two categories are linked (like whether dogs prefer bones and cats prefer fish).\nKid rule: Tests if two choices depend on each other.',
+  'shapiro.test': 'Checks if your numbers pile up into a nice, symmetrical bell-shaped hill in the middle.\nKid rule: Tests if your data is "normally distributed".',
+  predict: 'Uses what the computer learned from old data to guess what will happen for a new person or test!\nKid rule: Like a crystal ball powered by math.',
+  confint: 'Gives a friendly safety range: "We are 95% sure the true answer is between these two numbers!"\nKid rule: A confidence cushion around your guess.',
+  prcomp: 'Squishes a giant puzzle with 50 clues down into just 2 or 3 super-clues without losing the story!\nKid rule: Great for simplifying huge datasets with lots of columns.',
+  kmeans: 'Sorts a crowd of dots into color-coded teams based on who is standing closest to each other.\nKid rule: Groups similar items into clusters automatically.',
+  hclust: 'Builds a family tree showing which samples are close sisters, distant cousins, or total strangers.\nKid rule: Draws a dendrogram branching tree.',
+  dist: 'Measures the ruler distance between every pair of dots on your map.\nKid rule: Calculates how far apart points are from each other.',
+  plot: 'Draws a picture of your data, like scattering dots on graph paper!\nKid rule: The fastest way to see what your data looks like visually.',
+  hist: 'Stacks numbers into towers to show where most values pile up.\nKid rule: Tall towers mean lots of numbers fell into that bucket.',
+  boxplot: 'Draws a box with whiskers showing the middle group of numbers and any crazy outlier dots.\nKid rule: Great for comparing groups side by side.',
+  barplot: 'Draws colorful rectangular towers showing how high each category scores.\nKid rule: Perfect for counting things like votes or fruit types.',
+  pairs: 'A mini photo album showing scatter plots for every pair of columns side by side!\nKid rule: Look at all your columns at once to spot patterns.',
+  qqnorm: 'Draws dots against a straight line to check if your numbers follow a perfect bell curve.\nKid rule: If dots hug the line, your data is well-behaved!',
+  qqline: 'Draws the guide line through the middle of your bell-curve dot check.\nKid rule: Always use right after qqnorm().',
+  density: 'Draws a smooth roller-coaster curve showing where your numbers crowd together.\nKid rule: Like a smoothed-out histogram mountain.',
+  curve: 'Draws any mathematical formula as a smooth, sweeping curve across the screen.\nKid rule: Give it a math formula and watch it draw.',
+  abline: 'Draws a ruler-straight line across your plot (horizontal, vertical, or tilted).\nKid rule: Great for adding target goals or cutoff lines.',
+  legend: 'Adds a little helper box explaining what each color and symbol means in your drawing.\nKid rule: Helps everyone understand which line is which.',
+  title: 'Writes a big, bold headline right at the top of your drawing.\nKid rule: Gives your chart a clear, readable title.',
+  par: 'Sets rules for the drawing board, like splitting your paper into 4 mini-pictures (2x2 grid).\nKid rule: par(mfrow = c(2, 2)) puts 4 plots on one page.',
+  ggplot: 'Puts a fresh blank canvas on the easel so you can paint pretty charts layer by layer!\nKid rule: Always start here, then add layers with the + sign.',
+  aes: 'Tells the painter what goes where: what is on the X axis, Y axis, and what gets colored!\nKid rule: Connects your table columns to what your eyes see.',
+  geom_point: 'Draws colorful dots on your canvas — the classic scatter plot!\nKid rule: Each row becomes one dot on the graph.',
+  geom_line: 'Connects the dots with lines, like drawing a race track or tracking growth over time!\nKid rule: Great for trends and timelines.',
+  geom_bar: 'Builds tall colored towers to show how many items belong in each group.\nKid rule: Counts categories and draws bars.',
+  geom_histogram: 'Groups numbers into bins and stacks them into towers to show where they pile up.\nKid rule: Shows the shape and spread of your numbers.',
+  geom_boxplot: 'Draws neat boxes with whiskers to show who scored high, low, or right in the middle.\nKid rule: Compare groups to see who is highest.',
+  geom_violin: 'Draws pretty violin shapes that bulge where most data points are hiding.\nKid rule: Like a curvy boxplot that shows the full shape.',
+  geom_density: 'Paints a soft, smooth mountain showing where your data is thick or thin.\nKid rule: Great with semi-transparent colors to compare groups.',
+  geom_smooth: 'Draws a smooth trend line showing the general direction your dots are heading.\nKid rule: Adds a best-fit line to guide the eye.',
+  facet_wrap: 'Splits one big chart into a grid of mini-pictures, one little picture for each group!\nKid rule: Like giving each category its own personal mini-chart.',
+  facet_grid: 'Arranges mini-pictures into neat rows and columns like a checkerboard.\nKid rule: Uses two categories (rows vs columns) to make a grid of plots.',
+  theme: 'Decorates your chart: change background colors, rotate text, or hide grid lines.\nKid rule: Like styling your chart with cool clothes.',
+  theme_minimal: 'A clean, quiet theme with no heavy boxes — lets your data shine!\nKid rule: Makes your plot look modern and professional.',
+  theme_classic: 'A crisp, classic look with clean black axes and no distracting background grid.\nKid rule: The timeless, clean scientific paper style.',
+  labs: 'Labels your chart with a headline title, subtitle, and friendly names for axes.\nKid rule: Always label your plots so people know what they are looking at!',
+  scale_color_manual: 'Lets you pick your favorite crayons for the outlines of dots and lines!\nKid rule: Choose custom colors for each group.',
+  scale_fill_manual: 'Lets you pick your favorite paint colors to fill inside bars and boxes!\nKid rule: Fill shapes with the exact colors you want.',
+  coord_flip: 'Turns your drawing on its side! Up-and-down bars become sideways horizontal bars.\nKid rule: Super handy when category names are long.',
+  'dplyr::filter': 'A bouncer at the door! Only lets rows into your party if they pass your secret rule.\nKid rule: filter(score > 80) lets only high scores through.',
+  'dplyr::select': 'Picks out only your favorite columns and hides the rest away.\nKid rule: Like choosing only your favorite toys from the shelf.',
+  'dplyr::mutate': 'A magic wand that adds brand new columns or updates existing ones using math!\nKid rule: Create new calculations row by row.',
+  'dplyr::summarise': 'Squashes a whole crowd of rows down into one summary number, like average or total!\nKid rule: Always use after group_by() for per-group stats.',
+  'dplyr::group_by': 'Sorts your rows into teams so any math you do afterwards happens team by team!\nKid rule: Group first, then summarise or mutate.',
+  'dplyr::arrange': 'Lines up your rows from smallest to biggest, or reverse with desc()!\nKid rule: Like sorting high scores from 1st place to last place.',
+  'dplyr::left_join': 'Glues matching puzzle pieces from a second table onto your main table using IDs.\nKid rule: Merges two tables together without losing your main rows.',
+  'dplyr::rename': 'Gives your columns new, friendlier nicknames so they are easier to read.\nKid rule: rename(new_name = old_name).',
+  'dplyr::across': 'Does the exact same chore across multiple columns at once so you do not repeat yourself!\nKid rule: Apply a function to 5 columns in one quick line.',
+  'tidyr::pivot_longer': 'Stretches a wide, fat table into a tall, skinny table so it is easy to make charts!\nKid rule: Turns multiple columns into name and value rows.',
+  'tidyr::pivot_wider': 'Takes a tall skinny table and spreads it sideways into lots of columns.\nKid rule: Turns name and value rows into separate columns.'
+};
+
+const R_FUNCTION_HELP_PACKAGES = {
+  ggplot: 'ggplot2', aes: 'ggplot2', geom_point: 'ggplot2', geom_line: 'ggplot2', geom_bar: 'ggplot2',
+  geom_histogram: 'ggplot2', geom_boxplot: 'ggplot2', geom_violin: 'ggplot2', geom_density: 'ggplot2',
+  geom_smooth: 'ggplot2', facet_wrap: 'ggplot2', facet_grid: 'ggplot2', theme: 'ggplot2',
+  theme_minimal: 'ggplot2', theme_classic: 'ggplot2', labs: 'ggplot2', scale_color_manual: 'ggplot2',
+  scale_fill_manual: 'ggplot2', coord_flip: 'ggplot2',
+  'dplyr::filter': 'dplyr', 'dplyr::select': 'dplyr', 'dplyr::mutate': 'dplyr',
+  'dplyr::summarise': 'dplyr', 'dplyr::group_by': 'dplyr', 'dplyr::arrange': 'dplyr',
+  'dplyr::left_join': 'dplyr', 'dplyr::rename': 'dplyr', 'dplyr::across': 'dplyr',
+  'tidyr::pivot_longer': 'tidyr', 'tidyr::pivot_wider': 'tidyr'
+};
+const R_BASE_HELP_PACKAGES = {
+  lm: 'stats', glm: 'stats', aov: 'stats', anova: 'stats', 't.test': 'stats', 'wilcox.test': 'stats',
+  cor: 'stats', 'cor.test': 'stats', 'chisq.test': 'stats', 'shapiro.test': 'stats', predict: 'stats',
+  confint: 'stats', prcomp: 'stats', kmeans: 'stats', hclust: 'stats', dist: 'stats', aggregate: 'stats',
+  plot: 'graphics', hist: 'graphics', boxplot: 'graphics', barplot: 'graphics', pairs: 'graphics',
+  qqnorm: 'stats', qqline: 'stats', density: 'stats', curve: 'graphics', abline: 'graphics',
+  legend: 'graphics', title: 'graphics', par: 'graphics',
+  View: 'utils', help: 'utils', 'install.packages': 'utils', 'update.packages': 'utils',
+  'read.csv': 'utils', 'read.table': 'utils', 'write.csv': 'utils'
+};
+const R_FUNCTION_HELP_TOPICS = {
+  'set.seed': 'Random', 'read.csv': 'read.table', 'write.csv': 'write.table',
+  head: 'head', tail: 'head', dir: 'list.files', 'as.factor': 'factor'
+};
+const getRFunctionHelpTarget = (label) => {
+  const name = String(label || '');
+  const namespaced = /^([A-Za-z][A-Za-z0-9.]*)::([A-Za-z][A-Za-z0-9.]*)$/.exec(name);
+  if (namespaced) return { packageName: namespaced[1], functionName: namespaced[2], isBase: false };
+  const cranPackage = R_FUNCTION_HELP_PACKAGES[name];
+  return {
+    packageName: cranPackage || R_BASE_HELP_PACKAGES[name] || 'base',
+    functionName: R_FUNCTION_HELP_TOPICS[name] || name,
+    isBase: !cranPackage
+  };
+};
+const rFunctionHelpCache = new Map();
+const rFunctionSuggestionLabels = new Set(R_FUNCTION_SUGGESTIONS.map(({ label }) => label));
+
+const addRHelpSection = (panel, label, value, tag = 'p') => {
+  if (!value) return;
+  const sectionLabel = document.createElement('span');
+  sectionLabel.textContent = label;
+  const content = document.createElement(tag);
+  content.textContent = value;
+  panel.append(sectionLabel, content);
+};
+
+const readRHelpSection = (documentNode, heading) => {
+  const title = [...documentNode.querySelectorAll('h2, h3, h4')]
+    .find((element) => element.textContent.trim().toLowerCase() === heading.toLowerCase());
+  if (!title) return '';
+  const parts = [];
+  for (let node = title.nextElementSibling; node && !/^H[234]$/.test(node.tagName); node = node.nextElementSibling) {
+    const text = node.textContent.replace(/\s+/g, ' ').trim();
+    if (text) parts.push(text);
+  }
+  return parts.join('\n').slice(0, 1200);
 };
 
 const createRCompletionInfo = (completion) => {
@@ -1488,17 +1731,89 @@ const createRCompletionInfo = (completion) => {
   panel.className = 'cm-completion-help';
   const name = document.createElement('strong');
   name.textContent = completion.label;
-  const explanation = document.createElement('p');
-  explanation.textContent = completion.explanation || completion.detail || 'R function';
-  const explanationLabel = document.createElement('span');
-  explanationLabel.textContent = 'What it does';
-  const exampleLabel = document.createElement('span');
-  exampleLabel.textContent = 'Practical example';
-  const example = document.createElement('code');
-  // shortcut: unlisted functions use a call template; add a curated example when their usage needs context.
-  example.textContent = completion.example || `${completion.label}(...)`;
-  panel.append(name, explanationLabel, explanation, exampleLabel, example);
+  panel.append(name);
+  addRHelpSection(panel, 'What it does', completion.explanation || completion.detail || 'R function');
+  addRHelpSection(panel, 'Practical example', completion.example || `${completion.label}(...)`, 'code');
+
+  const target = completion.helpTarget || getRFunctionHelpTarget(completion.label);
+  const cacheKey = `${target.packageName}::${target.functionName}`;
+  if (window.electronAPI?.getRFunctionHelp) {
+    let helpPromise = rFunctionHelpCache.get(cacheKey);
+    if (!helpPromise) {
+      helpPromise = window.electronAPI.getRFunctionHelp(target.packageName, target.functionName, target.isBase);
+      rFunctionHelpCache.set(cacheKey, helpPromise);
+    }
+    helpPromise.then((html) => {
+      if (!html) {
+        rFunctionHelpCache.delete(cacheKey);
+        return;
+      }
+      const helpDocument = new DOMParser().parseFromString(html, 'text/html');
+      const description = readRHelpSection(helpDocument, 'Description');
+      const usage = readRHelpSection(helpDocument, 'Usage');
+      const args = readRHelpSection(helpDocument, 'Arguments');
+      if (description || usage || args) {
+        panel.querySelectorAll('.cm-online-r-help').forEach((element) => element.remove());
+        const documentationLabel = document.createElement('span');
+        documentationLabel.className = 'cm-online-r-help';
+        documentationLabel.textContent = 'R documentation';
+        panel.append(documentationLabel);
+        if (usage) addRHelpSection(panel, 'Usage', usage, 'code');
+        if (description) addRHelpSection(panel, 'Description', description);
+        if (args) addRHelpSection(panel, 'Arguments', args);
+      }
+    }).catch(() => rFunctionHelpCache.delete(cacheKey));
+  }
   return panel;
+};
+
+const setEditorHelpTooltip = StateEffect.define();
+const editorHelpTooltipField = StateField.define({
+  create: () => null,
+  update(value, transaction) {
+    const tooltipEffect = transaction.effects.find((effect) => effect.is(setEditorHelpTooltip));
+    if (tooltipEffect) return tooltipEffect.value;
+    return transaction.docChanged || transaction.selectionSet ? null : value;
+  },
+  provide: (field) => showTooltip.from(field)
+});
+
+const handleRFunctionHelpClick = (event, view) => {
+  const position = view.posAtCoords({ x: event.clientX, y: event.clientY });
+  const line = position === null ? null : view.state.doc.lineAt(position);
+  const offset = line ? position - line.from : -1;
+  const tokens = line ? [...line.text.matchAll(/`?([A-Za-z.][A-Za-z0-9._]*(?:::[A-Za-z.][A-Za-z0-9._]*)?)`?/g)] : [];
+  const token = tokens.find((match) => offset >= match.index && offset <= match.index + match[0].length);
+  const label = token?.[1] || '';
+  const followsCall = token && /^\s*\(/.test(line.text.slice(token.index + token[0].length));
+  const isFunction = label.includes('::') || rFunctionSuggestionLabels.has(label) || followsCall;
+
+  if (!isFunction) {
+    view.dispatch({ effects: setEditorHelpTooltip.of(null) });
+    return false;
+  }
+
+  const suggestion = R_FUNCTION_SUGGESTIONS.find((item) => item.label === label);
+  const completion = {
+    label,
+    detail: suggestion?.detail || 'R function',
+    explanation: R_FUNCTION_EXPLANATIONS[label],
+    example: R_FUNCTION_EXAMPLES[label],
+    helpTarget: getRFunctionHelpTarget(label)
+  };
+  view.dispatch({
+    effects: setEditorHelpTooltip.of({
+      pos: line.from + token.index,
+      above: false,
+      create: () => {
+        const dom = document.createElement('div');
+        dom.className = 'cm-completionInfo';
+        dom.append(createRCompletionInfo(completion));
+        return { dom };
+      }
+    })
+  });
+  return false;
 };
 
 const sanitizeRIdentifier = (value, fallback = '') => {
@@ -6999,6 +7314,7 @@ const renderAIAnswerContent = (text) => {
 
 function App() {
   const [file, setFile] = useState(null);
+  const [databaseSource, setDatabaseSource] = useState(null);
   const [openDatasetFiles, setOpenDatasetFiles] = useState([]);
   const [activeDatasetFileId, setActiveDatasetFileId] = useState('');
   const openDatasetFilesRef = useRef([]);
@@ -11586,15 +11902,6 @@ function App() {
   const [eccDnaFinderTool, setEccDnaFinderTool] = useState('map_ont');
   const [eccDnaFinderForm, setEccDnaFinderForm] = useState(DEFAULT_ECCDNA_FINDER_FORM);
   const [eccDnaFinderStatus, setEccDnaFinderStatus] = useState(null);
-  // ── micromamba installation check ─────────────────────────────────────────
-  const [micromambaStatus, setMicromambaStatus] = useState(null); // null=unknown, {found,version,path}
-  const [isMicromambaChecking, setIsMicromambaChecking] = useState(false);
-  const [micromambaEnvironments, setMicromambaEnvironments] = useState([]);
-  const [isMicromambaMenuOpen, setIsMicromambaMenuOpen] = useState(false);
-  const [isMicromambaListLoading, setIsMicromambaListLoading] = useState(false);
-  const [micromambaScriptEditor, setMicromambaScriptEditor] = useState(null);
-  const [isMicromambaScriptSaving, setIsMicromambaScriptSaving] = useState(false);
-  const [micromambaScriptSaveStatus, setMicromambaScriptSaveStatus] = useState('');
   const [eccDnaFinderLog, setEccDnaFinderLog] = useState('');
   const pendingEccRunRef = useRef(null);
   const [isEccDnaFinderRunning, setIsEccDnaFinderRunning] = useState(false);
@@ -13203,6 +13510,7 @@ function App() {
   const analysisLogBufferRef = useRef('');
   const rPackagePreparationRef = useRef({});
   const [activeTopMenu, setActiveTopMenu] = useState('');
+  const [databasePanelOpen, setDatabasePanelOpen] = useState(false);
 
   const getPreferredLocalREditorModel = (models = []) => {
     const availableModels = Array.isArray(models) ? models.filter(Boolean) : [];
@@ -13374,7 +13682,8 @@ function App() {
         fn,
         detail: String(item?.detail || `Function from ${pkg}`),
         explanation: R_FUNCTION_EXPLANATIONS[label],
-        example: R_FUNCTION_EXAMPLES[label] || `${label}(...)`
+        example: R_FUNCTION_EXAMPLES[label] || `${label}(...)`,
+        helpTarget: { packageName: pkg, functionName: fn, isBase: false }
       });
     });
     return pkgMap;
@@ -13437,11 +13746,12 @@ function App() {
       const nsOptions = pkgFns
         .filter(({ fn }) => !fnQuery || fn.toLowerCase().includes(fnQuery))
         .slice(0, 40)
-        .map(({ fn, detail, explanation, example }) => ({
+        .map(({ fn, detail, explanation, example, helpTarget }) => ({
           label: fn,
           detail,
           explanation,
           example,
+          helpTarget,
           info: createRCompletionInfo,
           type: 'function',
           apply: (view, _completion, applyFrom, applyTo) => {
@@ -13491,6 +13801,7 @@ function App() {
             detail: item.detail,
             explanation: R_FUNCTION_EXPLANATIONS[item.label],
             example: R_FUNCTION_EXAMPLES[item.label] || `${item.label}(...)`,
+            helpTarget: getRFunctionHelpTarget(item.label),
             info: createRCompletionInfo,
             type: 'function',
             apply: (view, _completion, applyFrom, applyTo) => {
@@ -19369,7 +19680,7 @@ ${attachmentPromptContext || '(none)'}`;
             const syncOptions = consoleSyncOptionsRef.current.shift() || {};
             consoleSyncInFlightRef.current = Math.max(0, consoleSyncInFlightRef.current - 1);
             setRPromptState('ready');
-            if (syncOptions.fallbackToExplorer && file?.path) {
+            if (syncOptions.fallbackToExplorer) {
               syncExplorerToRConsole();
             } else if (!syncOptions.silent) {
               setViewerNotice({
@@ -26411,6 +26722,7 @@ except Exception as _ngr_error:
 
   const resetDatasetWorkspace = (options = {}) => {
     const { preserveData = false, preserveSheets = false, preserveViewState = false } = options;
+    setDatabaseSource(null);
     suspendDatasetUndoTracking();
     datasetUndoInitializedRef.current = false;
     datasetUndoSuspendCountRef.current = 0;
@@ -27097,6 +27409,7 @@ except Exception as _ngr_error:
     analysisSelectionOverride = null,
     loadedRowNames = []
   ) => {
+    setDatabaseSource(null);
     setColumns(loadedColumns);
     setFullData(loadedData);
     setDatasetRowNames(
@@ -27128,6 +27441,50 @@ except Exception as _ngr_error:
         selectedRows: resolvedRows
       });
     }
+  };
+
+  const handleLoadDatabaseTable = async (dataset) => {
+    if (fullData.length > 0 && !window.confirm(`Replace the current dataset with "${dataset.name}"?`)) return false;
+    saveActiveDatasetFile();
+    resetDatasetWorkspace();
+    const sheetName = dataset.name || dataset.target?.table || 'database_table';
+    const databaseColumns = Array.isArray(dataset.columns) ? dataset.columns : [];
+    const primaryKeys = Array.isArray(dataset.primaryKeys) ? dataset.primaryKeys : [];
+    const internalRowId = primaryKeys.find((column) => /^_*data_explorer_row_id$/i.test(column)) || '';
+    const displayColumns = internalRowId
+      ? databaseColumns.filter((column) => column !== internalRowId)
+      : databaseColumns;
+    setFile({ name: sheetName, path: '', isVirtual: true });
+    activeDatasetFileIdRef.current = '';
+    setActiveDatasetFileId('');
+    datasetSheetsRef.current = [sheetName];
+    setDatasetSheets([sheetName]);
+    setActiveSheetName(sheetName);
+    persistSheetDatasetCache(sheetName, displayColumns, dataset.rows);
+    applyLoadedDataset(displayColumns, dataset.rows);
+    setDatabaseSource({
+      target: dataset.target,
+      connectionId: dataset.connectionId,
+      originalRows: dataset.rows,
+      primaryKeys,
+      databaseColumns
+    });
+    setShowViewer(true);
+    setViewerNotice({
+      type: 'success',
+      text: `Loaded ${dataset.rows.length} rows from ${sheetName}${dataset.truncated ? ' (first 10,000 rows only)' : ''}.`
+    });
+    if (isDataExplorerConnectedRef.current && rExplorerSyncModeRef.current === 'auto') {
+      syncExplorerToRConsole(null, sheetName, {
+        columns: displayColumns,
+        rows: dataset.rows
+      });
+    }
+    return true;
+  };
+
+  const handleDatabaseEditsApplied = (rows) => {
+    setDatabaseSource((previous) => previous ? { ...previous, originalRows: rows } : previous);
   };
 
   const saveActiveDatasetFile = () => {
@@ -27264,6 +27621,7 @@ except Exception as _ngr_error:
     }
 
     saveActiveDatasetFile();
+    setDatabaseSource(null);
     activeDatasetFileIdRef.current = fileId;
     setActiveDatasetFileId(fileId);
     setIsDatasetSwitching(true);
@@ -33636,101 +33994,21 @@ except Exception as _ngr_error:
     return status;
   }, [eccDnaFinderForm.sourcePath]);
 
-  // ── micromamba detection ───────────────────────────────────────────────────
-  const checkMicromamba = useCallback(async () => {
-    if (!window.electronAPI?.runTerminalCmd) {
-      setMicromambaStatus({ found: false, version: '', path: '', reason: 'no-electron' });
-      return;
-    }
-    setIsMicromambaChecking(true);
-    try {
-      // Try to get path and version in one shot
-      const res = await window.electronAPI.runTerminalCmd('which micromamba 2>/dev/null && micromamba --version 2>/dev/null');
-      const stdout = (res?.stdout || '').trim();
-      if (res?.success && stdout) {
-        const lines = stdout.split('\n').map((l) => l.trim()).filter(Boolean);
-        const path = lines[0] || 'micromamba';
-        const version = lines[1] || 'installed';
-        setMicromambaStatus({ found: true, version, path });
-      } else {
-        // Fallback: try micromamba --version directly (works if on PATH without which)
-        const res2 = await window.electronAPI.runTerminalCmd('micromamba --version 2>/dev/null');
-        const v = (res2?.stdout || '').trim();
-        if (res2?.success && v) {
-          setMicromambaStatus({ found: true, version: v, path: 'micromamba' });
-        } else {
-          setMicromambaStatus({ found: false, version: '', path: '' });
-        }
-      }
-    } catch (err) {
-      setMicromambaStatus({ found: false, version: '', path: '', reason: err?.message });
-    } finally {
-      setIsMicromambaChecking(false);
-    }
-  }, []);
-
-  const handleMicromambaMenuToggle = useCallback(async () => {
-    if (isMicromambaMenuOpen) {
-      setIsMicromambaMenuOpen(false);
-      return;
-    }
-    setIsMicromambaMenuOpen(true);
-    setIsMicromambaListLoading(true);
-    try {
-      const response = await window.electronAPI?.getMicromambaEnvironments?.();
-      if (response?.success) {
-        setMicromambaEnvironments(Array.isArray(response.envs) ? response.envs : []);
-        setMicromambaStatus({ found: true, version: response.version || '', path: response.path || '', needsUpdate: false });
-      } else {
-        setMicromambaEnvironments([]);
-        setMicromambaStatus({ found: false, version: '', path: '', error: response?.error || 'Micromamba was not found.' });
-      }
-    } catch (error) {
-      setMicromambaEnvironments([]);
-      setMicromambaStatus({ found: false, version: '', path: '', error: error?.message || 'Could not list Micromamba environments.' });
-    } finally {
-      setIsMicromambaListLoading(false);
-    }
-  }, [isMicromambaMenuOpen]);
-
-  const handleOpenMicromambaEnvScript = useCallback(async (environment) => {
-    setIsMicromambaMenuOpen(false);
-    try {
-      const response = await window.electronAPI?.getMicromambaEnvScript?.(environment.name);
-      if (!response?.success) {
-        window.alert(response?.error || 'Could not open this environment script.');
-        return;
-      }
-      const content = String(response.content || '');
-      setMicromambaScriptEditor({ ...response, content, originalContent: content });
-      setMicromambaScriptSaveStatus('');
-    } catch (error) {
-      window.alert(error?.message || 'Could not open this environment script.');
-    }
-  }, []);
-
-  const handleSaveMicromambaEnvScript = useCallback(async () => {
-    if (!micromambaScriptEditor || isMicromambaScriptSaving) return;
-    setIsMicromambaScriptSaving(true);
-    setMicromambaScriptSaveStatus('Saving...');
-    try {
-      const response = await window.electronAPI?.saveMicromambaEnvScript?.({
-        environmentName: micromambaScriptEditor.environment.name,
-        content: micromambaScriptEditor.content
-      });
-      if (!response?.success) throw new Error(response?.error || 'Could not save the environment script.');
-      setMicromambaScriptEditor((current) => current ? { ...current, originalContent: current.content } : current);
-      setMicromambaScriptSaveStatus('Saved');
-    } catch (error) {
-      setMicromambaScriptSaveStatus(error?.message || 'Could not save the environment script.');
-    } finally {
-      setIsMicromambaScriptSaving(false);
-    }
-  }, [isMicromambaScriptSaving, micromambaScriptEditor]);
-
-  useEffect(() => {
-    checkMicromamba();
-  }, [checkMicromamba]);
+  const {
+    micromambaStatus,
+    isMicromambaChecking,
+    micromambaEnvironments,
+    isMicromambaMenuOpen,
+    isMicromambaListLoading,
+    micromambaScriptEditor,
+    isMicromambaScriptSaving,
+    micromambaScriptSaveStatus,
+    handleMicromambaMenuToggle,
+    handleOpenMicromambaEnvScript,
+    handleSaveMicromambaEnvScript,
+    handleMicromambaScriptEditorClose,
+    handleMicromambaScriptContentChange
+  } = useMicromamba();
 
   const appendFastqcLog = useCallback((text) => {
     setFastqcLog((previous) => {
@@ -35085,6 +35363,9 @@ except Exception as _ngr_error:
                         aboveCursor: false,
                         tooltipClass: () => 'cm-r-completions-left'
                       }), tooltips({ position: 'absolute' }), selectRCompletionOnHover] : []),
+                      ...(editorLanguage === 'r' ? [editorHelpTooltipField, EditorView.domEventHandlers({
+                        click: handleRFunctionHelpClick
+                      })] : []),
                       ...(editorLanguage === 'r' ? [createRMarkdownChunkRunExtension(
                         (code, chunkIndex) => runEditorSelection(code, { chunkIndex }),
                         deleteRMarkdownChunk,
@@ -40806,9 +41087,10 @@ except Exception as _ngr_error:
       <header className="fixed top-0 left-14 right-0 z-[220] h-12 border-b border-slate-900 bg-black/95 shadow-xl">
         <div className="h-full px-3 sm:px-4 flex items-center gap-2 overflow-visible">
           <div ref={topMenuRef} className="relative flex items-center gap-2 shrink-0">
-            {['File', 'Edit', 'View', 'Help'].map((label) => {
+            {['File', 'Database', 'View', 'Help'].map((label) => {
               const isFileMenu = label === 'File';
-              const isActive = activeTopMenu === label;
+              const isDatabaseMenu = label === 'Database';
+              const isActive = isDatabaseMenu ? databasePanelOpen : activeTopMenu === label;
               return (
                 <div key={label} className="relative shrink-0">
                   <button
@@ -40818,13 +41100,18 @@ except Exception as _ngr_error:
                         setActiveTopMenu((prev) => (prev === label ? '' : label));
                         return;
                       }
+                      if (isDatabaseMenu) {
+                        setActiveTopMenu('');
+                        setDatabasePanelOpen((isOpen) => !isOpen);
+                        return;
+                      }
                       setActiveTopMenu('');
                     }}
                     className={`h-8 px-3 rounded-md border text-[10px] sm:text-[11px] font-black uppercase tracking-[0.12em] transition-colors ${isActive
                       ? mainBarActiveClass
                       : mainBarIdleClass
                       }`}
-                    title={label}
+                    title={isDatabaseMenu ? 'Connect to a database' : label}
                   >
                     {isFileMenu ? (
                       <span className="inline-flex items-center gap-1.5">
@@ -41044,6 +41331,15 @@ except Exception as _ngr_error:
 
         </div>
       </header>
+
+      <DatabaseConnectionPanel
+        isOpen={databasePanelOpen}
+        onOpenChange={setDatabasePanelOpen}
+        onLoadTable={handleLoadDatabaseTable}
+        datasetName={datasetDisplayName}
+        rows={fullData}
+        columns={columns}
+      />
 
       {/* Lateral Tool Bar */}
       <aside className="fixed left-0 top-0 z-[170] h-screen w-14 rounded-none border border-slate-900 bg-black shadow-xl flex flex-col items-center py-2">
@@ -41314,11 +41610,7 @@ except Exception as _ngr_error:
           <DraggableWindow
             id="micromamba-env-script-editor"
             title={`${micromambaScriptEditor.environment?.name === 'fastq_quality' ? 'FastQC' : micromambaScriptEditor.environment?.name} environment script`}
-            onClose={() => {
-              if (micromambaScriptEditor.content !== micromambaScriptEditor.originalContent
-                && !window.confirm('Discard unsaved script changes?')) return;
-              setMicromambaScriptEditor(null);
-            }}
+            onClose={handleMicromambaScriptEditorClose}
             onFocus={() => handleWindowFocus('micromamba-env-script-editor')}
             zIndex={100000}
             initialPosition={{ x: 140, y: 100 }}
@@ -41332,7 +41624,7 @@ except Exception as _ngr_error:
               <div className="min-h-0 flex-1">
                 <CodeMirror
                   value={micromambaScriptEditor.content}
-                  onChange={(content) => setMicromambaScriptEditor((current) => current ? { ...current, content } : current)}
+                  onChange={handleMicromambaScriptContentChange}
                   height="100%"
                   theme={activeCodeMirrorTheme}
                   basicSetup={{ lineNumbers: true, foldGutter: true }}
@@ -41609,6 +41901,9 @@ except Exception as _ngr_error:
                           aboveCursor: false,
                           tooltipClass: () => 'cm-r-completions-left'
                         }), tooltips({ position: 'absolute' }), selectRCompletionOnHover] : []),
+                        ...(editorLanguage === 'r' ? [editorHelpTooltipField, EditorView.domEventHandlers({
+                          click: handleRFunctionHelpClick
+                        })] : []),
                         ...(editorLanguage === 'r' ? [createRMarkdownChunkRunExtension(
                           (code, chunkIndex) => runEditorSelection(code, { chunkIndex }),
                           deleteRMarkdownChunk,
@@ -49780,6 +50075,8 @@ except Exception as _ngr_error:
                 handleRenameSheet={handleRenameSheet}
                 handleDeleteSheet={handleDeleteSheet}
                 sourceFileName={datasetDisplayName}
+                databaseSource={databaseSource}
+                onDatabaseEditsApplied={handleDatabaseEditsApplied}
                 isVirtualSource={!hasPhysicalDatasetFile}
                 addColumnName={addColumnName} setAddColumnName={setAddColumnName}
                 addColumnValue={addColumnValue} setAddColumnValue={setAddColumnValue}
@@ -49941,6 +50238,8 @@ except Exception as _ngr_error:
                   handleRenameSheet={handleRenameSheet}
                   handleDeleteSheet={handleDeleteSheet}
                   sourceFileName={datasetDisplayName}
+                  databaseSource={databaseSource}
+                  onDatabaseEditsApplied={handleDatabaseEditsApplied}
                   isVirtualSource={!hasPhysicalDatasetFile}
                   addColumnName={addColumnName} setAddColumnName={setAddColumnName}
                   addColumnValue={addColumnValue} setAddColumnValue={setAddColumnValue}

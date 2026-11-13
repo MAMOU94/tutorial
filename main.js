@@ -1,5 +1,5 @@
 
-const { app, BrowserWindow, ipcMain, dialog, session, shell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, session, shell, Menu, net } = require('electron');
 const path = require('path');
 const url = require('url');
 const crypto = require('crypto');
@@ -2415,6 +2415,36 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  const databaseConnector = require('./database_connector');
+  ipcMain.handle('database-list-drivers', async () => {
+    try { return { success: true, drivers: databaseConnector.listDrivers() }; }
+    catch (error) { return { success: false, error: error?.message || 'Could not list ODBC drivers.' }; }
+  });
+  ipcMain.handle('database-connect', async (_event, connectionString, dialectHint) => {
+    try { return await databaseConnector.connect(connectionString, dialectHint); }
+    catch (error) { return { success: false, error: error?.message || 'Could not connect to the database.' }; }
+  });
+  ipcMain.handle('database-list-tables', async (_event, connectionId) => {
+    try { return { success: true, tables: await databaseConnector.listTables(connectionId) }; }
+    catch (error) { return { success: false, error: error?.message || 'Could not list database tables.' }; }
+  });
+  ipcMain.handle('database-read-table', async (_event, target) => {
+    try { return { success: true, ...(await databaseConnector.readTable(target)) }; }
+    catch (error) { return { success: false, error: error?.message || 'Could not read the selected table.' }; }
+  });
+  ipcMain.handle('database-apply-cell-edits', async (_event, payload) => {
+    try { return await databaseConnector.applyCellEdits(payload || {}); }
+    catch (error) { return { success: false, error: error?.message || 'Could not apply database changes.' }; }
+  });
+  ipcMain.handle('database-save-dataset', async (_event, payload) => {
+    try { return await databaseConnector.saveDataset(payload || {}); }
+    catch (error) { return { success: false, error: error?.message || 'Could not save the dataset to the database.' }; }
+  });
+  ipcMain.handle('database-disconnect', async () => {
+    try { return await databaseConnector.disconnect(); }
+    catch (error) { return { success: false, error: error?.message || 'Could not disconnect from the database.' }; }
+  });
+
   const initialRSelection = await setSelectedRVersion();
   if (!initialRSelection.success) console.warn('[R version selection]', initialRSelection.error);
 
@@ -4809,6 +4839,28 @@ app.whenReady().then(async () => {
   const rConsoleProcesses = { r: null, python: null };
   let rConsoleLanguage = 'r';
 
+  ipcMain.handle('get-r-function-help', async (_event, packageName, functionName, isBase = false) => {
+    const pkg = String(packageName || '');
+    const topic = String(functionName || '');
+    if (!/^[A-Za-z][A-Za-z0-9.]*$/.test(pkg) || !/^[A-Za-z][A-Za-z0-9.]*$/.test(topic)) return null;
+
+    const collection = isBase ? 'R/refmans' : 'CRAN/refmans';
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await net.fetch(
+        `https://search.r-project.org/${collection}/${encodeURIComponent(pkg)}/html/${encodeURIComponent(topic)}.html`,
+        { signal: controller.signal }
+      );
+      if (!response.ok) return null;
+      return (await response.text()).slice(0, 500000);
+    } catch (_) {
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
+  });
+
   ipcMain.handle('start-r-console', (event, requestedLanguage = 'r') => {
     const language = String(requestedLanguage || 'r').toLowerCase() === 'python' ? 'python' : 'r';
     if (rConsoleProcesses[language]) {
@@ -6267,16 +6319,28 @@ app.whenReady().then(async () => {
   });
 
 
+  const getOpenCodeEnv = () => {
+    const homeDir = os.homedir();
+    const nvmVersionsDir = path.join(process.env.NVM_DIR || path.join(homeDir, '.nvm'), 'versions', 'node');
+    const nvmBinDirs = fs.existsSync(nvmVersionsDir)
+      ? fs.readdirSync(nvmVersionsDir).map((version) => path.join(nvmVersionsDir, version, 'bin'))
+      : [];
+    return {
+      ...process.env,
+      PATH: [process.env.PATH, path.join(homeDir, '.local', 'bin'), ...nvmBinDirs].filter(Boolean).join(path.delimiter)
+    };
+  };
+
   ipcMain.handle('get-opencode-models', async (event, requestedDirectory) => {
     const cwd = typeof requestedDirectory === 'string' && path.isAbsolute(requestedDirectory)
       && fs.existsSync(requestedDirectory) && fs.statSync(requestedDirectory).isDirectory()
       ? requestedDirectory
-      : process.cwd();
+      : os.homedir();
 
     return new Promise((resolve) => {
       execFile('opencode', ['models'], {
         cwd,
-        env: { ...process.env, PATH: `${process.env.PATH || ''}:${path.join(os.homedir(), '.local', 'bin')}` },
+        env: getOpenCodeEnv(),
         timeout: 30000,
         maxBuffer: 1024 * 1024
       }, (error, stdout = '', stderr = '') => {
@@ -6298,7 +6362,7 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('get-opencode-auth-status', async () => new Promise((resolve) => {
     execFile('opencode', ['auth', 'list'], {
-      env: { ...process.env, PATH: `${process.env.PATH || ''}:${path.join(os.homedir(), '.local', 'bin')}` },
+      env: getOpenCodeEnv(),
       timeout: 15000,
       maxBuffer: 256 * 1024
     }, (error, stdout = '', stderr = '') => {
@@ -6330,7 +6394,7 @@ app.whenReady().then(async () => {
     return new Promise((resolve) => {
       const child = spawn('opencode', args, {
         cwd,
-        env: { ...process.env, PATH: `${process.env.PATH || ''}:${path.join(os.homedir(), '.local', 'bin')}` },
+        env: getOpenCodeEnv(),
         stdio: ['ignore', 'pipe', 'pipe']
       });
       openCodeActiveProcess = child;
