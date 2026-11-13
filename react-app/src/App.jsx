@@ -16331,6 +16331,13 @@ ${historyContext || '(none)'}`;
     const sourceDataExplorerFilePath = includeDataExplorerContext
       ? String(file?.path || '').trim()
       : '';
+    const sourceDatabaseTable = includeDataExplorerContext && databaseSource?.target
+      ? [databaseSource.target.catalog, databaseSource.target.schema, databaseSource.target.table]
+        .filter(Boolean)
+        .map((part) => String(part).trim())
+        .filter(Boolean)
+        .join('.')
+      : '';
     const datasetName = includeDataExplorerContext
       ? (activeDataExplorerSheetName || sourceDataExplorerFileName || 'In-memory data frame')
       : '';
@@ -16399,11 +16406,15 @@ ${historyContext || '(none)'}`;
     const datasetContextMeta = includeDataExplorerContext
       ? [
         `dataset_name: ${datasetName}`,
+        `source_type: ${sourceDatabaseTable ? 'database table' : (sourceDataExplorerFilePath ? 'local file' : 'in-memory dataset')}`,
+        ...(sourceDatabaseTable ? [`source_database_table: ${sourceDatabaseTable}`] : []),
         `active_sheet_name: ${activeDataExplorerSheetName || '(none)'}`,
         `source_file_name: ${sourceDataExplorerFileName || '(created/in-memory Data Explorer dataset)'}`,
-        `source_file_path: ${sourceDataExplorerFilePath || '(not available; use source_file_name if an explicit import is requested)'}`,
+        `source_file_path: ${sourceDatabaseTable ? '(not applicable; this table has no local file path)' : (sourceDataExplorerFilePath || '(not available)')}`,
         `preferred_r_dataframe_name: ${preferredDataFrameName || 'dataset'}`,
-        `data_explorer_code_rule: when using connected Data Explorer data, reuse the active sheet as the dataframe object named ${preferredDataFrameName || 'dataset'}; do not invent a generic df/data name. The active sheet name is a worksheet label, not proof that an R object already exists. If upload/import/reload is explicitly requested, read source_file_path/source_file_name, select active_sheet_name when the source is an Excel workbook, and assign the result to ${preferredDataFrameName || 'dataset'} before transforming it. Do not solve an import request with only exists("${preferredDataFrameName || 'dataset'}").`,
+        `data_explorer_code_rule: when using connected Data Explorer data, reuse the active sheet as the dataframe object named ${preferredDataFrameName || 'dataset'}; do not invent a generic df/data name. The active sheet name is a worksheet label, not proof that an R object already exists. ${sourceDatabaseTable
+          ? `The active dataset is database table ${sourceDatabaseTable}, already loaded in Data Explorer and synced to Advanced Mode when the Data Explorer connection is enabled; it is not a local file. Never pass its name to read.csv/read_excel or invent a file path. Use ${preferredDataFrameName || 'dataset'} directly, and do not emit an exists() check that stops before the requested code.`
+          : `If upload/import/reload is explicitly requested, use source_file_path/source_file_name and select active_sheet_name when the source is an Excel workbook, then assign it to ${preferredDataFrameName || 'dataset'} before transforming it.`} Do not solve an import request with only exists("${preferredDataFrameName || 'dataset'}").`,
         `row_count: ${datasetRows.length}`,
         `column_count: ${datasetColumns.length}`,
         `schema_columns_included: ${schemaColumns.length}`,
@@ -16459,6 +16470,7 @@ ${historyContext || '(none)'}`;
         activeDataExplorerSheetName,
         sourceDataExplorerFileName,
         sourceDataExplorerFilePath,
+        sourceDatabaseTable,
         preferredDataFrameName
       }
     };
@@ -19852,13 +19864,17 @@ ${attachmentPromptContext || '(none)'}`;
   useEffect(() => {
     if (isDataExplorerConnected) {
       if (editorLanguage === 'r') {
-        syncRDataToExplorer({
-          showViewer: false,
-          silent: true,
-          captureMemory: true,
-          syncToExplorer: true,
-          fallbackToExplorer: true
-        });
+        if (databaseSource?.target) {
+          syncExplorerToRConsole(null, activeSheetName, { columns, rows: fullData }, true);
+        } else {
+          syncRDataToExplorer({
+            showViewer: false,
+            silent: true,
+            captureMemory: true,
+            syncToExplorer: true,
+            fallbackToExplorer: true
+          });
+        }
       } else if (editorLanguage === 'python') {
         syncPythonDataToMemory('', {
           showViewer: false,
@@ -20455,10 +20471,10 @@ except Exception as _ngr_error:
     }
   };
 
-  const syncExplorerToRConsole = async (forcePath = null, forceSheet = null, inMemoryDataset = null) => {
+  const syncExplorerToRConsole = async (forcePath = null, forceSheet = null, inMemoryDataset = null, allowManualSync = false) => {
     if (
       editorLanguage !== 'r'
-      || rExplorerSyncModeRef.current !== 'auto'
+      || (rExplorerSyncModeRef.current !== 'auto' && !allowManualSync)
       || !isDataExplorerConnectedRef.current
       || !window.electronAPI?.sendRConsole
     ) return;
@@ -27474,11 +27490,11 @@ except Exception as _ngr_error:
       type: 'success',
       text: `Loaded ${dataset.rows.length} rows from ${sheetName}${dataset.truncated ? ' (first 10,000 rows only)' : ''}.`
     });
-    if (isDataExplorerConnectedRef.current && rExplorerSyncModeRef.current === 'auto') {
+    if (isDataExplorerConnectedRef.current) {
       syncExplorerToRConsole(null, sheetName, {
         columns: displayColumns,
         rows: dataset.rows
-      });
+      }, true);
     }
     return true;
   };
