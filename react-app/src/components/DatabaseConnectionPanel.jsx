@@ -400,7 +400,7 @@ export default function DatabaseConnectionPanel({
             aria-modal="false"
             aria-labelledby="database-connect-title"
             style={{ left: 0, top: 0, transform: `translate3d(${panelPosition.x}px, ${panelPosition.y}px, 0)`, transition: 'transform 300ms cubic-bezier(0.22, 1, 0.36, 1)' }}
-            className="pointer-events-auto fixed left-0 top-0 flex max-h-[calc(100vh-3rem)] w-[min(64rem,calc(100vw-4rem))] flex-col overflow-hidden rounded-lg border border-[#292929] bg-[#101010] text-[#e4e4e7] shadow-[0_20px_60px_rgba(0,0,0,0.75)] will-change-transform"
+            className="pointer-events-auto fixed left-0 top-0 flex max-h-[calc(100vh-2rem)] w-[min(88rem,calc(100vw-3rem))] flex-col overflow-hidden rounded-lg border border-[#292929] bg-[#101010] text-[#e4e4e7] shadow-[0_20px_60px_rgba(0,0,0,0.75)] will-change-transform"
             data-dragging="false"
           >
             <header
@@ -410,8 +410,8 @@ export default function DatabaseConnectionPanel({
               <div className="flex items-center gap-2"><GripVertical size={14} aria-hidden="true" className="text-[#71717a]" /><Database size={17} className="text-[#a1a1aa]" /><div><h2 id="database-connect-title" className="text-sm font-medium">Connect to a database</h2><p className="mt-1 text-xs text-[#a1a1aa]">Enter the connection details, then choose a table to load.</p></div></div>
               <button type="button" aria-label="Close" onClick={() => setOpen(false)} className="rounded-md p-1.5 text-[#a1a1aa] hover:bg-[#252525] hover:text-[#e4e4e7]"><X size={16} /></button>
             </header>
-            <div className="grid min-h-0 grid-cols-1 gap-5 overflow-y-auto p-5 lg:grid-cols-[1.05fr_0.95fr]">
-              <form onSubmit={connect} className="space-y-4">
+            <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.78fr)_minmax(20rem,0.9fr)] xl:overflow-hidden">
+              <form onSubmit={connect} className={`min-w-0 space-y-3 xl:overflow-y-auto xl:pr-1 ${connected ? '' : 'xl:col-span-2'}`}>
                 <div className="grid grid-cols-2 gap-2 rounded-md border border-[#292929] bg-[#0d0d0d] p-1.5">
                   <button type="button" disabled={connected || busy} onClick={() => setConnectionMode('driver')} aria-pressed={connectionMode === 'driver'} className={`rounded px-3 py-2 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#a1a1aa] disabled:opacity-50 ${connectionMode === 'driver' ? 'bg-[#252525] text-[#e4e4e7]' : 'text-[#a1a1aa] hover:text-[#e4e4e7]'}`}>Driver details</button>
                   <button type="button" disabled={connected || busy} onClick={() => setConnectionMode('dsn')} aria-pressed={connectionMode === 'dsn'} className={`rounded px-3 py-2 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#a1a1aa] disabled:opacity-50 ${connectionMode === 'dsn' ? 'bg-[#252525] text-[#e4e4e7]' : 'text-[#a1a1aa] hover:text-[#e4e4e7]'}`}>Saved DSN</button>
@@ -447,32 +447,32 @@ export default function DatabaseConnectionPanel({
                     <button type="button" disabled={busy} onClick={disconnect} className="rounded-md border border-[#303034] px-4 py-2.5 text-xs text-[#d4d4d8] hover:bg-[#252525]">Disconnect</button>
                   )}
                 </div>
-                {connected && (
-                  <>
-                  <section className="space-y-3 rounded-md border border-[#292929] bg-[#0d0d0d] p-3.5">
-                    <div>
-                      <h3 className="text-xs font-medium text-[#e4e4e7]">Database access</h3>
-                      <p className="mt-1 text-[11px] leading-relaxed text-[#a1a1aa]">{databaseSource ? <>DEM stays editable in either mode. Read/write applies DEM changes to {tableLabel(databaseSource.target)} as you make them.</> : 'DEM edits stay local. Enable Read / write to save a new table to this database.'}</p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1 rounded-md border border-[#292929] bg-[#090909] p-1">
-                      <button type="button" aria-pressed={databaseAccessMode === 'read-only'} onClick={() => onDatabaseAccessModeChange?.('read-only')} className={`rounded px-2 py-2 text-[11px] font-medium ${databaseAccessMode === 'read-only' ? 'bg-[#292929] text-[#f4f4f5]' : 'text-[#a1a1aa] hover:text-[#e4e4e7]'}`}>Read only</button>
-                      <button type="button" aria-pressed={databaseAccessMode === 'read-write'} disabled={Boolean(databaseWriteDisabledReason)} onClick={() => onDatabaseAccessModeChange?.('read-write')} title={databaseWriteDisabledReason || 'Apply DEM changes live to this database table'} className={`rounded px-2 py-2 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-40 ${databaseAccessMode === 'read-write' ? 'bg-[#343434] text-[#fff]' : 'text-[#a1a1aa] hover:text-[#e4e4e7]'}`}>Read / write</button>
-                    </div>
-                    {databaseAccessMode === 'read-write' ? <p role="status" className="text-[11px] leading-relaxed text-[#d4d4d8]">{databaseSource ? 'Changes are being written live. Use Read only to stop future writes.' : 'Write access is enabled for saving a new table. Existing DEM edits are still local.'}</p> : databaseWriteDisabledReason ? <p className="text-[11px] leading-relaxed text-[#a1a1aa]">{databaseWriteDisabledReason}</p> : <p className="text-[11px] leading-relaxed text-[#a1a1aa]">DEM edits stay local until Read / write is enabled.</p>}
-                  </section>
-                  <section className="space-y-3 rounded-md border border-[#292929] bg-[#0d0d0d] p-3.5">
-                    <div>
-                      <h3 className="text-xs font-medium text-[#e4e4e7]">Save current dataset</h3>
-                      <p className="mt-1 text-[11px] leading-relaxed text-[#a1a1aa]">Creates a new table with {rows?.length || 0} rows and a generated row ID. Existing tables are never replaced.</p>
-                    </div>
-                    <label className="block"><span className={labelClass}>New table name</span><input value={destinationTable} onChange={(event) => setDestinationTable(event.target.value)} disabled={busy} autoComplete="off" placeholder="for example, experiment_data" className={inputClass} /></label>
-                    {databaseAccessMode !== 'read-write' && <p className="text-[11px] leading-relaxed text-[#a1a1aa]">Enable Read / write to save data to this database.</p>}
-                    <button type="button" disabled={busy || databaseAccessMode !== 'read-write' || !rows?.length || !columns?.length || !destinationTable.trim()} onClick={saveDataset} className="inline-flex items-center gap-2 rounded-md bg-[#292929] px-3 py-2 text-xs font-medium text-[#f4f4f5] hover:bg-[#3a3a3a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a1a1aa] disabled:opacity-50">{busy ? <Loader2 size={14} className="animate-spin" /> : <Database size={14} />}Save dataset to database</button>
-                  </section>
-                  </>
-                )}
               </form>
-              <div className="flex min-h-[300px] flex-col overflow-hidden rounded-md border border-[#292929] bg-[#0d0d0d]">
+              {connected && (
+                <div className="min-w-0 space-y-3">
+                    <section className="space-y-3 rounded-md border border-[#292929] bg-[#0d0d0d] p-3.5">
+                      <div>
+                        <h3 className="text-xs font-medium text-[#e4e4e7]">Database access</h3>
+                        <p className="mt-1 text-[11px] leading-relaxed text-[#a1a1aa]">{databaseSource ? <>DEM stays editable in either mode. Read/write applies DEM changes to {tableLabel(databaseSource.target)} as you make them.</> : 'DEM edits stay local. Enable Read / write to save a new table to this database.'}</p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-1 rounded-md border border-[#292929] bg-[#090909] p-1">
+                        <button type="button" aria-pressed={databaseAccessMode === 'read-only'} onClick={() => onDatabaseAccessModeChange?.('read-only')} className={`rounded px-2 py-2 text-[11px] font-medium ${databaseAccessMode === 'read-only' ? 'bg-[#292929] text-[#f4f4f5]' : 'text-[#a1a1aa] hover:text-[#e4e4e7]'}`}>Read only</button>
+                        <button type="button" aria-pressed={databaseAccessMode === 'read-write'} disabled={Boolean(databaseWriteDisabledReason)} onClick={() => onDatabaseAccessModeChange?.('read-write')} title={databaseWriteDisabledReason || 'Apply DEM changes live to this database table'} className={`rounded px-2 py-2 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-40 ${databaseAccessMode === 'read-write' ? 'bg-[#343434] text-[#fff]' : 'text-[#a1a1aa] hover:text-[#e4e4e7]'}`}>Read / write</button>
+                      </div>
+                      {databaseAccessMode === 'read-write' ? <p role="status" className="text-[11px] leading-relaxed text-[#d4d4d8]">{databaseSource ? 'Changes are being written live. Use Read only to stop future writes.' : 'Write access is enabled for saving a new table. Existing DEM edits are still local.'}</p> : databaseWriteDisabledReason ? <p className="text-[11px] leading-relaxed text-[#a1a1aa]">{databaseWriteDisabledReason}</p> : <p className="text-[11px] leading-relaxed text-[#a1a1aa]">DEM edits stay local until Read / write is enabled.</p>}
+                    </section>
+                    <section className="space-y-3 rounded-md border border-[#292929] bg-[#0d0d0d] p-3.5">
+                      <div>
+                        <h3 className="text-xs font-medium text-[#e4e4e7]">Save current dataset</h3>
+                        <p className="mt-1 text-[11px] leading-relaxed text-[#a1a1aa]">Creates a new table with {rows?.length || 0} rows and a generated row ID. Existing tables are never replaced.</p>
+                      </div>
+                      <label className="block"><span className={labelClass}>New table name</span><input value={destinationTable} onChange={(event) => setDestinationTable(event.target.value)} disabled={busy} autoComplete="off" placeholder="for example, experiment_data" className={inputClass} /></label>
+                      {databaseAccessMode !== 'read-write' && <p className="text-[11px] leading-relaxed text-[#a1a1aa]">Enable Read / write to save data to this database.</p>}
+                      <button type="button" disabled={busy || databaseAccessMode !== 'read-write' || !rows?.length || !columns?.length || !destinationTable.trim()} onClick={saveDataset} className="inline-flex items-center gap-2 rounded-md bg-[#292929] px-3 py-2 text-xs font-medium text-[#f4f4f5] hover:bg-[#3a3a3a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a1a1aa] disabled:opacity-50">{busy ? <Loader2 size={14} className="animate-spin" /> : <Database size={14} />}Save dataset to database</button>
+                    </section>
+                </div>
+              )}
+              <div className="flex min-h-[260px] min-w-0 flex-col overflow-hidden rounded-md border border-[#292929] bg-[#0d0d0d] xl:min-h-0">
                 <div className="border-b border-[#292929] p-3.5">
                   <div className="mb-3 flex items-center justify-between"><h3 className="text-xs font-medium text-[#e4e4e7]">Tables and views</h3><span className="text-[11px] tabular-nums text-[#a1a1aa]">{tables.length}</span></div>
                   <div className="relative"><Search size={14} className="absolute left-3 top-2.5 text-[#71717a]" /><input value={search} onChange={(event) => setSearch(event.target.value)} aria-label="Search tables" placeholder="Search by name or schema" disabled={!connected} className={`${inputClass} pl-9`} /></div>
@@ -488,7 +488,7 @@ export default function DatabaseConnectionPanel({
               </div>
             </div>
             <footer aria-live="polite" className="min-h-10 border-t border-[#292929] px-5 py-2.5 text-xs">
-              {error ? <p className="text-[#e5a4a4]">{error}</p> : notice ? <p className="text-[#d4d4d8]">{notice}</p> : <p className="text-[#a1a1aa]">Table contents stay read-only until you load one into Data Explorer.</p>}
+              {error ? <p className="text-[#e5a4a4]">{error}</p> : notice ? <p className="text-[#d4d4d8]">{notice}</p> : connected && databaseSource ? <p className="text-[#a1a1aa]">{databaseAccessMode === 'read-write' ? 'DEM changes are written to the selected table as you edit.' : 'DEM stays editable; database changes are off.'}</p> : <p className="text-[#a1a1aa]">Choose a table to load it into Data Explorer.</p>}
             </footer>
           </section>
         </div>
