@@ -410,8 +410,8 @@ export default function DatabaseConnectionPanel({
               <div className="flex items-center gap-2"><GripVertical size={14} aria-hidden="true" className="text-[#71717a]" /><Database size={17} className="text-[#a1a1aa]" /><div><h2 id="database-connect-title" className="text-sm font-medium">Connect to a database</h2><p className="mt-1 text-xs text-[#a1a1aa]">Enter the connection details, then choose a table to load.</p></div></div>
               <button type="button" aria-label="Close" onClick={() => setOpen(false)} className="rounded-md p-1.5 text-[#a1a1aa] hover:bg-[#252525] hover:text-[#e4e4e7]"><X size={16} /></button>
             </header>
-            <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.78fr)_minmax(20rem,0.9fr)] xl:overflow-hidden">
-              <form onSubmit={connect} className={`min-w-0 space-y-3 xl:overflow-y-auto xl:pr-1 ${connected ? '' : 'xl:col-span-2'}`}>
+            <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto p-3 xl:grid-cols-[minmax(0,1.2fr)_minmax(15rem,0.7fr)_minmax(19rem,1fr)] xl:overflow-hidden">
+              <form id="database-connection-form" onSubmit={connect} className="min-w-0 space-y-2.5 xl:overflow-y-auto xl:pr-1">
                 <div className="grid grid-cols-2 gap-2 rounded-md border border-[#292929] bg-[#0d0d0d] p-1.5">
                   <button type="button" disabled={connected || busy} onClick={() => setConnectionMode('driver')} aria-pressed={connectionMode === 'driver'} className={`rounded px-3 py-2 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#a1a1aa] disabled:opacity-50 ${connectionMode === 'driver' ? 'bg-[#252525] text-[#e4e4e7]' : 'text-[#a1a1aa] hover:text-[#e4e4e7]'}`}>Driver details</button>
                   <button type="button" disabled={connected || busy} onClick={() => setConnectionMode('dsn')} aria-pressed={connectionMode === 'dsn'} className={`rounded px-3 py-2 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#a1a1aa] disabled:opacity-50 ${connectionMode === 'dsn' ? 'bg-[#252525] text-[#e4e4e7]' : 'text-[#a1a1aa] hover:text-[#e4e4e7]'}`}>Saved DSN</button>
@@ -439,40 +439,33 @@ export default function DatabaseConnectionPanel({
                   <label className="block"><span className={labelClass}>Password</span><input type="password" value={password} disabled={connected || busy} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" placeholder="Database password" className={inputClass} /></label>
                 </div>
                 <label className="block"><span className={labelClass}>Additional ODBC options <span className="font-normal text-[#77827e]">(optional)</span></span><input value={extraOptions} disabled={connected || busy} onChange={(event) => setExtraOptions(event.target.value)} autoComplete="off" placeholder="For example: Encrypt=yes" className={inputClass} /></label>
-                <p className="text-[11px] leading-relaxed text-[#a1a1aa]">Passwords stay in memory for this app session. Install the matching ODBC driver on this computer.</p>
-                <div className="flex gap-2">
+                <p className="text-[10px] leading-relaxed text-[#a1a1aa]">Passwords stay in memory for this app session. Install the matching ODBC driver on this computer.</p>
+              </form>
+              <section className="min-w-0 space-y-3 rounded-md border border-[#292929] bg-[#0d0d0d] p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-xs font-medium text-[#e4e4e7]">Database access</h3>
                   {!connected ? (
-                    <button disabled={busy} className="inline-flex items-center gap-2 rounded-md bg-[#292929] px-4 py-2.5 text-xs font-medium text-[#f4f4f5] hover:bg-[#3a3a3a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a1a1aa] disabled:opacity-50">{busy ? <Loader2 size={14} className="animate-spin" /> : <PlugZap size={14} />}Connect</button>
+                    <button type="submit" form="database-connection-form" disabled={busy} className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-[#292929] px-3 py-2 text-xs font-medium text-[#f4f4f5] hover:bg-[#3a3a3a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a1a1aa] disabled:opacity-50">{busy ? <Loader2 size={13} className="animate-spin" /> : <PlugZap size={13} />}Connect</button>
                   ) : (
-                    <button type="button" disabled={busy} onClick={disconnect} className="rounded-md border border-[#303034] px-4 py-2.5 text-xs text-[#d4d4d8] hover:bg-[#252525]">Disconnect</button>
+                    <button type="button" disabled={busy} onClick={disconnect} className="shrink-0 rounded-md border border-[#303034] px-3 py-2 text-xs text-[#d4d4d8] hover:bg-[#252525]">Disconnect</button>
                   )}
                 </div>
-              </form>
-              {connected && (
-                <div className="min-w-0 space-y-3">
-                    <section className="space-y-3 rounded-md border border-[#292929] bg-[#0d0d0d] p-3.5">
-                      <div>
-                        <h3 className="text-xs font-medium text-[#e4e4e7]">Database access</h3>
-                        <p className="mt-1 text-[11px] leading-relaxed text-[#a1a1aa]">{databaseSource ? <>DEM stays editable in either mode. Read/write applies DEM changes to {tableLabel(databaseSource.target)} as you make them.</> : 'DEM edits stay local. Enable Read / write to save a new table to this database.'}</p>
-                      </div>
-                      <div className="grid grid-cols-2 gap-1 rounded-md border border-[#292929] bg-[#090909] p-1">
-                        <button type="button" aria-pressed={databaseAccessMode === 'read-only'} onClick={() => onDatabaseAccessModeChange?.('read-only')} className={`rounded px-2 py-2 text-[11px] font-medium ${databaseAccessMode === 'read-only' ? 'bg-[#292929] text-[#f4f4f5]' : 'text-[#a1a1aa] hover:text-[#e4e4e7]'}`}>Read only</button>
-                        <button type="button" aria-pressed={databaseAccessMode === 'read-write'} disabled={Boolean(databaseWriteDisabledReason)} onClick={() => onDatabaseAccessModeChange?.('read-write')} title={databaseWriteDisabledReason || 'Apply DEM changes live to this database table'} className={`rounded px-2 py-2 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-40 ${databaseAccessMode === 'read-write' ? 'bg-[#343434] text-[#fff]' : 'text-[#a1a1aa] hover:text-[#e4e4e7]'}`}>Read / write</button>
-                      </div>
-                      {databaseAccessMode === 'read-write' ? <p role="status" className="text-[11px] leading-relaxed text-[#d4d4d8]">{databaseSource ? 'Changes are being written live. Use Read only to stop future writes.' : 'Write access is enabled for saving a new table. Existing DEM edits are still local.'}</p> : databaseWriteDisabledReason ? <p className="text-[11px] leading-relaxed text-[#a1a1aa]">{databaseWriteDisabledReason}</p> : <p className="text-[11px] leading-relaxed text-[#a1a1aa]">DEM edits stay local until Read / write is enabled.</p>}
-                    </section>
-                    <section className="space-y-3 rounded-md border border-[#292929] bg-[#0d0d0d] p-3.5">
-                      <div>
-                        <h3 className="text-xs font-medium text-[#e4e4e7]">Save current dataset</h3>
-                        <p className="mt-1 text-[11px] leading-relaxed text-[#a1a1aa]">Creates a new table with {rows?.length || 0} rows and a generated row ID. Existing tables are never replaced.</p>
-                      </div>
-                      <label className="block"><span className={labelClass}>New table name</span><input value={destinationTable} onChange={(event) => setDestinationTable(event.target.value)} disabled={busy} autoComplete="off" placeholder="for example, experiment_data" className={inputClass} /></label>
-                      {databaseAccessMode !== 'read-write' && <p className="text-[11px] leading-relaxed text-[#a1a1aa]">Enable Read / write to save data to this database.</p>}
-                      <button type="button" disabled={busy || databaseAccessMode !== 'read-write' || !rows?.length || !columns?.length || !destinationTable.trim()} onClick={saveDataset} className="inline-flex items-center gap-2 rounded-md bg-[#292929] px-3 py-2 text-xs font-medium text-[#f4f4f5] hover:bg-[#3a3a3a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a1a1aa] disabled:opacity-50">{busy ? <Loader2 size={14} className="animate-spin" /> : <Database size={14} />}Save dataset to database</button>
-                    </section>
+                <div className="grid grid-cols-2 gap-1 rounded-md border border-[#292929] bg-[#090909] p-1">
+                  <button type="button" disabled={!connected} aria-pressed={databaseAccessMode === 'read-only'} onClick={() => onDatabaseAccessModeChange?.('read-only')} className={`rounded px-2 py-2 text-[11px] font-medium disabled:opacity-40 ${databaseAccessMode === 'read-only' ? 'bg-[#292929] text-[#f4f4f5]' : 'text-[#a1a1aa] hover:text-[#e4e4e7]'}`}>Read only</button>
+                  <button type="button" disabled={!connected || Boolean(databaseWriteDisabledReason)} aria-pressed={databaseAccessMode === 'read-write'} onClick={() => onDatabaseAccessModeChange?.('read-write')} title={databaseWriteDisabledReason || 'Apply DEM changes live to this database table'} className={`rounded px-2 py-2 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-40 ${databaseAccessMode === 'read-write' ? 'bg-[#343434] text-[#fff]' : 'text-[#a1a1aa] hover:text-[#e4e4e7]'}`}>Read / write</button>
                 </div>
-              )}
-              <div className="flex min-h-[260px] min-w-0 flex-col overflow-hidden rounded-md border border-[#292929] bg-[#0d0d0d] xl:min-h-0">
+                <p className="min-h-8 text-[10px] leading-relaxed text-[#a1a1aa]">{!connected ? 'Connect to choose database access.' : databaseSource ? (databaseAccessMode === 'read-write' ? `Writing edits to ${tableLabel(databaseSource.target)}.` : `DEM edits stay local for ${tableLabel(databaseSource.target)}.`) : databaseWriteDisabledReason || (databaseAccessMode === 'read-write' ? 'Write access is on. Save creates a new table.' : 'DEM edits stay local until write access is enabled.')}</p>
+                {connected && (
+                  <div className="space-y-2 border-t border-[#292929] pt-2.5">
+                    <p className="text-[10px] text-[#a1a1aa]">Save {rows?.length || 0} rows as a new table</p>
+                    <div className="flex min-w-0 gap-2">
+                      <input aria-label="New table name" value={destinationTable} onChange={(event) => setDestinationTable(event.target.value)} disabled={busy} autoComplete="off" placeholder="New table name" className={`${inputClass} min-w-0 flex-1`} />
+                      <button type="button" disabled={busy || databaseAccessMode !== 'read-write' || !rows?.length || !columns?.length || !destinationTable.trim()} onClick={saveDataset} className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-[#292929] px-2.5 py-2 text-[11px] font-medium text-[#f4f4f5] hover:bg-[#3a3a3a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a1a1aa] disabled:opacity-50">{busy ? <Loader2 size={13} className="animate-spin" /> : <Database size={13} />}Save table</button>
+                    </div>
+                  </div>
+                )}
+              </section>
+              <div className="flex min-h-[240px] min-w-0 flex-col overflow-hidden rounded-md border border-[#292929] bg-[#0d0d0d] xl:min-h-0">
                 <div className="border-b border-[#292929] p-3.5">
                   <div className="mb-3 flex items-center justify-between"><h3 className="text-xs font-medium text-[#e4e4e7]">Tables and views</h3><span className="text-[11px] tabular-nums text-[#a1a1aa]">{tables.length}</span></div>
                   <div className="relative"><Search size={14} className="absolute left-3 top-2.5 text-[#71717a]" /><input value={search} onChange={(event) => setSearch(event.target.value)} aria-label="Search tables" placeholder="Search by name or schema" disabled={!connected} className={`${inputClass} pl-9`} /></div>
