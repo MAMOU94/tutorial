@@ -1954,7 +1954,6 @@ export default function DataExplorer({
   sourceFileName = '',
   isVirtualSource = false,
   databaseSource = null,
-  onDatabaseEditsApplied,
   addColumnName, setAddColumnName,
   addColumnValue, setAddColumnValue,
   handleAddColumn,
@@ -6019,9 +6018,6 @@ export default function DataExplorer({
                   {isVirtualSource ? <span className="data-explorer-meta-chip">Workspace</span> : null}
                   <ApplyDatabaseEditsButton
                     source={databaseSource}
-                    rows={fullData}
-                    columns={columns}
-                    onCommit={onDatabaseEditsApplied}
                   />
                   {!hideFullscreenToggle && !embedded && (
                     <button

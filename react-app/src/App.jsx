@@ -27566,9 +27566,6 @@ except Exception as _ngr_error:
     return true;
   };
 
-  const handleDatabaseEditsApplied = (rows) => {
-    setDatabaseSource((previous) => previous ? { ...previous, originalRows: rows } : previous);
-  };
 
   const handleDatabaseAccessModeChange = (nextMode) => {
     const accessMode = nextMode === 'read-write' ? 'read-write' : 'read-only';
@@ -50262,7 +50259,6 @@ except Exception as _ngr_error:
                 handleDeleteSheet={handleDeleteSheet}
                 sourceFileName={datasetDisplayName}
                 databaseSource={databaseSource}
-                onDatabaseEditsApplied={handleDatabaseEditsApplied}
                 isVirtualSource={!hasPhysicalDatasetFile}
                 addColumnName={addColumnName} setAddColumnName={setAddColumnName}
                 addColumnValue={addColumnValue} setAddColumnValue={setAddColumnValue}
@@ -50425,7 +50421,6 @@ except Exception as _ngr_error:
                   handleDeleteSheet={handleDeleteSheet}
                   sourceFileName={datasetDisplayName}
                   databaseSource={databaseSource}
-                  onDatabaseEditsApplied={handleDatabaseEditsApplied}
                   isVirtualSource={!hasPhysicalDatasetFile}
                   addColumnName={addColumnName} setAddColumnName={setAddColumnName}
                   addColumnValue={addColumnValue} setAddColumnValue={setAddColumnValue}
