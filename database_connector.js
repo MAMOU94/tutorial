@@ -84,6 +84,39 @@ const tableMetadata = async (conn, target) => {
   return table;
 };
 
+// Some MySQL/MariaDB ODBC drivers do not return rows from SQLPrimaryKeys (conn.primaryKeys).
+// This SQL fallback queries INFORMATION_SCHEMA directly to find the primary key columns.
+const fetchPrimaryKeysFallback = async (conn, target, dialect) => {
+  if (!/mysql|maria/i.test(dialect)) return [];
+  try {
+    const dbName = target.catalog || target.schema || '';
+    const tableName = target.table || '';
+    if (!tableName) return [];
+    const sql = dbName
+      ? `SELECT COLUMN_NAME, ORDINAL_POSITION FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = '${dbName.replace(/'/g, "''")}' AND TABLE_NAME = '${tableName.replace(/'/g, "''")}' AND CONSTRAINT_NAME = 'PRIMARY' ORDER BY ORDINAL_POSITION`
+      : `SELECT COLUMN_NAME, ORDINAL_POSITION FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE TABLE_NAME = '${tableName.replace(/'/g, "''")}' AND CONSTRAINT_NAME = 'PRIMARY' ORDER BY ORDINAL_POSITION`;
+    const rows = await conn.query(sql);
+    return (Array.isArray(rows) ? rows : [])
+      .map((row) => String(value(row, 'COLUMN_NAME') || ''))
+      .filter(Boolean);
+  } catch (_) {
+    return [];
+  }
+};
+
+// Retrieve primary keys via ODBC metadata, then fall back to SQL for MySQL/MariaDB.
+const getPrimaryKeys = async (conn, target, dialect) => {
+  try {
+    const odbcKeys = await conn.primaryKeys(target.catalog || null, target.schema || null, target.table);
+    const keys = (Array.isArray(odbcKeys) ? odbcKeys : [])
+      .sort((a, b) => Number(value(a, 'KEY_SEQ')) - Number(value(b, 'KEY_SEQ')))
+      .map((row) => value(row, 'COLUMN_NAME'))
+      .filter(Boolean);
+    if (keys.length > 0) return keys;
+  } catch (_) { /* fall through to SQL fallback */ }
+  return fetchPrimaryKeysFallback(conn, target, dialect);
+};
+
 const serialize = (row) => Object.fromEntries(Object.entries(row).map(([key, cell]) => [
   key,
   typeof cell === 'bigint' ? String(cell) : (cell instanceof Date ? cell.toISOString() : cell)
@@ -130,12 +163,8 @@ exports.readTable = async (target) => {
     .sort((a, b) => Number(value(a, 'ORDINAL_POSITION')) - Number(value(b, 'ORDINAL_POSITION')))
     .map((row) => value(row, 'COLUMN_NAME'))
     .filter(Boolean);
-  const primaryKeys = await conn.primaryKeys(target.catalog || null, target.schema || null, target.table);
-  const keys = primaryKeys
-    .sort((a, b) => Number(value(a, 'KEY_SEQ')) - Number(value(b, 'KEY_SEQ')))
-    .map((row) => value(row, 'COLUMN_NAME'))
-    .filter(Boolean);
   const dialect = databaseDialect || conn.dbmsName || '';
+  const keys = await getPrimaryKeys(conn, target, dialect);
   const quote = (part) => quoteIdentifier(part, dialect);
   const nameParts = [target.catalog, target.schema, target.table].filter(Boolean);
   if (/postgres/i.test(dialect) && nameParts.length > 1) nameParts.shift();
@@ -160,12 +189,8 @@ exports.applyCellEdits = async ({ target, originalRows, rows, columns: requested
   requireConnectionId(target?.connectionId);
   const conn = requireConnection();
   await tableMetadata(conn, target || {});
-  const metadataKeys = await conn.primaryKeys(target.catalog || null, target.schema || null, target.table);
-  const primaryKeys = metadataKeys
-    .sort((a, b) => Number(value(a, 'KEY_SEQ')) - Number(value(b, 'KEY_SEQ')))
-    .map((row) => value(row, 'COLUMN_NAME'))
-    .filter(Boolean);
-  if (!Array.isArray(primaryKeys) || primaryKeys.length === 0) {
+  const dialect2 = databaseDialect || conn.dbmsName || '';
+  const primaryKeys = await getPrimaryKeys(conn, target, dialect2);  if (!Array.isArray(primaryKeys) || primaryKeys.length === 0) {
     throw new Error('This table has no primary key, so safe updates are unavailable.');
   }
   const metadataColumns = await conn.columns(target.catalog || null, target.schema || null, target.table, null);
@@ -180,8 +205,8 @@ exports.applyCellEdits = async ({ target, originalRows, rows, columns: requested
     throw new Error('Only cell edits can be applied. Row and column structure must stay unchanged.');
   }
   const originalByKey = new Map(originalRows.map((row) => [JSON.stringify(primaryKeys.map((key) => row[key])), row]));
-  if (originalByKey.size !== originalRows.length || originalRows.some((row) => primaryKeys.some((key) => row[key] === null || row[key] === undefined || row[key] === ''))) {
-    throw new Error('Rows need unique, non-empty primary keys before changes can be applied.');
+  if (originalByKey.size !== originalRows.length || originalRows.some((row) => primaryKeys.some((key) => row[key] === null || row[key] === undefined))) {
+    throw new Error('Rows need unique, non-null primary keys before changes can be applied.');
   }
   const quote = (part) => quoteIdentifier(part, databaseDialect || conn.dbmsName || '');
   const tableName = [target.catalog, target.schema, target.table].filter(Boolean).map(quote).join('.');
@@ -276,10 +301,8 @@ exports.applyChanges = async ({ target, originalColumns, originalRows, columns, 
     throw new Error('The live database edit could not be matched to the loaded table shape. Reload the table and try again.');
   }
 
-  const primaryKeys = (await conn.primaryKeys(target.catalog || null, target.schema || null, target.table))
-    .sort((a, b) => Number(value(a, 'KEY_SEQ')) - Number(value(b, 'KEY_SEQ')))
-    .map((row) => value(row, 'COLUMN_NAME'))
-    .filter(Boolean);
+  const dialect = databaseDialect || conn.dbmsName || '';
+  const primaryKeys = await getPrimaryKeys(conn, target, dialect);
   if (primaryKeys.length === 0) throw new Error('Read/write mode requires a primary key so edits can target rows safely.');
   if (primaryKeys.some((column) => !originalColumns.includes(column) || !columns.includes(column))) {
     throw new Error('Primary key columns cannot be removed or renamed while connected to this table.');
@@ -292,7 +315,6 @@ exports.applyChanges = async ({ target, originalColumns, originalRows, columns, 
     throw new Error('The database table schema changed outside DEM. Reload the table before writing more changes.');
   }
 
-  const dialect = databaseDialect || conn.dbmsName || '';
   const quote = (identifier) => quoteIdentifier(identifier, dialect);
   const tableName = [target.catalog, target.schema, target.table].filter(Boolean).map(quote).join('.');
   const addedColumns = columns.filter((column) => !originalColumns.includes(column));
@@ -302,7 +324,7 @@ exports.applyChanges = async ({ target, originalColumns, originalRows, columns, 
   const originalKeys = new Set(originalRows.map(keyFor));
   if (originalKeys.size !== originalRows.length) throw new Error('Loaded rows contain duplicate primary keys. Reload before editing.');
 
-  const missingKeyRows = generatedRows.filter((row) => primaryKeys.some((key) => row[key] === null || row[key] === undefined || row[key] === ''));
+  const missingKeyRows = generatedRows.filter((row) => primaryKeys.some((key) => row[key] === null || row[key] === undefined));
   if (missingKeyRows.length > 0) {
     const generatedKey = primaryKeys.find((key) => /^_*data_explorer_row_id$/i.test(key));
     if (!generatedKey || generatedRows.length <= originalRows.length) {
@@ -313,7 +335,7 @@ exports.applyChanges = async ({ target, originalColumns, originalRows, columns, 
     if (!Number.isSafeInteger(maximum)) throw new Error(`Could not generate a safe ${generatedKey} value for the new row.`);
     let nextId = maximum + 1;
     generatedRows.forEach((row) => {
-      if (row[generatedKey] === null || row[generatedKey] === undefined || row[generatedKey] === '') {
+      if (row[generatedKey] === null || row[generatedKey] === undefined) {
         row[generatedKey] = nextId++;
       }
     });
@@ -363,13 +385,34 @@ exports.applyChanges = async ({ target, originalColumns, originalRows, columns, 
       );
       if (result.count !== 1) throw new Error('A row changed in the database since it was loaded. No edits were applied. Reload and try again.');
     }
-    for (const row of insertedRows) {
+    if (insertedRows.length > 0) {
       const insertColumns = columns;
-      const result = await conn.query(
-        `INSERT INTO ${tableName} (${insertColumns.map(quote).join(', ')}) VALUES (${insertColumns.map(() => '?').join(', ')})`,
-        insertColumns.map((column) => toDatabaseValue(row[column], dialect))
-      );
-      if (result.count !== 1) throw new Error('The database did not confirm the inserted row.');
+      // Batch inserts to avoid per-row IPC overhead on large datasets.
+      // MySQL/MariaDB supports multi-row VALUES; fall back to single-row for
+      // other dialects that may not. Use a batch size that keeps the parameter
+      // list inside the ODBC driver's safe range (~1800 params total).
+      const batchSize = Math.max(1, Math.floor(1800 / Math.max(1, insertColumns.length)));
+      const useBatch = /mysql|maria/i.test(dialect) && insertedRows.length > 1;
+      if (useBatch) {
+        for (let start = 0; start < insertedRows.length; start += batchSize) {
+          const batch = insertedRows.slice(start, start + batchSize);
+          const valuesSql = batch.map(() => `(${insertColumns.map(() => '?').join(', ')})`).join(', ');
+          const params = batch.flatMap((row) => insertColumns.map((column) => toDatabaseValue(row[column], dialect)));
+          const result = await conn.query(
+            `INSERT INTO ${tableName} (${insertColumns.map(quote).join(', ')}) VALUES ${valuesSql}`,
+            params
+          );
+          if (result.count !== batch.length) throw new Error('The database did not confirm all inserted rows.');
+        }
+      } else {
+        for (const row of insertedRows) {
+          const result = await conn.query(
+            `INSERT INTO ${tableName} (${insertColumns.map(quote).join(', ')}) VALUES (${insertColumns.map(() => '?').join(', ')})`,
+            insertColumns.map((column) => toDatabaseValue(row[column], dialect))
+          );
+          if (result.count !== 1) throw new Error('The database did not confirm the inserted row.');
+        }
+      }
     }
     for (const row of deletedRows) {
       const predicates = primaryKeys.map((key) => `${quote(key)} = ?`);

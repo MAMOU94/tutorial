@@ -128,7 +128,7 @@ export default function DatabaseConnectionPanel({
   isOpen,
   onOpenChange,
   databaseSource = null,
-  databaseAccessMode = 'read-only',
+  databaseAccessMode = 'read-write',
   databaseWriteDisabledReason = '',
   onDatabaseAccessModeChange,
   onDisconnect
@@ -151,8 +151,8 @@ export default function DatabaseConnectionPanel({
   const [password, setPassword] = useState('');
   const [extraOptions, setExtraOptions] = useState('');
   const [destinationTable, setDestinationTable] = useState('');
-  const [connected, setConnected] = useState(false);
-  const [connectionId, setConnectionId] = useState('');
+  const [connected, setConnected] = useState(() => Boolean(databaseSource?.connectionId));
+  const [connectionId, setConnectionId] = useState(() => String(databaseSource?.connectionId || ''));
   const [tables, setTables] = useState([]);
   const [selectedTable, setSelectedTable] = useState(null);
   const [search, setSearch] = useState('');
@@ -190,6 +190,25 @@ export default function DatabaseConnectionPanel({
   useEffect(() => {
     if (open && !destinationTable) setDestinationTable(suggestedTableName || 'dataset_data');
   }, [destinationTable, open, suggestedTableName]);
+
+  // When the panel reopens while a database table is already loaded, restore
+  // the connected state so that the Read / write toggle is not incorrectly
+  // disabled. The panel content is unmounted on close which resets local state,
+  // so we sync back from the app-level databaseSource prop on open.
+  useEffect(() => {
+    if (!open) return;
+    const sourceId = String(databaseSource?.connectionId || '');
+    if (!sourceId) return;
+    if (!connected) {
+      setConnected(true);
+      setConnectionId(sourceId);
+    }
+    if (tables.length === 0 && typeof window.electronAPI?.listDatabaseTables === 'function') {
+      window.electronAPI.listDatabaseTables(sourceId).then((result) => {
+        if (result?.success) setTables(result.tables || []);
+      }).catch(() => {});
+    }
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let cancelled = false;
