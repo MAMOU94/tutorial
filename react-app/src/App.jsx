@@ -27522,7 +27522,17 @@ except Exception as _ngr_error:
     const displayColumns = internalRowId
       ? databaseColumns.filter((column) => column !== internalRowId)
       : databaseColumns;
-    setDatabaseAccessMode('read-only');
+    const tableType = String(dataset.target?.type || '').trim();
+    const writeUnavailableReason = dataset.truncated
+      ? 'Live writes are unavailable because this table is truncated.'
+      : (tableType && !/^(?:BASE\s+)?TABLE$/i.test(tableType)
+        ? 'Live writes are unavailable for database views.'
+        : (primaryKeys.length === 0 ? 'Live writes require a primary key on the table.' : ''));
+    const canWriteToTable = !dataset.truncated
+      && (!tableType || /^(?:BASE\s+)?TABLE$/i.test(tableType))
+      && primaryKeys.length > 0;
+    const accessMode = databaseAccessMode === 'read-write' && canWriteToTable ? 'read-write' : 'read-only';
+    setDatabaseAccessMode(accessMode);
     setFile({ name: sheetName, path: '', isVirtual: true });
     activeDatasetFileIdRef.current = '';
     setActiveDatasetFileId('');
@@ -27540,12 +27550,12 @@ except Exception as _ngr_error:
       databaseColumns,
       hiddenColumns: internalRowId ? [internalRowId] : [],
       truncated: Boolean(dataset.truncated),
-      accessMode: 'read-only'
+      accessMode
     });
     setShowViewer(true);
     setViewerNotice({
       type: 'success',
-      text: `Loaded ${dataset.rows.length} rows from ${sheetName}${dataset.truncated ? ' (first 10,000 rows only)' : ''}.`
+      text: `Loaded ${dataset.rows.length} rows from ${sheetName}${dataset.truncated ? ' (first 10,000 rows only)' : ''}. ${accessMode === 'read-write' ? 'Live database writes are enabled.' : writeUnavailableReason || 'Database writes are off. Reopen Database to enable Read / write.'}`
     });
     if (isDataExplorerConnectedRef.current) {
       syncExplorerToRConsole(null, sheetName, {
