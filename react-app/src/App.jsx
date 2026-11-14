@@ -14768,6 +14768,11 @@ function App() {
         const scopedContextPayload = activeChunk
           ? { ...contextPayload, editorCode: activeChunkCode, activeRMarkdownChunk: true, activeRMarkdownChunkIndex: activeChunk.index }
           : contextPayload;
+        const sourceDatabaseTable = String(contextPayload.sourceDatabaseTable || '').trim();
+        const preferredDataFrameName = String(contextPayload.preferredDataFrameName || '').trim();
+        const databaseTableInstruction = editorLanguage === 'r' && sourceDatabaseTable
+          ? `DATABASE TABLE RULE: The selected database table ${sourceDatabaseTable} is already synced into the R workspace as ${preferredDataFrameName || 'the active dataframe'}. Use that dataframe object directly. It is not a file: do not use a file path, read.csv(), read_excel(), file.exists(), exists(), or a stop() guard to load/check it.`
+          : '';
         const datasetContextMeta = String(contextPayload.datasetContextMeta || '').trim();
         const datasetSchema = String(contextPayload.datasetSchema || '').trim();
         const datasetPreview = String(contextPayload.datasetPreview || '').trim();
@@ -14810,6 +14815,7 @@ function App() {
         const onlinePrompt = `${isAgent ? `You are a Claude Code ${editorLanguageLabel} Expert senior programming agent.` : `You are a senior ${editorLanguageLabel} programming assistant.`}
 ${claudeCodeAgentClause}
 ${groundedExecutionClause}
+${databaseTableInstruction}
 ${chunkScopeInstruction}
 Maintain workflow continuity and reuse existing variables. Return ONLY executable ${editorLanguageLabel} code inside a single markdown code block (\`\`\`${editorFileExtension} ... \`\`\`). NO conversation, NO preamble, NO explanations. Start immediately with the code block.
 
@@ -16413,7 +16419,7 @@ ${historyContext || '(none)'}`;
         `source_file_path: ${sourceDatabaseTable ? '(not applicable; this table has no local file path)' : (sourceDataExplorerFilePath || '(not available)')}`,
         `preferred_r_dataframe_name: ${preferredDataFrameName || 'dataset'}`,
         `data_explorer_code_rule: when using connected Data Explorer data, reuse the active sheet as the dataframe object named ${preferredDataFrameName || 'dataset'}; do not invent a generic df/data name. The active sheet name is a worksheet label, not proof that an R object already exists. ${sourceDatabaseTable
-          ? `The active dataset is database table ${sourceDatabaseTable}, already loaded in Data Explorer and synced to Advanced Mode when the Data Explorer connection is enabled; it is not a local file. Never pass its name to read.csv/read_excel or invent a file path. Use ${preferredDataFrameName || 'dataset'} directly, and do not emit an exists() check that stops before the requested code.`
+          ? `The active dataset is database table ${sourceDatabaseTable}, already loaded in Data Explorer and synced into .GlobalEnv when the Data Explorer connection is enabled; it is not a local file. Use the R object ${preferredDataFrameName || 'dataset'} directly. Never pass the table name to read.csv/read_excel or invent a file path, and do not emit exists() checks or stop() guards before the requested code.`
           : `If upload/import/reload is explicitly requested, use source_file_path/source_file_name and select active_sheet_name when the source is an Excel workbook, then assign it to ${preferredDataFrameName || 'dataset'} before transforming it.`} Do not solve an import request with only exists("${preferredDataFrameName || 'dataset'}").`,
         `row_count: ${datasetRows.length}`,
         `column_count: ${datasetColumns.length}`,
@@ -18148,6 +18154,11 @@ ${groundedExecutionClause}`)));
 
         // ── Gather rich context from the request bundle ───────────────────
         const contextPayload = localRequestBundle.contextPayload || {};
+        const sourceDatabaseTable = String(contextPayload.sourceDatabaseTable || '').trim();
+        const preferredDataFrameName = String(contextPayload.preferredDataFrameName || '').trim();
+        const databaseTableInstruction = editorLanguage === 'r' && sourceDatabaseTable
+          ? `DATABASE TABLE RULE: The selected database table ${sourceDatabaseTable} is already synced into the R workspace as ${preferredDataFrameName || 'the active dataframe'}. Use that dataframe object directly. It is not a file: do not use a file path, read.csv(), read_excel(), file.exists(), exists(), or a stop() guard to load/check it.`
+          : '';
         const datasetContextMeta = String(contextPayload.datasetContextMeta || '').trim();
         const datasetSchema = String(contextPayload.datasetSchema || '').trim();
         const datasetPreview = String(contextPayload.datasetPreview || '').trim();
@@ -18191,6 +18202,8 @@ ${groundedExecutionClause}`)));
           .join('\n\n');
 
         let onlinePrompt = `${onlineSystemPreamble}
+
+${databaseTableInstruction}
 
 ---
 
