@@ -20519,7 +20519,7 @@ except Exception as _ngr_error:
       cmd = `
         local({
           .ngr_csv <- ${JSON.stringify(csvText)}
-          ${dfName} <- read.csv(text = .ngr_csv, check.names = FALSE, stringsAsFactors = FALSE)
+          assign(${JSON.stringify(dfName)}, read.csv(text = .ngr_csv, check.names = FALSE, stringsAsFactors = FALSE), envir = .GlobalEnv)
           cat("Loaded ${dfName} from the active Data Explorer sheet\\n")
         })
       `;
