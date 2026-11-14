@@ -26852,6 +26852,12 @@ except Exception as _ngr_error:
     setSelectedRows([]);
     setDplyrTidyrPipeline(buildDplyrTidyrTemplate(generatedColumns));
     setShowViewer(true);
+    if (isDataExplorerConnectedRef.current) {
+      syncExplorerToRConsole(null, generatedDatasetName, {
+        columns: generatedColumns,
+        rows: generatedRows
+      }, true);
+    }
     setViewerNotice({
       type: 'success',
       text: `Created a new in-app data frame with ${rowCount} row(s) and ${columnCount} column(s).`
@@ -31911,6 +31917,13 @@ except Exception as _ngr_error:
     setDplyrTidyrPipeline(buildDplyrTidyrTemplate(nextColumns, groupVar, responseVar));
     setResult(null);
     setError(null);
+    if (isDataExplorerConnectedRef.current) {
+      const targetSheet = activeSheetNameRef.current || activeSheetName || file?.name || 'dataset';
+      syncExplorerToRConsole(null, targetSheet, {
+        columns: nextColumns,
+        rows: nextRows
+      }, true);
+    }
     setViewerNotice({
       type: 'success',
       text: `Created ${nextRows.length.toLocaleString()} row(s) and ${nextColumns.length.toLocaleString()} column(s).`
