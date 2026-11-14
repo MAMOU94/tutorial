@@ -7336,7 +7336,7 @@ if (isTRUE(res$ok)) {
       const sourceDatabaseTable = String(contextPayload?.sourceDatabaseTable || '').trim();
       const preferredDataFrameName = String(contextPayload?.preferredDataFrameName || '').trim();
       const databaseTableInstruction = language === 'r' && sourceDatabaseTable
-        ? `The selected database table ${sourceDatabaseTable} is already synced into the R workspace as ${preferredDataFrameName || 'the active dataframe'}. Use that object directly. It is not a local file. Do not use a file path, read.csv(), read_excel(), file.exists(), exists(), or a stop() guard to load/check it.`
+        ? `The selected database table ${sourceDatabaseTable} is already synced into the R workspace as ${preferredDataFrameName || 'the active dataframe'}. Use that object directly and edit it in place. It is not a local file. Do not use a file path, read.csv(), read_excel(), file.exists(), exists(), or a stop() guard to load/check it. Preserve columns, rows, and primary keys for database write-back; adding/removing rows or columns only changes the in-memory dataframe and cannot be applied to the database.`
         : '';
       const applyMode = String(contextPayload?.applyMode || '').trim().toLowerCase();
       const agentProfile = String(payload?.agentProfile || '').trim().toLowerCase();

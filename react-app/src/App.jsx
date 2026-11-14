@@ -14771,7 +14771,7 @@ function App() {
         const sourceDatabaseTable = String(contextPayload.sourceDatabaseTable || '').trim();
         const preferredDataFrameName = String(contextPayload.preferredDataFrameName || '').trim();
         const databaseTableInstruction = editorLanguage === 'r' && sourceDatabaseTable
-          ? `DATABASE TABLE RULE: The selected database table ${sourceDatabaseTable} is already synced into the R workspace as ${preferredDataFrameName || 'the active dataframe'}. Use that dataframe object directly. It is not a file: do not use a file path, read.csv(), read_excel(), file.exists(), exists(), or a stop() guard to load/check it.`
+          ? `DATABASE TABLE RULE: The selected database table ${sourceDatabaseTable} is already synced into the R workspace as ${preferredDataFrameName || 'the active dataframe'}. Use that dataframe object directly and edit it in place. It is not a file: do not use a file path, read.csv(), read_excel(), file.exists(), exists(), or a stop() guard to load/check it. For database write-back, preserve its existing columns, rows, and primary keys; adding/removing rows or columns only changes the in-memory dataframe and cannot be applied to the database.`
           : '';
         const datasetContextMeta = String(contextPayload.datasetContextMeta || '').trim();
         const datasetSchema = String(contextPayload.datasetSchema || '').trim();
@@ -16419,7 +16419,7 @@ ${historyContext || '(none)'}`;
         `source_file_path: ${sourceDatabaseTable ? '(not applicable; this table has no local file path)' : (sourceDataExplorerFilePath || '(not available)')}`,
         `preferred_r_dataframe_name: ${preferredDataFrameName || 'dataset'}`,
         `data_explorer_code_rule: when using connected Data Explorer data, reuse the active sheet as the dataframe object named ${preferredDataFrameName || 'dataset'}; do not invent a generic df/data name. The active sheet name is a worksheet label, not proof that an R object already exists. ${sourceDatabaseTable
-          ? `The active dataset is database table ${sourceDatabaseTable}, already loaded in Data Explorer and synced into .GlobalEnv when the Data Explorer connection is enabled; it is not a local file. Use the R object ${preferredDataFrameName || 'dataset'} directly. Never pass the table name to read.csv/read_excel or invent a file path, and do not emit exists() checks or stop() guards before the requested code.`
+          ? `The active dataset is database table ${sourceDatabaseTable}, already loaded in Data Explorer and synced into .GlobalEnv when the Data Explorer connection is enabled; it is not a local file. Use the R object ${preferredDataFrameName || 'dataset'} directly and edit it in place. Never pass the table name to read.csv/read_excel or invent a file path, and do not emit exists() checks or stop() guards before the requested code. Preserve columns, rows, and primary keys for database write-back; adding/removing rows or columns only changes the in-memory dataframe.`
           : `If upload/import/reload is explicitly requested, use source_file_path/source_file_name and select active_sheet_name when the source is an Excel workbook, then assign it to ${preferredDataFrameName || 'dataset'} before transforming it.`} Do not solve an import request with only exists("${preferredDataFrameName || 'dataset'}").`,
         `row_count: ${datasetRows.length}`,
         `column_count: ${datasetColumns.length}`,
@@ -18157,7 +18157,7 @@ ${groundedExecutionClause}`)));
         const sourceDatabaseTable = String(contextPayload.sourceDatabaseTable || '').trim();
         const preferredDataFrameName = String(contextPayload.preferredDataFrameName || '').trim();
         const databaseTableInstruction = editorLanguage === 'r' && sourceDatabaseTable
-          ? `DATABASE TABLE RULE: The selected database table ${sourceDatabaseTable} is already synced into the R workspace as ${preferredDataFrameName || 'the active dataframe'}. Use that dataframe object directly. It is not a file: do not use a file path, read.csv(), read_excel(), file.exists(), exists(), or a stop() guard to load/check it.`
+          ? `DATABASE TABLE RULE: The selected database table ${sourceDatabaseTable} is already synced into the R workspace as ${preferredDataFrameName || 'the active dataframe'}. Use that dataframe object directly and edit it in place. It is not a file: do not use a file path, read.csv(), read_excel(), file.exists(), exists(), or a stop() guard to load/check it. For database write-back, preserve its existing columns, rows, and primary keys; adding/removing rows or columns only changes the in-memory dataframe and cannot be applied to the database.`
           : '';
         const datasetContextMeta = String(contextPayload.datasetContextMeta || '').trim();
         const datasetSchema = String(contextPayload.datasetSchema || '').trim();
@@ -19558,12 +19558,17 @@ ${attachmentPromptContext || '(none)'}`;
         }
         let applied = null;
         let shouldOverwrite = false;
+        const isLinkedDatabaseDataFrame = Boolean(
+          databaseSource?.target
+          && currentSheet === databaseSource.sheetName
+          && incomingDfObject === normalizeDataFrameObjectName(databaseSource.sheetName)
+        );
         const databaseSourceToPreserve = databaseSource?.target
           && currentSheet === databaseSource.sheetName
           ? databaseSource
           : null;
         if (shouldSyncToExplorer) {
-          shouldOverwrite = Boolean(rExplorerOverwriteActiveSheetRef.current && currentSheet);
+          shouldOverwrite = Boolean((rExplorerOverwriteActiveSheetRef.current || isLinkedDatabaseDataFrame) && currentSheet);
           const effectiveOperationKey = incomingDfName || incomingDfObject || operationKey;
           applied = applyTransformedDataset(normalizedDataset.rows, normalizedDataset.columns, effectiveOperationKey, {
             overwrite: shouldOverwrite,
