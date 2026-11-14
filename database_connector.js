@@ -253,6 +253,149 @@ const columnSqlType = (values, dialect) => {
   return `VARCHAR(${Math.min(maxLength, 4000)})`;
 };
 
+exports.applyChanges = async ({ target, originalColumns, originalRows, columns, rows }) => {
+  requireConnectionId(target?.connectionId);
+  const conn = requireConnection();
+  const table = await tableMetadata(conn, target || {});
+  if (!/^(?:BASE\s+)?TABLE$/i.test(String(value(table, 'TABLE_TYPE') || '').trim())) {
+    throw new Error('Read/write mode is available only for database tables, not views.');
+  }
+
+  const validColumns = (items) => Array.isArray(items)
+    && items.length > 0
+    && items.length <= 1799
+    && items.every((column) => typeof column === 'string' && column.trim() && !column.includes('\0'))
+    && new Set(items.map((column) => column.toLowerCase())).size === items.length;
+  const validRows = (items) => Array.isArray(items)
+    && items.length <= 100000
+    && items.every((row) => row && typeof row === 'object' && !Array.isArray(row));
+  if (!validColumns(originalColumns) || !validColumns(columns)
+      || !validRows(originalRows) || !validRows(rows)
+      || (originalRows[0] && originalColumns.some((column) => !(column in originalRows[0])))
+      || rows.some((row) => columns.some((column) => !(column in row)))) {
+    throw new Error('The live database edit could not be matched to the loaded table shape. Reload the table and try again.');
+  }
+
+  const primaryKeys = (await conn.primaryKeys(target.catalog || null, target.schema || null, target.table))
+    .sort((a, b) => Number(value(a, 'KEY_SEQ')) - Number(value(b, 'KEY_SEQ')))
+    .map((row) => value(row, 'COLUMN_NAME'))
+    .filter(Boolean);
+  if (primaryKeys.length === 0) throw new Error('Read/write mode requires a primary key so edits can target rows safely.');
+  if (primaryKeys.some((column) => !originalColumns.includes(column) || !columns.includes(column))) {
+    throw new Error('Primary key columns cannot be removed or renamed while connected to this table.');
+  }
+
+  const columnMetadata = await conn.columns(target.catalog || null, target.schema || null, target.table, null);
+  const databaseColumns = columnMetadata.map((row) => value(row, 'COLUMN_NAME')).filter(Boolean);
+  if (databaseColumns.length !== originalColumns.length
+      || databaseColumns.some((column) => !originalColumns.includes(column))) {
+    throw new Error('The database table schema changed outside DEM. Reload the table before writing more changes.');
+  }
+
+  const dialect = databaseDialect || conn.dbmsName || '';
+  const quote = (identifier) => quoteIdentifier(identifier, dialect);
+  const tableName = [target.catalog, target.schema, target.table].filter(Boolean).map(quote).join('.');
+  const addedColumns = columns.filter((column) => !originalColumns.includes(column));
+  const removedColumns = originalColumns.filter((column) => !columns.includes(column));
+  const generatedRows = rows.map((row) => ({ ...row }));
+  const keyFor = (row) => JSON.stringify(primaryKeys.map((key) => row[key]));
+  const originalKeys = new Set(originalRows.map(keyFor));
+  if (originalKeys.size !== originalRows.length) throw new Error('Loaded rows contain duplicate primary keys. Reload before editing.');
+
+  const missingKeyRows = generatedRows.filter((row) => primaryKeys.some((key) => row[key] === null || row[key] === undefined || row[key] === ''));
+  if (missingKeyRows.length > 0) {
+    const generatedKey = primaryKeys.find((key) => /^_*data_explorer_row_id$/i.test(key));
+    if (!generatedKey || generatedRows.length <= originalRows.length) {
+      return { success: true, pending: true, message: `Enter a value for primary key${primaryKeys.length > 1 ? 's' : ''} ${primaryKeys.join(', ')} before the new row can be written.` };
+    }
+    const maxResult = await conn.query(`SELECT MAX(${quote(generatedKey)}) AS max_id FROM ${tableName}`);
+    const maximum = Number(value(Array.isArray(maxResult) ? maxResult[0] : null, 'max_id') || 0);
+    if (!Number.isSafeInteger(maximum)) throw new Error(`Could not generate a safe ${generatedKey} value for the new row.`);
+    let nextId = maximum + 1;
+    generatedRows.forEach((row) => {
+      if (row[generatedKey] === null || row[generatedKey] === undefined || row[generatedKey] === '') {
+        row[generatedKey] = nextId++;
+      }
+    });
+  }
+
+  const currentByKey = new Map(generatedRows.map((row) => [keyFor(row), row]));
+  if (currentByKey.size !== generatedRows.length) throw new Error('Rows need unique primary keys before they can be written.');
+  const originalByKey = new Map(originalRows.map((row) => [keyFor(row), row]));
+  const insertedRows = generatedRows.filter((row) => !originalByKey.has(keyFor(row)));
+  const deletedRows = originalRows.filter((row) => !currentByKey.has(keyFor(row)));
+  const changedRows = generatedRows.flatMap((row) => {
+    const original = originalByKey.get(keyFor(row));
+    if (!original) return [];
+    const changedColumns = columns.filter((column) => !primaryKeys.includes(column)
+      && !Object.is(original[column], row[column]));
+    return changedColumns.length > 0 ? [{ original, row, changedColumns }] : [];
+  });
+  if (removedColumns.some((column) => primaryKeys.includes(column))) {
+    throw new Error('Primary key columns cannot be removed while connected to this table.');
+  }
+  if (addedColumns.length === 0 && removedColumns.length === 0
+      && insertedRows.length === 0 && deletedRows.length === 0 && changedRows.length === 0) {
+    return { success: true, updated: 0, inserted: 0, deleted: 0, addedColumns: [], removedColumns: [], rows: generatedRows };
+  }
+
+  await conn.beginTransaction();
+  try {
+    for (const column of addedColumns) {
+      const columnType = columnSqlType(generatedRows.map((row) => row[column]), dialect);
+      await conn.query(`ALTER TABLE ${tableName} ADD ${quote(column)} ${columnType}`);
+    }
+    for (const { original, row, changedColumns } of changedRows) {
+      const predicates = primaryKeys.map((key) => `${quote(key)} = ?`);
+      const params = primaryKeys.map((key) => toDatabaseValue(original[key], dialect));
+      for (const column of changedColumns) {
+        if (!originalColumns.includes(column)) continue;
+        if (original[column] == null) predicates.push(`${quote(column)} IS NULL`);
+        else {
+          predicates.push(`${quote(column)} = ?`);
+          params.push(toDatabaseValue(original[column], dialect));
+        }
+      }
+      const assignments = changedColumns.map((column) => `${quote(column)} = ?`).join(', ');
+      const result = await conn.query(
+        `UPDATE ${tableName} SET ${assignments} WHERE ${predicates.join(' AND ')}`,
+        [...changedColumns.map((column) => toDatabaseValue(row[column], dialect)), ...params]
+      );
+      if (result.count !== 1) throw new Error('A row changed in the database since it was loaded. No edits were applied. Reload and try again.');
+    }
+    for (const row of insertedRows) {
+      const insertColumns = columns;
+      const result = await conn.query(
+        `INSERT INTO ${tableName} (${insertColumns.map(quote).join(', ')}) VALUES (${insertColumns.map(() => '?').join(', ')})`,
+        insertColumns.map((column) => toDatabaseValue(row[column], dialect))
+      );
+      if (result.count !== 1) throw new Error('The database did not confirm the inserted row.');
+    }
+    for (const row of deletedRows) {
+      const predicates = primaryKeys.map((key) => `${quote(key)} = ?`);
+      const params = primaryKeys.map((key) => toDatabaseValue(row[key], dialect));
+      const result = await conn.query(`DELETE FROM ${tableName} WHERE ${predicates.join(' AND ')}`, params);
+      if (result.count !== 1) throw new Error('A row changed in the database since it was loaded. No edits were applied. Reload and try again.');
+    }
+    for (const column of removedColumns) {
+      await conn.query(`ALTER TABLE ${tableName} DROP COLUMN ${quote(column)}`);
+    }
+    await conn.commit();
+    return {
+      success: true,
+      updated: changedRows.length,
+      inserted: insertedRows.length,
+      deleted: deletedRows.length,
+      addedColumns,
+      removedColumns,
+      rows: generatedRows
+    };
+  } catch (error) {
+    await conn.rollback().catch(() => {});
+    throw error;
+  }
+};
+
 exports.saveDataset = async ({ connectionId: id, tableName: rawTableName, columns, rows }) => {
   requireConnectionId(id);
   const conn = requireConnection();

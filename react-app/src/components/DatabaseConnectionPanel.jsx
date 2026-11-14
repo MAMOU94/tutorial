@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Database, Search, X, Loader2, PlugZap, Check, ChevronDown, GripVertical } from 'lucide-react';
+import { Database, Search, X, Loader2, PlugZap, ChevronDown, GripVertical } from 'lucide-react';
 
 const tableLabel = (table) => [table.catalog, table.schema, table.table].filter(Boolean).join('.');
 const databaseSystems = {
@@ -111,44 +111,12 @@ function DatabaseSystemSelect({ value, onChange, disabled }) {
   );
 }
 
-export function ApplyDatabaseEditsButton({ source, rows, columns, onCommit }) {
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('');
-  const [hasError, setHasError] = useState(false);
-
-  const applyEdits = async () => {
-    if (!source || busy) return;
-    setBusy(true);
-    setMessage('');
-    setHasError(false);
-    try {
-      const result = await window.electronAPI?.applyDatabaseCellEdits?.({
-        target: { ...source.target, connectionId: source.connectionId },
-        originalRows: source.originalRows,
-        rows,
-        columns: source.databaseColumns || columns,
-        primaryKeys: source.primaryKeys
-      });
-      if (!result?.success) throw new Error(result?.error || 'Database changes could not be applied.');
-      onCommit?.(rows);
-      setMessage(`${result.updated} row(s) saved.`);
-    } catch (err) {
-      setHasError(true);
-      setMessage(err?.message || 'Database changes could not be applied.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
+export function ApplyDatabaseEditsButton({ source }) {
   if (!source) return null;
   return (
-    <div className="flex items-center gap-2">
-      <button type="button" disabled={busy} onClick={applyEdits} className="inline-flex items-center rounded-md border border-[#303034] bg-[#171717] px-2.5 py-1.5 text-[11px] text-[#d4d4d8] hover:bg-[#252525] disabled:opacity-50" title="Apply cell edits to the connected database">
-        {busy ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-        <span className="ml-1">{busy ? 'Applying…' : 'Apply DB edits'}</span>
-      </button>
-      {message && <span role="status" className={`max-w-48 truncate text-[10px] ${hasError ? 'text-[#e5a4a4]' : 'text-[#a1a1aa]'}`} title={message}>{message}</span>}
-    </div>
+    <span className="inline-flex items-center rounded-md border border-[#303034] bg-[#171717] px-2.5 py-1.5 text-[10px] font-medium text-[#a1a1aa]" title={source.accessMode === 'read-write' ? 'DEM changes are applied live to the database.' : 'DEM edits stay in memory; the database is unchanged.'}>
+      {source.accessMode === 'read-write' ? 'Live DB write' : 'DB read only'}
+    </span>
   );
 }
 
@@ -158,7 +126,12 @@ export default function DatabaseConnectionPanel({
   rows,
   columns,
   isOpen,
-  onOpenChange
+  onOpenChange,
+  databaseSource = null,
+  databaseAccessMode = 'read-only',
+  databaseWriteDisabledReason = '',
+  onDatabaseAccessModeChange,
+  onDisconnect
 }) {
   const [localOpen, setLocalOpen] = useState(false);
   const open = typeof isOpen === 'boolean' ? isOpen : localOpen;
@@ -376,7 +349,7 @@ export default function DatabaseConnectionPanel({
   };
 
   const saveDataset = async () => {
-    if (!connected || !rows?.length || !columns?.length) return;
+    if (!connected || databaseAccessMode !== 'read-write' || !rows?.length || !columns?.length) return;
     const tableName = destinationTable.trim();
     if (!window.confirm(`Save ${rows.length} rows as a new database table named "${tableName}"? A row ID will be added. Existing tables will not be changed.`)) return;
     setBusy(true);
@@ -412,6 +385,7 @@ export default function DatabaseConnectionPanel({
       setTables([]);
       setSelectedTable(null);
       setConnectionId('');
+      onDisconnect?.();
       setBusy(false);
     }
   };
@@ -474,14 +448,28 @@ export default function DatabaseConnectionPanel({
                   )}
                 </div>
                 {connected && (
+                  <>
+                  <section className="space-y-3 rounded-md border border-[#292929] bg-[#0d0d0d] p-3.5">
+                    <div>
+                      <h3 className="text-xs font-medium text-[#e4e4e7]">Database access</h3>
+                      <p className="mt-1 text-[11px] leading-relaxed text-[#a1a1aa]">{databaseSource ? <>DEM stays editable in either mode. Read/write applies DEM changes to {tableLabel(databaseSource.target)} as you make them.</> : 'DEM edits stay local. Enable Read / write to save a new table to this database.'}</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1 rounded-md border border-[#292929] bg-[#090909] p-1">
+                      <button type="button" aria-pressed={databaseAccessMode === 'read-only'} onClick={() => onDatabaseAccessModeChange?.('read-only')} className={`rounded px-2 py-2 text-[11px] font-medium ${databaseAccessMode === 'read-only' ? 'bg-[#292929] text-[#f4f4f5]' : 'text-[#a1a1aa] hover:text-[#e4e4e7]'}`}>Read only</button>
+                      <button type="button" aria-pressed={databaseAccessMode === 'read-write'} disabled={Boolean(databaseWriteDisabledReason)} onClick={() => onDatabaseAccessModeChange?.('read-write')} title={databaseWriteDisabledReason || 'Apply DEM changes live to this database table'} className={`rounded px-2 py-2 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-40 ${databaseAccessMode === 'read-write' ? 'bg-[#343434] text-[#fff]' : 'text-[#a1a1aa] hover:text-[#e4e4e7]'}`}>Read / write</button>
+                    </div>
+                    {databaseAccessMode === 'read-write' ? <p role="status" className="text-[11px] leading-relaxed text-[#d4d4d8]">{databaseSource ? 'Changes are being written live. Use Read only to stop future writes.' : 'Write access is enabled for saving a new table. Existing DEM edits are still local.'}</p> : databaseWriteDisabledReason ? <p className="text-[11px] leading-relaxed text-[#a1a1aa]">{databaseWriteDisabledReason}</p> : <p className="text-[11px] leading-relaxed text-[#a1a1aa]">DEM edits stay local until Read / write is enabled.</p>}
+                  </section>
                   <section className="space-y-3 rounded-md border border-[#292929] bg-[#0d0d0d] p-3.5">
                     <div>
                       <h3 className="text-xs font-medium text-[#e4e4e7]">Save current dataset</h3>
                       <p className="mt-1 text-[11px] leading-relaxed text-[#a1a1aa]">Creates a new table with {rows?.length || 0} rows and a generated row ID. Existing tables are never replaced.</p>
                     </div>
                     <label className="block"><span className={labelClass}>New table name</span><input value={destinationTable} onChange={(event) => setDestinationTable(event.target.value)} disabled={busy} autoComplete="off" placeholder="for example, experiment_data" className={inputClass} /></label>
-                    <button type="button" disabled={busy || !rows?.length || !columns?.length || !destinationTable.trim()} onClick={saveDataset} className="inline-flex items-center gap-2 rounded-md bg-[#292929] px-3 py-2 text-xs font-medium text-[#f4f4f5] hover:bg-[#3a3a3a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a1a1aa] disabled:opacity-50">{busy ? <Loader2 size={14} className="animate-spin" /> : <Database size={14} />}Save dataset to database</button>
+                    {databaseAccessMode !== 'read-write' && <p className="text-[11px] leading-relaxed text-[#a1a1aa]">Enable Read / write to save data to this database.</p>}
+                    <button type="button" disabled={busy || databaseAccessMode !== 'read-write' || !rows?.length || !columns?.length || !destinationTable.trim()} onClick={saveDataset} className="inline-flex items-center gap-2 rounded-md bg-[#292929] px-3 py-2 text-xs font-medium text-[#f4f4f5] hover:bg-[#3a3a3a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a1a1aa] disabled:opacity-50">{busy ? <Loader2 size={14} className="animate-spin" /> : <Database size={14} />}Save dataset to database</button>
                   </section>
+                  </>
                 )}
               </form>
               <div className="flex min-h-[300px] flex-col overflow-hidden rounded-md border border-[#292929] bg-[#0d0d0d]">

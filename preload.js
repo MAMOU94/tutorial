@@ -66,6 +66,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   listDatabaseTables: (connectionId) => ipcRenderer.invoke('database-list-tables', connectionId),
   readDatabaseTable: (target) => ipcRenderer.invoke('database-read-table', target),
   applyDatabaseCellEdits: (payload) => ipcRenderer.invoke('database-apply-cell-edits', payload),
+  applyDatabaseChanges: (payload) => ipcRenderer.invoke('database-apply-changes', payload),
   saveDatasetToDatabase: (payload) => ipcRenderer.invoke('database-save-dataset', payload),
   disconnectDatabase: () => ipcRenderer.invoke('database-disconnect'),
   getFileMetadata: (filePath, sheetName = '') => ipcRenderer.invoke('get-file-metadata', filePath, sheetName),

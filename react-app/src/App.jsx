@@ -7315,6 +7315,9 @@ const renderAIAnswerContent = (text) => {
 function App() {
   const [file, setFile] = useState(null);
   const [databaseSource, setDatabaseSource] = useState(null);
+  const [databaseAccessMode, setDatabaseAccessMode] = useState('read-only');
+  const databaseWriteTimerRef = useRef(null);
+  const databaseWriteInFlightRef = useRef(false);
   const [openDatasetFiles, setOpenDatasetFiles] = useState([]);
   const [activeDatasetFileId, setActiveDatasetFileId] = useState('');
   const openDatasetFilesRef = useRef([]);
@@ -16414,6 +16417,7 @@ ${historyContext || '(none)'}`;
         `dataset_name: ${datasetName}`,
         `source_type: ${sourceDatabaseTable ? 'database table' : (sourceDataExplorerFilePath ? 'local file' : 'in-memory dataset')}`,
         ...(sourceDatabaseTable ? [`source_database_table: ${sourceDatabaseTable}`] : []),
+        ...(sourceDatabaseTable ? [`database_primary_keys: ${(databaseSource?.primaryKeys || []).join(', ') || '(none)'}`] : []),
         `active_sheet_name: ${activeDataExplorerSheetName || '(none)'}`,
         `source_file_name: ${sourceDataExplorerFileName || '(created/in-memory Data Explorer dataset)'}`,
         `source_file_path: ${sourceDatabaseTable ? '(not applicable; this table has no local file path)' : (sourceDataExplorerFilePath || '(not available)')}`,
@@ -19567,13 +19571,26 @@ ${attachmentPromptContext || '(none)'}`;
           && currentSheet === databaseSource.sheetName
           ? databaseSource
           : null;
+        const missingDatabaseIdentityColumn = databaseSourceToPreserve?.hiddenColumns?.find((column) => (
+          !normalizedDataset.columns.includes(column)
+        ));
         if (shouldSyncToExplorer) {
           shouldOverwrite = Boolean((rExplorerOverwriteActiveSheetRef.current || isLinkedDatabaseDataFrame) && currentSheet);
           const effectiveOperationKey = incomingDfName || incomingDfObject || operationKey;
-          applied = applyTransformedDataset(normalizedDataset.rows, normalizedDataset.columns, effectiveOperationKey, {
-            overwrite: shouldOverwrite,
-            rowNames: normalizedDataset.rowNames
-          });
+          if (missingDatabaseIdentityColumn) {
+            setViewerNotice({
+              type: 'error',
+              text: `R sync skipped because the database key column "${missingDatabaseIdentityColumn}" is missing. Keep primary-key columns in the R dataframe.`
+            });
+          } else {
+            const explorerColumns = databaseSourceToPreserve
+              ? normalizedDataset.columns.filter((column) => !databaseSourceToPreserve.hiddenColumns?.includes(column))
+              : normalizedDataset.columns;
+            applied = applyTransformedDataset(normalizedDataset.rows, explorerColumns, effectiveOperationKey, {
+              overwrite: shouldOverwrite,
+              rowNames: normalizedDataset.rowNames
+            });
+          }
           if (shouldOverwrite && applied?.applied && applied.sheetName === currentSheet && databaseSourceToPreserve) {
             setDatabaseSource(databaseSourceToPreserve);
           }
@@ -19587,7 +19604,7 @@ ${attachmentPromptContext || '(none)'}`;
             memoryLanguage
           );
         }
-        if (shouldSyncToExplorer) {
+        if (shouldSyncToExplorer && applied?.applied) {
           setRSyncResetToken((prev) => prev + 1);
           setShowViewer(true);
           setViewerNotice({
@@ -20511,10 +20528,14 @@ except Exception as _ngr_error:
         ? sheetDatasetCacheRef.current[targetSheet]
         : null
     );
-    const cachedColumns = Array.isArray(cachedDataset?.columns)
+    const visibleCachedColumns = Array.isArray(cachedDataset?.columns)
       ? cachedDataset.columns.map((column) => String(column))
       : [];
     const cachedRows = Array.isArray(cachedDataset?.rows) ? cachedDataset.rows : [];
+    const hiddenDatabaseColumns = databaseSource?.sheetName === targetSheet
+      ? (databaseSource.hiddenColumns || []).filter((column) => cachedRows.some((row) => Object.prototype.hasOwnProperty.call(row || {}, column)))
+      : [];
+    const cachedColumns = [...visibleCachedColumns, ...hiddenDatabaseColumns.filter((column) => !visibleCachedColumns.includes(column))];
     const hasInMemoryDataset = cachedColumns.length > 0 && Array.isArray(cachedRows);
 
     if (!targetPath && !hasInMemoryDataset) return;
@@ -27501,6 +27522,7 @@ except Exception as _ngr_error:
     const displayColumns = internalRowId
       ? databaseColumns.filter((column) => column !== internalRowId)
       : databaseColumns;
+    setDatabaseAccessMode('read-only');
     setFile({ name: sheetName, path: '', isVirtual: true });
     activeDatasetFileIdRef.current = '';
     setActiveDatasetFileId('');
@@ -27515,7 +27537,10 @@ except Exception as _ngr_error:
       connectionId: dataset.connectionId,
       originalRows: dataset.rows,
       primaryKeys,
-      databaseColumns
+      databaseColumns,
+      hiddenColumns: internalRowId ? [internalRowId] : [],
+      truncated: Boolean(dataset.truncated),
+      accessMode: 'read-only'
     });
     setShowViewer(true);
     setViewerNotice({
@@ -27524,7 +27549,7 @@ except Exception as _ngr_error:
     });
     if (isDataExplorerConnectedRef.current) {
       syncExplorerToRConsole(null, sheetName, {
-        columns: displayColumns,
+        columns: databaseColumns,
         rows: dataset.rows
       }, true);
     }
@@ -27534,6 +27559,81 @@ except Exception as _ngr_error:
   const handleDatabaseEditsApplied = (rows) => {
     setDatabaseSource((previous) => previous ? { ...previous, originalRows: rows } : previous);
   };
+
+  const handleDatabaseAccessModeChange = (nextMode) => {
+    const accessMode = nextMode === 'read-write' ? 'read-write' : 'read-only';
+    if (accessMode === 'read-write' && databaseWriteDisabledReason) return;
+    setDatabaseAccessMode(accessMode);
+    setDatabaseSource((previous) => previous ? { ...previous, accessMode } : previous);
+  };
+
+  useEffect(() => {
+    if (
+      !databaseSource
+      || databaseSource.accessMode !== 'read-write'
+      || databaseSource.truncated
+      || databaseSource.sheetName !== activeSheetName
+      || isDatasetSwitching
+      || !window.electronAPI?.applyDatabaseChanges
+    ) return undefined;
+
+    if (databaseWriteTimerRef.current) clearTimeout(databaseWriteTimerRef.current);
+    databaseWriteTimerRef.current = setTimeout(async () => {
+      if (databaseWriteInFlightRef.current) return;
+      databaseWriteInFlightRef.current = true;
+      const sourceSnapshot = databaseSource;
+      const currentRows = Array.isArray(fullData) ? fullData.map((row) => ({ ...row })) : [];
+      const currentDatabaseColumns = Array.from(new Set([
+        ...columns,
+        ...(sourceSnapshot.hiddenColumns || []).filter((column) => currentRows.some((row) => Object.prototype.hasOwnProperty.call(row, column)))
+      ]));
+      try {
+        const response = await window.electronAPI.applyDatabaseChanges({
+          target: { ...sourceSnapshot.target, connectionId: sourceSnapshot.connectionId },
+          originalColumns: sourceSnapshot.databaseColumns,
+          originalRows: sourceSnapshot.originalRows,
+          columns: currentDatabaseColumns,
+          rows: currentRows
+        });
+        if (!response?.success) throw new Error(response?.error || 'Could not apply DEM changes to the database.');
+        if (response.pending) {
+          setViewerNotice({ type: 'success', text: response.message || 'A primary key is required before this row can be saved.' });
+          return;
+        }
+        const nextRows = Array.isArray(response.rows) ? response.rows : currentRows;
+        const changesApplied = Number(response.updated || 0) + Number(response.inserted || 0)
+          + Number(response.deleted || 0) + (response.addedColumns || []).length + (response.removedColumns || []).length;
+        if (response.inserted > 0 && sourceSnapshot.hiddenColumns?.length > 0) {
+          setFullData(nextRows);
+        }
+        if (changesApplied > 0) {
+          setDatabaseSource((previous) => previous?.connectionId === sourceSnapshot.connectionId
+            ? { ...previous, originalRows: nextRows, databaseColumns: currentDatabaseColumns }
+            : previous);
+          persistSheetDatasetCache(sourceSnapshot.sheetName, columns, nextRows);
+          setViewerNotice({
+            type: 'success',
+            text: `Live database update: ${response.updated || 0} row(s) changed, ${response.inserted || 0} added, ${response.deleted || 0} deleted${(response.addedColumns || []).length ? `, ${(response.addedColumns || []).length} column(s) added` : ''}${(response.removedColumns || []).length ? `, ${(response.removedColumns || []).length} column(s) removed` : ''}.`
+          });
+        }
+      } catch (error) {
+        setDatabaseAccessMode('read-only');
+        setDatabaseSource((previous) => previous?.connectionId === sourceSnapshot.connectionId
+          ? { ...previous, accessMode: 'read-only' }
+          : previous);
+        setViewerNotice({
+          type: 'error',
+          text: `Live database write failed. Your DEM edits remain local, and database mode switched to Read only. ${error?.message || ''}`.trim()
+        });
+      } finally {
+        databaseWriteInFlightRef.current = false;
+      }
+    }, 350);
+
+    return () => {
+      if (databaseWriteTimerRef.current) clearTimeout(databaseWriteTimerRef.current);
+    };
+  }, [activeSheetName, columns, databaseSource, fullData, isDatasetSwitching, persistSheetDatasetCache]);
 
   const saveActiveDatasetFile = () => {
     const fileId = activeDatasetFileIdRef.current;
@@ -30619,7 +30719,7 @@ except Exception as _ngr_error:
   );
 
   const applyTransformedDataset = (nextRows, forcedColumns = null, operationKey = '', options = {}) => {
-    const { overwrite = false, rowNames = [] } = options;
+    const { overwrite = false, rowNames = [], createSheet = false } = options;
     const safeRows = normalizeRowArray(nextRows)
       .filter((row) => row && typeof row === 'object')
       .map((row) => ({ ...row }));
@@ -30652,9 +30752,14 @@ except Exception as _ngr_error:
     const currentSheetName = String(activeSheetNameRef.current || activeSheetName || '').trim();
     const sourceSheetName = currentSheetName || knownSheets[0] || 'Sheet_1';
     const isPhysicalCsv = Boolean(file?.path && /\.csv$/i.test(String(file.path)));
+    const writeThroughDatabase = Boolean(
+      !createSheet
+      && databaseSource?.accessMode === 'read-write'
+      && databaseSource.sheetName === sourceSheetName
+    );
 
     let resultSheetName;
-    if ((overwrite || isPhysicalCsv) && currentSheetName) {
+    if ((overwrite || isPhysicalCsv || writeThroughDatabase) && currentSheetName) {
       resultSheetName = currentSheetName;
     } else {
       const normalizedOperation = String(operationKey || 'result')
@@ -30773,6 +30878,7 @@ except Exception as _ngr_error:
       setActiveSheetName(resultSheetName);
       activeSheetNameRef.current = resultSheetName;
       resetDatasetWorkspace({ preserveData: true, preserveSheets: true, preserveViewState: true });
+      if (writeThroughDatabase) setDatabaseSource(databaseSource);
       suspendDatasetUndoTracking();
       applyLoadedDataset(
         nextColumns,
@@ -30814,7 +30920,7 @@ except Exception as _ngr_error:
       row[column] = '';
       return row;
     }, {}));
-    const result = applyTransformedDataset(blankRows, newSheetColumns, nextSheetName);
+    const result = applyTransformedDataset(blankRows, newSheetColumns, nextSheetName, { createSheet: true });
     if (result?.applied) {
       if (isDataExplorerConnectedRef.current && rExplorerSyncModeRef.current === 'auto') {
         syncExplorerToRConsole(null, result.sheetName, {
@@ -33796,6 +33902,13 @@ except Exception as _ngr_error:
   const showMultivariateScree = (isMultivariatePcaResult || isMultivariateMcaResult || isMultivariateBcaResult || isMultivariateCoinertiaResult) && !!result?.scree_plot_image;
   const hasLoadedDataset = fullData.length > 0 && columns.length > 0;
   const hasPhysicalDatasetFile = Boolean(file?.path);
+  const databaseWriteDisabledReason = databaseSource?.truncated
+    ? 'Read/write is disabled because this table was truncated to the first 10,000 rows.'
+    : (databaseSource?.target?.type && !/^(?:BASE\s+)?TABLE$/i.test(String(databaseSource.target.type).trim())
+      ? 'Read/write is disabled for database views.'
+      : (databaseSource && databaseSource.primaryKeys.length === 0
+        ? 'Read/write requires a primary key on the database table.'
+        : ''));
   const datasetDisplayName = file?.name || (hasLoadedDataset ? 'In-memory data frame' : '');
   const activeThemeLabel = activeThemeOption?.label || 'Dark Theme';
   const activeCodeMirrorTheme = useMemo(() => {
@@ -41391,6 +41504,14 @@ except Exception as _ngr_error:
         isOpen={databasePanelOpen}
         onOpenChange={setDatabasePanelOpen}
         onLoadTable={handleLoadDatabaseTable}
+        databaseSource={databaseSource}
+        databaseAccessMode={databaseAccessMode}
+        databaseWriteDisabledReason={databaseWriteDisabledReason}
+        onDatabaseAccessModeChange={handleDatabaseAccessModeChange}
+        onDisconnect={() => {
+          setDatabaseSource(null);
+          setDatabaseAccessMode('read-only');
+        }}
         datasetName={datasetDisplayName}
         rows={fullData}
         columns={columns}

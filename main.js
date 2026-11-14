@@ -2436,6 +2436,10 @@ app.whenReady().then(async () => {
     try { return await databaseConnector.applyCellEdits(payload || {}); }
     catch (error) { return { success: false, error: error?.message || 'Could not apply database changes.' }; }
   });
+  ipcMain.handle('database-apply-changes', async (_event, payload) => {
+    try { return await databaseConnector.applyChanges(payload || {}); }
+    catch (error) { return { success: false, error: error?.message || 'Could not apply database changes.' }; }
+  });
   ipcMain.handle('database-save-dataset', async (_event, payload) => {
     try { return await databaseConnector.saveDataset(payload || {}); }
     catch (error) { return { success: false, error: error?.message || 'Could not save the dataset to the database.' }; }
