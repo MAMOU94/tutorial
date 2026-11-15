@@ -245,6 +245,7 @@ export default function DatabaseConnectionPanel({
   onOpenChange,
   databaseSource = null,
   databaseAccessMode = 'read-only',
+  databaseWriteError = '',
   databaseWriteDisabledReason = '',
   onDatabaseAccessModeChange,
   databaseWriteTiming = 'realtime',
@@ -763,7 +764,7 @@ export default function DatabaseConnectionPanel({
               </div>
             </div>
             <footer aria-live="polite" className="min-h-10 border-t border-[#292929] px-5 py-2.5 text-xs">
-              {error ? <p className="text-[#e5a4a4]">{error}</p> : notice ? <p className="text-[#d4d4d8]">{notice}</p> : connected && databaseSource ? <p className="text-[#a1a1aa]">{databaseAccessMode !== 'read-write' ? 'DEM stays editable; database changes are off.' : databaseWriteTiming === 'realtime' ? 'Data edits and visible columns sync automatically; row selection and search do not.' : 'Data edits and visible columns sync when you click Run edit; reselect a column before running to cancel its removal.'}</p> : <p className="text-[#a1a1aa]">Choose a table to load it into Data Explorer.</p>}
+              {databaseWriteError ? <p role="alert" className="text-[#e5a4a4]"><span className="font-semibold">Database write failed.</span> {databaseWriteError}</p> : error ? <p className="text-[#e5a4a4]">{error}</p> : notice ? <p className="text-[#d4d4d8]">{notice}</p> : connected && databaseSource ? <p className="text-[#a1a1aa]">{databaseAccessMode !== 'read-write' ? 'DEM stays editable; database changes are off.' : databaseWriteTiming === 'realtime' ? 'Data edits and visible columns sync automatically; row selection and search do not.' : 'Data edits and visible columns sync when you click Run edit; reselect a column before running to cancel its removal.'}</p> : <p className="text-[#a1a1aa]">Choose a table to load it into Data Explorer.</p>}
             </footer>
           </section>
         </div>

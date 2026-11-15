@@ -183,10 +183,7 @@ const ensureAffectedRows = async (conn, result, expected, verify, errorMessage) 
   const count = result?.count === null || result?.count === undefined || result?.count === ''
     ? Number.NaN
     : Number(result.count);
-  if (Number.isInteger(count) && count >= 0) {
-    if (count !== expected) throw new Error(errorMessage);
-    return;
-  }
+  if (Number.isInteger(count) && count === expected) return;
   if (!verify || !(await verify())) throw new Error(errorMessage);
 };
 

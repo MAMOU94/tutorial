@@ -7319,6 +7319,7 @@ function App() {
   const [databaseWriteTiming, setDatabaseWriteTiming] = useState('realtime');
   const [databaseManualWritePending, setDatabaseManualWritePending] = useState(false);
   const [databaseWriteRunToken, setDatabaseWriteRunToken] = useState(0);
+  const [databaseWriteError, setDatabaseWriteError] = useState('');
   const databaseAccessModeRef = useRef('read-only');
   const databaseWriteTimerRef = useRef(null);
   const databaseWriteInFlightRef = useRef(false);
@@ -27519,6 +27520,7 @@ except Exception as _ngr_error:
   const handleLoadDatabaseTable = async (dataset) => {
     if (fullData.length > 0 && !window.confirm(`Replace the current dataset with "${dataset.name}"?`)) return false;
     setDatabaseManualWritePending(false);
+    setDatabaseWriteError('');
     saveActiveDatasetFile();
     resetDatasetWorkspace();
     const sheetName = dataset.name || dataset.target?.table || 'database_table';
@@ -27588,6 +27590,7 @@ except Exception as _ngr_error:
   };
 
   useEffect(() => {
+    const isManualRun = databaseWriteRunToken !== databaseWriteRunHandledRef.current;
     if (
       !databaseSource
       || databaseSource.accessMode !== 'read-write'
@@ -27595,9 +27598,14 @@ except Exception as _ngr_error:
       || databaseSource.sheetName !== activeSheetName
       || isDatasetSwitching
       || !window.electronAPI?.applyDatabaseChanges
-    ) return undefined;
+    ) {
+      if (isManualRun && !isDatasetSwitching) {
+        databaseWriteRunHandledRef.current = databaseWriteRunToken;
+        setDatabaseManualWritePending(false);
+      }
+      return undefined;
+    }
 
-    const isManualRun = databaseWriteRunToken !== databaseWriteRunHandledRef.current;
     if (databaseWriteTiming !== 'realtime' && !isManualRun) return undefined;
 
     if (databaseWriteTimerRef.current) clearTimeout(databaseWriteTimerRef.current);
@@ -27625,19 +27633,19 @@ except Exception as _ngr_error:
         && candidate?.target?.catalog === sourceSnapshot.target?.catalog
         && candidate?.target?.schema === sourceSnapshot.target?.schema
         && candidate?.target?.table === sourceSnapshot.target?.table;
-      const currentDatabaseColumns = Array.from(new Set([
-        ...(Array.isArray(selectedColumns) ? selectedColumns.filter((column) => columns.includes(column)) : columns),
-        ...(sourceSnapshot.primaryKeys || []),
-        ...(sourceSnapshot.hiddenColumns || []).filter((column) => fullData.some((row) => Object.prototype.hasOwnProperty.call(row || {}, column)))
-      ]));
-      // The database mirrors the columns shown in DEM; the local dataset keeps
-      // every column so the user can reselect one and restore it to the table.
-      const currentRows = (Array.isArray(fullData) ? fullData : []).map((row) => Object.fromEntries(
-        currentDatabaseColumns.map((column) => [column, row?.[column] ?? null])
-      ));
-      const nextHiddenColumns = Array.from(new Set(sourceSnapshot.hiddenColumns || []))
-        .filter((column) => currentRows.length === 0 || currentRows.some((row) => Object.prototype.hasOwnProperty.call(row, column)));
       try {
+        const currentDatabaseColumns = Array.from(new Set([
+          ...(Array.isArray(selectedColumns) ? selectedColumns.filter((column) => columns.includes(column)) : columns),
+          ...(sourceSnapshot.primaryKeys || []),
+          ...(sourceSnapshot.hiddenColumns || []).filter((column) => fullData.some((row) => Object.prototype.hasOwnProperty.call(row || {}, column)))
+        ]));
+        // The database mirrors the columns shown in DEM; the local dataset keeps
+        // every column so the user can reselect one and restore it to the table.
+        const currentRows = (Array.isArray(fullData) ? fullData : []).map((row) => Object.fromEntries(
+          currentDatabaseColumns.map((column) => [column, row?.[column] ?? null])
+        ));
+        const nextHiddenColumns = Array.from(new Set(sourceSnapshot.hiddenColumns || []))
+          .filter((column) => currentRows.length === 0 || currentRows.some((row) => Object.prototype.hasOwnProperty.call(row, column)));
         const response = await window.electronAPI.applyDatabaseChanges({
           target: { ...sourceSnapshot.target, connectionId: sourceSnapshot.connectionId },
           originalColumns: sourceSnapshot.databaseColumns,
@@ -27646,6 +27654,7 @@ except Exception as _ngr_error:
           rows: currentRows
         });
         if (!response?.success) throw new Error(response?.error || 'Could not apply DEM changes to the database.');
+        setDatabaseWriteError('');
         if (response.pending) {
           setViewerNotice({ type: 'success', text: response.message || 'A primary key is required before this row can be saved.' });
           // Do NOT return here — fall through to finally so the in-flight lock is released.
@@ -27675,6 +27684,7 @@ except Exception as _ngr_error:
           }
         }
       } catch (error) {
+        setDatabaseWriteError(error?.message || 'Could not apply DEM changes to the database.');
         databaseAccessModeRef.current = 'read-only';
         setDatabaseAccessMode('read-only');
         setDatabaseSource((previous) => isSameDatabaseSource(previous)
@@ -41577,6 +41587,7 @@ except Exception as _ngr_error:
         onLoadTable={handleLoadDatabaseTable}
         databaseSource={databaseSource}
         databaseAccessMode={databaseAccessMode}
+        databaseWriteError={databaseWriteError}
         databaseWriteDisabledReason={databaseWriteDisabledReason}
         onDatabaseAccessModeChange={handleDatabaseAccessModeChange}
         databaseWriteTiming={databaseWriteTiming}
