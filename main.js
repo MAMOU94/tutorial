@@ -1,5 +1,5 @@
 
-const { app, BrowserWindow, ipcMain, dialog, session, shell, Menu, net } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, session, shell, Menu, net, safeStorage } = require('electron');
 const path = require('path');
 const url = require('url');
 const crypto = require('crypto');
@@ -82,8 +82,45 @@ const deriveOllamaBaseUrl = (value) => {
 };
 
 const AI_CONFIG_PATH = path.join(app.getPath('userData'), 'ai_config.json');
+const DATABASE_CONNECTION_SECRETS_PATH = path.join(app.getPath('userData'), 'database_connection_secrets.json');
 const DEFAULT_AI_KNOWLEDGE_ROOT = path.resolve(__dirname, 'AI agent', 'data');
 const LEGACY_WORKSPACE_AI_ROOT = path.resolve(process.cwd());
+
+const databaseCredentialEncryptionAvailable = () => {
+  if (!safeStorage.isEncryptionAvailable()) return false;
+  if (process.platform !== 'linux') return true;
+  if (typeof safeStorage.getSelectedStorageBackend !== 'function') return false;
+  return ['gnome_libsecret', 'kwallet', 'kwallet5', 'kwallet6'].includes(safeStorage.getSelectedStorageBackend());
+};
+
+const loadDatabaseCredentialStore = () => {
+  if (!fs.existsSync(DATABASE_CONNECTION_SECRETS_PATH)) return { version: 1, profiles: {} };
+  const parsed = JSON.parse(fs.readFileSync(DATABASE_CONNECTION_SECRETS_PATH, 'utf8'));
+  if (parsed?.version !== 1 || !parsed.profiles || typeof parsed.profiles !== 'object' || Array.isArray(parsed.profiles)) {
+    throw new Error('The saved database credentials file has an invalid format.');
+  }
+  return parsed;
+};
+
+const writeDatabaseCredentialStore = (store) => {
+  const temporaryPath = `${DATABASE_CONNECTION_SECRETS_PATH}.${crypto.randomUUID()}.tmp`;
+  let descriptor = null;
+  try {
+    descriptor = fs.openSync(temporaryPath, 'wx', 0o600);
+    fs.writeFileSync(descriptor, `${JSON.stringify(store)}\n`, 'utf8');
+    fs.fsyncSync(descriptor);
+    fs.closeSync(descriptor);
+    descriptor = null;
+    fs.renameSync(temporaryPath, DATABASE_CONNECTION_SECRETS_PATH);
+    if (process.platform !== 'win32') fs.chmodSync(DATABASE_CONNECTION_SECRETS_PATH, 0o600);
+  } catch (error) {
+    if (descriptor !== null) fs.closeSync(descriptor);
+    try { fs.rmSync(temporaryPath, { force: true }); } catch (_) { /* Keep the original write error. */ }
+    throw error;
+  }
+};
+
+const validDatabaseProfileId = (value) => /^[a-zA-Z0-9-]{1,80}$/.test(String(value || ''));
 
 const loadAIConfig = () => {
   try {
@@ -2416,35 +2453,111 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   const databaseConnector = require('./database_connector');
-  ipcMain.handle('database-list-drivers', async () => {
+  const isTrustedDatabaseSender = (event) => {
+    const mainWindow = mainAppWindow;
+    return Boolean(mainWindow
+      && !mainWindow.isDestroyed()
+      && event.sender === mainWindow.webContents
+      && event.senderFrame === mainWindow.webContents.mainFrame);
+  };
+  const deniedDatabaseRequest = { success: false, error: 'Database access is limited to the main app window.' };
+
+  ipcMain.handle('database-profile-save-credentials', async (event, profileId, credentials = {}) => {
+    if (!isTrustedDatabaseSender(event)) return deniedDatabaseRequest;
+    if (!validDatabaseProfileId(profileId)) return { success: false, error: 'Invalid saved connection.' };
+    const username = String(credentials?.username || '');
+    const password = String(credentials?.password || '');
+    if (username.length > 512 || password.length > 4096) {
+      return { success: false, error: 'Login details are too long to save.' };
+    }
+    try {
+      const store = loadDatabaseCredentialStore();
+      if (username || password) {
+        if (!databaseCredentialEncryptionAvailable()) {
+          return { success: false, error: 'Secure credential storage is unavailable. Configure an OS keychain and try again.' };
+        }
+        store.profiles[profileId] = safeStorage.encryptString(JSON.stringify({ username, password })).toString('base64');
+      } else {
+        delete store.profiles[profileId];
+      }
+      writeDatabaseCredentialStore(store);
+      return { success: true, hasCredentials: Boolean(username || password) };
+    } catch (error) {
+      return { success: false, error: error?.message || 'Could not securely save database credentials.' };
+    }
+  });
+
+  ipcMain.handle('database-profile-get-credentials', async (event, profileId) => {
+    if (!isTrustedDatabaseSender(event)) return deniedDatabaseRequest;
+    if (!validDatabaseProfileId(profileId)) return { success: false, error: 'Invalid saved connection.' };
+    try {
+      const encrypted = loadDatabaseCredentialStore().profiles[profileId];
+      if (!encrypted) return { success: true, username: '', password: '', hasCredentials: false };
+      if (!databaseCredentialEncryptionAvailable()) {
+        return { success: false, error: 'The OS credential store is unavailable, so saved login details cannot be decrypted.' };
+      }
+      const credentials = JSON.parse(safeStorage.decryptString(Buffer.from(encrypted, 'base64')));
+      return {
+        success: true,
+        username: String(credentials?.username || ''),
+        password: String(credentials?.password || ''),
+        hasCredentials: true
+      };
+    } catch (error) {
+      return { success: false, error: error?.message || 'Could not decrypt saved database credentials.' };
+    }
+  });
+
+  ipcMain.handle('database-profile-delete-credentials', async (event, profileId) => {
+    if (!isTrustedDatabaseSender(event)) return deniedDatabaseRequest;
+    if (!validDatabaseProfileId(profileId)) return { success: false, error: 'Invalid saved connection.' };
+    try {
+      const store = loadDatabaseCredentialStore();
+      delete store.profiles[profileId];
+      writeDatabaseCredentialStore(store);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error?.message || 'Could not delete saved database credentials.' };
+    }
+  });
+
+  ipcMain.handle('database-list-drivers', async (event) => {
+    if (!isTrustedDatabaseSender(event)) return deniedDatabaseRequest;
     try { return { success: true, drivers: databaseConnector.listDrivers() }; }
     catch (error) { return { success: false, error: error?.message || 'Could not list ODBC drivers.' }; }
   });
-  ipcMain.handle('database-connect', async (_event, connectionString, dialectHint) => {
+  ipcMain.handle('database-connect', async (event, connectionString, dialectHint) => {
+    if (!isTrustedDatabaseSender(event)) return deniedDatabaseRequest;
     try { return await databaseConnector.connect(connectionString, dialectHint); }
     catch (error) { return { success: false, error: error?.message || 'Could not connect to the database.' }; }
   });
-  ipcMain.handle('database-list-tables', async (_event, connectionId) => {
+  ipcMain.handle('database-list-tables', async (event, connectionId) => {
+    if (!isTrustedDatabaseSender(event)) return deniedDatabaseRequest;
     try { return { success: true, tables: await databaseConnector.listTables(connectionId) }; }
     catch (error) { return { success: false, error: error?.message || 'Could not list database tables.' }; }
   });
-  ipcMain.handle('database-read-table', async (_event, target) => {
+  ipcMain.handle('database-read-table', async (event, target) => {
+    if (!isTrustedDatabaseSender(event)) return deniedDatabaseRequest;
     try { return { success: true, ...(await databaseConnector.readTable(target)) }; }
     catch (error) { return { success: false, error: error?.message || 'Could not read the selected table.' }; }
   });
-  ipcMain.handle('database-apply-cell-edits', async (_event, payload) => {
+  ipcMain.handle('database-apply-cell-edits', async (event, payload) => {
+    if (!isTrustedDatabaseSender(event)) return deniedDatabaseRequest;
     try { return await databaseConnector.applyCellEdits(payload || {}); }
     catch (error) { return { success: false, error: error?.message || 'Could not apply database changes.' }; }
   });
-  ipcMain.handle('database-apply-changes', async (_event, payload) => {
+  ipcMain.handle('database-apply-changes', async (event, payload) => {
+    if (!isTrustedDatabaseSender(event)) return deniedDatabaseRequest;
     try { return await databaseConnector.applyChanges(payload || {}); }
     catch (error) { return { success: false, error: error?.message || 'Could not apply database changes.' }; }
   });
-  ipcMain.handle('database-save-dataset', async (_event, payload) => {
+  ipcMain.handle('database-save-dataset', async (event, payload) => {
+    if (!isTrustedDatabaseSender(event)) return deniedDatabaseRequest;
     try { return await databaseConnector.saveDataset(payload || {}); }
     catch (error) { return { success: false, error: error?.message || 'Could not save the dataset to the database.' }; }
   });
-  ipcMain.handle('database-disconnect', async () => {
+  ipcMain.handle('database-disconnect', async (event) => {
+    if (!isTrustedDatabaseSender(event)) return deniedDatabaseRequest;
     try { return await databaseConnector.disconnect(); }
     catch (error) { return { success: false, error: error?.message || 'Could not disconnect from the database.' }; }
   });

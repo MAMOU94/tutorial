@@ -5,7 +5,23 @@ let connectionCatalog = '';
 const { execFileSync } = require('node:child_process');
 
 exports.listDrivers = () => {
-  if (process.platform === 'win32') return [];
+  if (process.platform === 'win32') {
+    const registryPaths = [
+      'HKLM\\SOFTWARE\\ODBC\\ODBCINST.INI\\ODBC Drivers',
+      'HKCU\\SOFTWARE\\ODBC\\ODBCINST.INI\\ODBC Drivers'
+    ];
+    const drivers = registryPaths.flatMap((registryPath) => {
+      try {
+        return execFileSync('reg', ['query', registryPath], { encoding: 'utf8', windowsHide: true })
+          .split(/\r?\n/)
+          .map((line) => line.match(/^\s+(.+?)\s+REG_\w+\s+Installed\s*$/i)?.[1]?.trim())
+          .filter(Boolean);
+      } catch (_) {
+        return [];
+      }
+    });
+    return [...new Set(drivers)];
+  }
   try {
     return execFileSync('odbcinst', ['-q', '-d'], { encoding: 'utf8' })
       .split(/\r?\n/)
@@ -84,18 +100,48 @@ const tableMetadata = async (conn, target) => {
   return table;
 };
 
-// Some MySQL/MariaDB ODBC drivers do not return rows from SQLPrimaryKeys (conn.primaryKeys).
-// This SQL fallback queries INFORMATION_SCHEMA directly to find the primary key columns.
+// Some ODBC drivers return no SQLPrimaryKeys metadata even when a table has a key.
 const fetchPrimaryKeysFallback = async (conn, target, dialect) => {
-  if (!/mysql|maria/i.test(dialect)) return [];
   try {
-    const dbName = target.catalog || target.schema || '';
+    const dbName = target.catalog || connectionCatalog || '';
+    const schemaName = target.schema || '';
     const tableName = target.table || '';
     if (!tableName) return [];
-    const sql = dbName
-      ? `SELECT COLUMN_NAME, ORDINAL_POSITION FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = '${dbName.replace(/'/g, "''")}' AND TABLE_NAME = '${tableName.replace(/'/g, "''")}' AND CONSTRAINT_NAME = 'PRIMARY' ORDER BY ORDINAL_POSITION`
-      : `SELECT COLUMN_NAME, ORDINAL_POSITION FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE TABLE_NAME = '${tableName.replace(/'/g, "''")}' AND CONSTRAINT_NAME = 'PRIMARY' ORDER BY ORDINAL_POSITION`;
-    const rows = await conn.query(sql);
+    let sql;
+    let params;
+    if (/mysql|maria/i.test(dialect)) {
+      sql = 'SELECT COLUMN_NAME, ORDINAL_POSITION AS KEY_SEQ FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE TABLE_NAME = ? AND CONSTRAINT_NAME = \'PRIMARY\'';
+      params = [tableName];
+      if (dbName) {
+        sql += ' AND TABLE_SCHEMA = ?';
+        params.push(dbName);
+      }
+      sql += ' ORDER BY ORDINAL_POSITION';
+    } else if (/postgres|sqlserver/i.test(dialect)) {
+      sql = `SELECT kcu.COLUMN_NAME, kcu.ORDINAL_POSITION AS KEY_SEQ
+        FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS AS tc
+        JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS kcu
+          ON kcu.CONSTRAINT_CATALOG = tc.CONSTRAINT_CATALOG
+          AND kcu.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA
+          AND kcu.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+          AND kcu.TABLE_CATALOG = tc.TABLE_CATALOG
+          AND kcu.TABLE_SCHEMA = tc.TABLE_SCHEMA
+          AND kcu.TABLE_NAME = tc.TABLE_NAME
+        WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY' AND kcu.TABLE_NAME = ?`;
+      params = [tableName];
+      if (schemaName) {
+        sql += ' AND kcu.TABLE_SCHEMA = ?';
+        params.push(schemaName);
+      }
+      if (dbName) {
+        sql += ' AND kcu.TABLE_CATALOG = ?';
+        params.push(dbName);
+      }
+      sql += ' ORDER BY kcu.ORDINAL_POSITION';
+    } else {
+      return [];
+    }
+    const rows = await conn.query(sql, params);
     return (Array.isArray(rows) ? rows : [])
       .map((row) => String(value(row, 'COLUMN_NAME') || ''))
       .filter(Boolean);
@@ -104,7 +150,7 @@ const fetchPrimaryKeysFallback = async (conn, target, dialect) => {
   }
 };
 
-// Retrieve primary keys via ODBC metadata, then fall back to SQL for MySQL/MariaDB.
+// Retrieve primary keys via ODBC metadata, then query the dialect's information schema.
 const getPrimaryKeys = async (conn, target, dialect) => {
   try {
     const odbcKeys = await conn.primaryKeys(target.catalog || null, target.schema || null, target.table);
@@ -121,6 +167,28 @@ const serialize = (row) => Object.fromEntries(Object.entries(row).map(([key, cel
   key,
   typeof cell === 'bigint' ? String(cell) : (cell instanceof Date ? cell.toISOString() : cell)
 ]));
+
+const countMatchingRows = async (conn, tableName, predicate, params) => {
+  const result = await conn.query(
+    `SELECT COUNT(*) AS affected_count FROM ${tableName} WHERE ${predicate}`,
+    params
+  );
+  const rawCount = value(Array.isArray(result) ? result[0] : null, 'affected_count');
+  if (rawCount === null || rawCount === undefined || rawCount === '') return null;
+  const count = Number(rawCount);
+  return Number.isFinite(count) ? count : null;
+};
+
+const ensureAffectedRows = async (conn, result, expected, verify, errorMessage) => {
+  const count = result?.count === null || result?.count === undefined || result?.count === ''
+    ? Number.NaN
+    : Number(result.count);
+  if (Number.isInteger(count) && count >= 0) {
+    if (count !== expected) throw new Error(errorMessage);
+    return;
+  }
+  if (!verify || !(await verify())) throw new Error(errorMessage);
+};
 
 exports.connect = async (connectionString, dialectHint = '') => {
   const raw = String(connectionString || '').trim();
@@ -170,15 +238,22 @@ exports.readTable = async (target) => {
   if (/postgres/i.test(dialect) && nameParts.length > 1) nameParts.shift();
   const parts = nameParts.map(quote);
   const sql = `SELECT * FROM ${parts.join('.')}`;
-  const cursor = await conn.query(sql, { cursor: true, fetchSize: 1000 });
-  const rows = [];
-  try {
-    while (!cursor.noData && rows.length <= 10000) {
-      const chunk = await cursor.fetch();
-      rows.push(...chunk.map(serialize));
+  let rows;
+  if (/mysql|maria|postgres/i.test(dialect)) {
+    rows = (await conn.query(`${sql} LIMIT 10001`)).map(serialize);
+  } else if (/sqlserver/i.test(dialect)) {
+    rows = (await conn.query(`SELECT TOP 10001 * FROM ${parts.join('.')}`)).map(serialize);
+  } else {
+    const cursor = await conn.query(sql, { cursor: true, fetchSize: 1000 });
+    rows = [];
+    try {
+      while (!cursor.noData && rows.length <= 10000) {
+        const chunk = await cursor.fetch();
+        rows.push(...chunk.map(serialize));
+      }
+    } finally {
+      await cursor.close();
     }
-  } finally {
-    await cursor.close();
   }
   const truncated = rows.length > 10000;
   if (truncated) rows.length = 10000;
@@ -239,7 +314,25 @@ exports.applyCellEdits = async ({ target, originalRows, rows, columns: requested
         `UPDATE ${tableName} SET ${assignments.join(', ')} WHERE ${predicates.join(' AND ')}`,
         [...changes.map((column) => row[column]), ...params]
       );
-      if (result.count !== 1) throw new Error('A row changed in the database since it was loaded. No edits were applied. Reload and try again.');
+      const verify = async () => {
+        const verifyPredicates = primaryKeys.map((key) => `${quote(key)} = ?`);
+        const verifyParams = primaryKeys.map((key) => row[key]);
+        for (const column of changes) {
+          if (row[column] == null) verifyPredicates.push(`${quote(column)} IS NULL`);
+          else {
+            verifyPredicates.push(`${quote(column)} = ?`);
+            verifyParams.push(row[column]);
+          }
+        }
+        return await countMatchingRows(conn, tableName, verifyPredicates.join(' AND '), verifyParams) === 1;
+      };
+      await ensureAffectedRows(
+        conn,
+        result,
+        1,
+        verify,
+        'A row changed in the database since it was loaded. No edits were applied. Reload and try again.'
+      );
       updated += 1;
     }
     await conn.commit();
@@ -383,7 +476,25 @@ exports.applyChanges = async ({ target, originalColumns, originalRows, columns, 
         `UPDATE ${tableName} SET ${assignments} WHERE ${predicates.join(' AND ')}`,
         [...changedColumns.map((column) => toDatabaseValue(row[column], dialect)), ...params]
       );
-      if (result.count !== 1) throw new Error('A row changed in the database since it was loaded. No edits were applied. Reload and try again.');
+      const verify = async () => {
+        const verifyPredicates = primaryKeys.map((key) => `${quote(key)} = ?`);
+        const verifyParams = primaryKeys.map((key) => toDatabaseValue(row[key], dialect));
+        for (const column of changedColumns) {
+          if (row[column] == null) verifyPredicates.push(`${quote(column)} IS NULL`);
+          else {
+            verifyPredicates.push(`${quote(column)} = ?`);
+            verifyParams.push(toDatabaseValue(row[column], dialect));
+          }
+        }
+        return await countMatchingRows(conn, tableName, verifyPredicates.join(' AND '), verifyParams) === 1;
+      };
+      await ensureAffectedRows(
+        conn,
+        result,
+        1,
+        verify,
+        'A row changed in the database since it was loaded. No edits were applied. Reload and try again.'
+      );
     }
     if (insertedRows.length > 0) {
       const insertColumns = columns;
@@ -402,7 +513,16 @@ exports.applyChanges = async ({ target, originalColumns, originalRows, columns, 
             `INSERT INTO ${tableName} (${insertColumns.map(quote).join(', ')}) VALUES ${valuesSql}`,
             params
           );
-          if (result.count !== batch.length) throw new Error('The database did not confirm all inserted rows.');
+          const verify = async () => {
+            const keyParams = [];
+            const keyPredicates = batch.map((row) => {
+              const rowPredicates = primaryKeys.map((key) => `${quote(key)} = ?`);
+              keyParams.push(...primaryKeys.map((key) => toDatabaseValue(row[key], dialect)));
+              return `(${rowPredicates.join(' AND ')})`;
+            });
+            return await countMatchingRows(conn, tableName, keyPredicates.join(' OR '), keyParams) === batch.length;
+          };
+          await ensureAffectedRows(conn, result, batch.length, verify, 'The database did not confirm all inserted rows.');
         }
       } else {
         for (const row of insertedRows) {
@@ -410,7 +530,12 @@ exports.applyChanges = async ({ target, originalColumns, originalRows, columns, 
             `INSERT INTO ${tableName} (${insertColumns.map(quote).join(', ')}) VALUES (${insertColumns.map(() => '?').join(', ')})`,
             insertColumns.map((column) => toDatabaseValue(row[column], dialect))
           );
-          if (result.count !== 1) throw new Error('The database did not confirm the inserted row.');
+          const verify = async () => {
+            const predicates = primaryKeys.map((key) => `${quote(key)} = ?`);
+            const params = primaryKeys.map((key) => toDatabaseValue(row[key], dialect));
+            return await countMatchingRows(conn, tableName, predicates.join(' AND '), params) === 1;
+          };
+          await ensureAffectedRows(conn, result, 1, verify, 'The database did not confirm the inserted row.');
         }
       }
     }
@@ -418,7 +543,14 @@ exports.applyChanges = async ({ target, originalColumns, originalRows, columns, 
       const predicates = primaryKeys.map((key) => `${quote(key)} = ?`);
       const params = primaryKeys.map((key) => toDatabaseValue(row[key], dialect));
       const result = await conn.query(`DELETE FROM ${tableName} WHERE ${predicates.join(' AND ')}`, params);
-      if (result.count !== 1) throw new Error('A row changed in the database since it was loaded. No edits were applied. Reload and try again.');
+      const verify = async () => await countMatchingRows(conn, tableName, predicates.join(' AND '), params) === 0;
+      await ensureAffectedRows(
+        conn,
+        result,
+        1,
+        verify,
+        'A row changed in the database since it was loaded. No edits were applied. Reload and try again.'
+      );
     }
     for (const column of removedColumns) {
       await conn.query(`ALTER TABLE ${tableName} DROP COLUMN ${quote(column)}`);

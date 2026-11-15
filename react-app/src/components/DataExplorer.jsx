@@ -12,6 +12,7 @@ import {
   PencilLine,
   Trash2,
   Database,
+  Loader2,
   Plus,
   Minus,
   Save,
@@ -26,6 +27,8 @@ import {
   Maximize2,
   Minimize2,
   RotateCcw,
+  Radio,
+  Play,
   Bot,
   Sparkles,
   Calculator,
@@ -1954,6 +1957,13 @@ export default function DataExplorer({
   sourceFileName = '',
   isVirtualSource = false,
   databaseSource = null,
+  databaseAccessMode = 'read-only',
+  databaseWriteDisabledReason = '',
+  onDatabaseAccessModeChange,
+  databaseWriteTiming = 'realtime',
+  databaseManualWritePending = false,
+  onDatabaseWriteTimingChange,
+  onRunDatabaseWrite,
   addColumnName, setAddColumnName,
   addColumnValue, setAddColumnValue,
   handleAddColumn,
@@ -6018,7 +6028,38 @@ export default function DataExplorer({
                   {isVirtualSource ? <span className="data-explorer-meta-chip">Workspace</span> : null}
                   <ApplyDatabaseEditsButton
                     source={databaseSource}
+                    accessMode={databaseAccessMode}
+                    disabledReason={databaseWriteDisabledReason}
+                    onToggleAccessMode={onDatabaseAccessModeChange}
                   />
+                  {databaseSource && databaseAccessMode === 'read-write' && (
+                    <>
+                      <button
+                        type="button"
+                        className="inline-flex items-center justify-center gap-1.5 p-1.5 text-zinc-400 transition-colors hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={Boolean(databaseWriteDisabledReason)}
+                        aria-label={`Database write mode: ${databaseWriteTiming}. Switch to ${databaseWriteTiming === 'realtime' ? 'manual' : 'realtime'}`}
+                        aria-pressed={databaseWriteTiming === 'realtime'}
+                        title={`${databaseWriteTiming === 'realtime' ? 'Realtime write-back is on' : 'Manual write-back is on'}; click to switch`}
+                        onClick={() => onDatabaseWriteTimingChange?.(databaseWriteTiming === 'realtime' ? 'manual' : 'realtime')}
+                      >
+                        <Radio size={13} />
+                        <span className={`h-1.5 w-1.5 rounded-full ${databaseWriteTiming === 'realtime' ? 'animate-pulse bg-emerald-400' : 'bg-rose-500'}`} aria-hidden="true" />
+                      </button>
+                      {databaseWriteTiming === 'manual' && (
+                        <button
+                          type="button"
+                          className="inline-flex items-center justify-center p-1.5 text-zinc-400 transition duration-150 hover:text-zinc-200 active:scale-90 active:text-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={databaseAccessMode !== 'read-write' || Boolean(databaseWriteDisabledReason) || databaseManualWritePending}
+                          aria-label={databaseManualWritePending ? 'Writing database changes' : 'Run database edit'}
+                          title={databaseWriteDisabledReason || (databaseManualWritePending ? 'Writing current grid data to the database…' : 'Write the current grid data to the database now')}
+                          onClick={onRunDatabaseWrite}
+                        >
+                          {databaseManualWritePending ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+                        </button>
+                      )}
+                    </>
+                  )}
                   {!hideFullscreenToggle && !embedded && (
                     <button
                       type="button"

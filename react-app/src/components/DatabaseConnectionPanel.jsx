@@ -9,6 +9,30 @@ const databaseSystems = {
   sqlserver: { label: 'SQL Server', driver: 'ODBC Driver 18 for SQL Server' },
   other: { label: 'Other ODBC database', driver: '' }
 };
+const savedConnectionProfilesKey = 'ngr.database-connection-profiles.v1';
+const loadSavedConnectionProfiles = () => {
+  try {
+    if (typeof window === 'undefined') return [];
+    const saved = JSON.parse(window.localStorage.getItem(savedConnectionProfilesKey) || '[]');
+    if (!Array.isArray(saved)) return [];
+    const safeProfiles = saved.map((profile) => ({
+      id: String(profile?.id || ''),
+      name: String(profile?.name || ''),
+      system: Object.prototype.hasOwnProperty.call(databaseSystems, profile?.system) ? profile.system : 'other',
+      driver: String(profile?.driver || ''),
+      host: String(profile?.host || ''),
+      port: String(profile?.port || ''),
+      database: String(profile?.database || '')
+    })).filter((profile) => profile.id && profile.name);
+    // Rewrite old profile records too, in case they contain credentials or options.
+    try {
+      window.localStorage.setItem(savedConnectionProfilesKey, JSON.stringify(safeProfiles));
+    } catch { /* Keep using the sanitized in-memory profiles if storage is read-only. */ }
+    return safeProfiles;
+  } catch {
+    return [];
+  }
+};
 const inputClass = 'w-full rounded-md border border-[#303034] bg-[#090909] px-3 py-2 text-xs text-[#e4e4e7] placeholder:text-[#71717a] outline-none focus:border-[#71717a] focus:ring-1 focus:ring-[#3f3f46] disabled:opacity-50 [color-scheme:dark]';
 const labelClass = 'mb-1.5 block text-[11px] font-medium text-[#c4c4c8]';
 const odbcValue = (input) => `{${String(input).replaceAll('}', '}}') + '}'}`;
@@ -111,12 +135,104 @@ function DatabaseSystemSelect({ value, onChange, disabled }) {
   );
 }
 
-export function ApplyDatabaseEditsButton({ source }) {
+function SavedConnectionSelect({ profiles, value, onChange, disabled }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const rootRef = useRef(null);
+  const selectedIndex = profiles.findIndex((profile) => profile.id === value);
+  const selectedProfile = selectedIndex >= 0 ? profiles[selectedIndex] : null;
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const closeOutside = (event) => {
+      if (!rootRef.current?.contains(event.target)) setIsOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOutside);
+    return () => document.removeEventListener('pointerdown', closeOutside);
+  }, [isOpen]);
+
+  const selectOption = (index) => {
+    const profile = profiles[index];
+    if (!profile) return;
+    onChange(profile.id);
+    setIsOpen(false);
+  };
+
+  const handleKeyDown = (event) => {
+    if (!profiles.length) return;
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      const delta = event.key === 'ArrowDown' ? 1 : -1;
+      setActiveIndex((current) => (isOpen
+        ? (current + delta + profiles.length) % profiles.length
+        : ((selectedIndex < 0 ? (delta > 0 ? -1 : 0) : selectedIndex) + delta + profiles.length) % profiles.length));
+      setIsOpen(true);
+    } else if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault();
+      setActiveIndex(event.key === 'Home' ? 0 : profiles.length - 1);
+      setIsOpen(true);
+    } else if ((event.key === 'Enter' || event.key === ' ') && isOpen) {
+      event.preventDefault();
+      selectOption(activeIndex);
+    } else if (event.key === 'Escape' && isOpen) {
+      event.preventDefault();
+      event.stopPropagation();
+      setIsOpen(false);
+    }
+  };
+
+  return (
+    <div ref={rootRef} className="relative min-w-0 flex-1">
+      <button
+        type="button"
+        disabled={disabled || profiles.length === 0}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-label="Load a saved connection"
+        onClick={() => { setActiveIndex(selectedIndex < 0 ? 0 : selectedIndex); setIsOpen((current) => !current); }}
+        onKeyDown={handleKeyDown}
+        className={`${inputClass} flex items-center justify-between text-left`}
+      >
+        <span className={selectedProfile ? 'truncate text-[#e4e4e7]' : 'truncate text-[#858585]'}>
+          {selectedProfile?.name || (profiles.length ? 'Choose a connection' : 'No saved connections yet')}
+        </span>
+        <ChevronDown size={14} className="ml-2 shrink-0 text-[#a1a1aa]" />
+      </button>
+      {isOpen && (
+        <div role="listbox" aria-label="Saved connections" onKeyDown={handleKeyDown} className="absolute left-0 right-0 top-full z-[180] mt-1 max-h-48 overflow-y-auto rounded-md border border-[#3a3a3a] bg-[#171717] p-1 shadow-[0_12px_32px_rgba(0,0,0,0.75)]">
+          {profiles.map((profile, index) => (
+            <button
+              key={profile.id}
+              type="button"
+              role="option"
+              aria-selected={value === profile.id}
+              onMouseEnter={() => setActiveIndex(index)}
+              onFocus={() => setActiveIndex(index)}
+              onClick={() => selectOption(index)}
+              className={`block min-h-8 w-full rounded px-2.5 py-1.5 text-left text-xs focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#a1a1aa] ${activeIndex === index ? 'bg-[#292929] text-[#f4f4f5]' : 'text-[#d4d4d8] hover:bg-[#252525]'}`}
+            >
+              {profile.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function ApplyDatabaseEditsButton({ source, accessMode = source?.accessMode || 'read-only', disabledReason = '', onToggleAccessMode }) {
   if (!source) return null;
   return (
-    <span className="inline-flex items-center rounded-md border border-[#303034] bg-[#171717] px-2.5 py-1.5 text-[10px] font-medium text-[#a1a1aa]" title={source.accessMode === 'read-write' ? 'DEM changes are applied live to the database.' : 'DEM edits stay in memory; the database is unchanged.'}>
-      {source.accessMode === 'read-write' ? 'Live DB write' : 'DB read only'}
-    </span>
+    <button
+      type="button"
+      onClick={() => onToggleAccessMode?.(accessMode === 'read-write' ? 'read-only' : 'read-write')}
+      disabled={Boolean(disabledReason)}
+      aria-pressed={accessMode === 'read-write'}
+      title={disabledReason || (accessMode === 'read-write' ? 'Live database writing is on. Click to switch to read only.' : 'Database is read only. Click to enable live writing.')}
+      className="inline-flex items-center px-1.5 py-1 text-[10px] font-medium text-zinc-400 transition-colors hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {accessMode === 'read-write' ? 'Live DB write' : 'DB read only'}
+    </button>
   );
 }
 
@@ -128,9 +244,12 @@ export default function DatabaseConnectionPanel({
   isOpen,
   onOpenChange,
   databaseSource = null,
-  databaseAccessMode = 'read-write',
+  databaseAccessMode = 'read-only',
   databaseWriteDisabledReason = '',
   onDatabaseAccessModeChange,
+  databaseWriteTiming = 'realtime',
+  onDatabaseWriteTimingChange,
+  onRunDatabaseWrite,
   onDisconnect
 }) {
   const [localOpen, setLocalOpen] = useState(false);
@@ -151,6 +270,10 @@ export default function DatabaseConnectionPanel({
   const [password, setPassword] = useState('');
   const [extraOptions, setExtraOptions] = useState('');
   const [destinationTable, setDestinationTable] = useState('');
+  const [savedConnections, setSavedConnections] = useState(loadSavedConnectionProfiles);
+  const [savedConnectionName, setSavedConnectionName] = useState('');
+  const [selectedSavedConnectionId, setSelectedSavedConnectionId] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
   const [connected, setConnected] = useState(() => Boolean(databaseSource?.connectionId));
   const [connectionId, setConnectionId] = useState(() => String(databaseSource?.connectionId || ''));
   const [tables, setTables] = useState([]);
@@ -165,7 +288,120 @@ export default function DatabaseConnectionPanel({
   const dragFrameRef = useRef(0);
   const pendingPositionRef = useRef(null);
   const dragCleanupRef = useRef(null);
+  const profileCredentialLoadRef = useRef(0);
   const filteredTables = useMemo(() => tables.filter((table) => tableLabel(table).toLowerCase().includes(search.toLowerCase())), [tables, search]);
+
+  const persistSavedConnections = (nextConnections) => {
+    try {
+      window.localStorage.setItem(savedConnectionProfilesKey, JSON.stringify(nextConnections));
+      setSavedConnections(nextConnections);
+      return true;
+    } catch {
+      setError('Could not save the connection profile in this app.');
+      return false;
+    }
+  };
+
+  const loadSavedConnection = async (profileId) => {
+    const loadId = ++profileCredentialLoadRef.current;
+    setSelectedSavedConnectionId(profileId);
+    const profile = savedConnections.find((item) => item.id === profileId);
+    if (!profile) return;
+    setConnectionMode('driver');
+    setSystem(profile.system);
+    setDriver(profile.driver);
+    setHost(profile.host);
+    setPort(profile.port);
+    setDatabase(profile.database);
+    setSavedConnectionName(profile.name);
+    setUsername('');
+    setExtraOptions('');
+    setPassword('');
+    setError('');
+    setNotice(`Loading saved login for "${profile.name}"…`);
+    try {
+      const result = await window.electronAPI?.getDatabaseProfileCredentials?.(profile.id);
+      if (loadId !== profileCredentialLoadRef.current) return;
+      if (!result?.success) {
+        setNotice(`Loaded "${profile.name}". ${result?.error || 'Saved login details could not be loaded.'}`);
+        return;
+      }
+      setUsername(result.username || '');
+      setPassword(result.password || '');
+      setNotice(result.hasCredentials
+        ? `Loaded "${profile.name}" and its saved login.`
+        : `Loaded "${profile.name}". Enter the database login to connect.`);
+    } catch (loadError) {
+      if (loadId !== profileCredentialLoadRef.current) return;
+      setNotice(`Loaded "${profile.name}". ${loadError?.message || 'Saved login details could not be loaded.'}`);
+    }
+  };
+
+  const saveConnectionProfile = async () => {
+    const name = savedConnectionName.trim();
+    if (!name || !driver.trim() || savingProfile) return;
+    const previous = savedConnections.find((item) => item.name.toLowerCase() === name.toLowerCase());
+    const profile = {
+      id: previous?.id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      name,
+      system,
+      driver: driver.trim(),
+      host: host.trim(),
+      port: port.trim(),
+      database: database.trim()
+    };
+    const nextConnections = [profile, ...savedConnections.filter((item) => item.id !== profile.id)];
+    if (!persistSavedConnections(nextConnections)) return;
+    setSavingProfile(true);
+    setError('');
+    try {
+      const result = await window.electronAPI?.saveDatabaseProfileCredentials?.(profile.id, {
+        username: username.trim(),
+        password
+      });
+      if (!result?.success) {
+        persistSavedConnections(savedConnections);
+        setError(result?.error || 'Could not securely save the database login.');
+        return;
+      }
+      setSelectedSavedConnectionId(profile.id);
+      setSavedConnectionName('');
+      setNotice(result.hasCredentials
+        ? `Saved "${name}" with login details encrypted by this device.`
+        : `Saved "${name}". No login details were provided.`);
+    } catch (saveError) {
+      persistSavedConnections(savedConnections);
+      setError(saveError?.message || 'Could not securely save the database login.');
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const deleteSavedConnection = async () => {
+    if (!selectedSavedConnectionId || savingProfile) return;
+    const nextConnections = savedConnections.filter((item) => item.id !== selectedSavedConnectionId);
+    const deletedId = selectedSavedConnectionId;
+    const previousConnections = savedConnections;
+    if (!persistSavedConnections(nextConnections)) return;
+    setSavingProfile(true);
+    try {
+      const result = await window.electronAPI?.deleteDatabaseProfileCredentials?.(deletedId);
+      if (!result?.success) {
+        persistSavedConnections(previousConnections);
+        setError(result?.error || 'Could not delete the saved database login.');
+        return;
+      }
+      setSelectedSavedConnectionId('');
+      setUsername('');
+      setPassword('');
+      setNotice('Saved connection deleted.');
+    } catch (deleteError) {
+      persistSavedConnections(previousConnections);
+      setError(deleteError?.message || 'Could not delete the saved database login.');
+    } finally {
+      setSavingProfile(false);
+    }
+  };
   const suggestedTableName = useMemo(() => String(datasetName || '')
     .split(/[\\/]/).pop()
     .replace(/\.[^.]+$/, '')
@@ -183,7 +419,7 @@ export default function DatabaseConnectionPanel({
       ];
     const extras = extraOptions.split(';').map((item) => item.trim()).filter(Boolean);
     if (username.trim()) attributes.push(`UID=${odbcValue(username.trim())}`);
-    attributes.push(`PWD=${odbcValue(password)}`);
+    if (password) attributes.push(`PWD=${odbcValue(password)}`);
     return [...attributes.filter(Boolean), ...extras].join(';');
   }, [connectionMode, database, driver, dsn, extraOptions, host, password, port, username]);
 
@@ -327,6 +563,7 @@ export default function DatabaseConnectionPanel({
     try {
       const result = await window.electronAPI?.connectDatabase?.(connectionString, system);
       if (!result?.success) throw new Error(result?.error || 'Could not connect.');
+      setPassword('');
       setConnectionId(result.connectionId);
       const response = await window.electronAPI.listDatabaseTables(result.connectionId);
       if (!response?.success) throw new Error(response?.error || 'Connected, but could not list tables.');
@@ -404,6 +641,7 @@ export default function DatabaseConnectionPanel({
       setTables([]);
       setSelectedTable(null);
       setConnectionId('');
+      setPassword('');
       onDisconnect?.();
       setBusy(false);
     }
@@ -433,13 +671,13 @@ export default function DatabaseConnectionPanel({
               <form id="database-connection-form" onSubmit={connect} className="min-w-0 space-y-2.5 xl:overflow-y-auto xl:pr-1">
                 <div className="grid grid-cols-2 gap-2 rounded-md border border-[#292929] bg-[#0d0d0d] p-1.5">
                   <button type="button" disabled={connected || busy} onClick={() => setConnectionMode('driver')} aria-pressed={connectionMode === 'driver'} className={`rounded px-3 py-2 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#a1a1aa] disabled:opacity-50 ${connectionMode === 'driver' ? 'bg-[#252525] text-[#e4e4e7]' : 'text-[#a1a1aa] hover:text-[#e4e4e7]'}`}>Driver details</button>
-                  <button type="button" disabled={connected || busy} onClick={() => setConnectionMode('dsn')} aria-pressed={connectionMode === 'dsn'} className={`rounded px-3 py-2 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#a1a1aa] disabled:opacity-50 ${connectionMode === 'dsn' ? 'bg-[#252525] text-[#e4e4e7]' : 'text-[#a1a1aa] hover:text-[#e4e4e7]'}`}>Saved DSN</button>
+                  <button type="button" disabled={connected || busy} onClick={() => setConnectionMode('dsn')} aria-pressed={connectionMode === 'dsn'} className={`rounded px-3 py-2 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#a1a1aa] disabled:opacity-50 ${connectionMode === 'dsn' ? 'bg-[#252525] text-[#e4e4e7]' : 'text-[#a1a1aa] hover:text-[#e4e4e7]'}`}>Existing DSN</button>
                 </div>
                 {connectionMode === 'driver' ? (
                   <>
                     <div className="grid grid-cols-2 gap-3">
                       <label className="block"><span className={labelClass}>Database type</span><DatabaseSystemSelect value={system} disabled={connected || busy} onChange={(nextSystem) => { setSystem(nextSystem); setDriver(resolveDatabaseDriver(nextSystem, availableDrivers)); }} /></label>
-                      <label className="block"><span className={labelClass}>ODBC driver</span><input value={driver} disabled={connected || busy} onChange={(event) => setDriver(event.target.value)} autoComplete="off" placeholder="Exact installed driver name" className={inputClass} /></label>
+                      <label className="block"><span className={labelClass}>ODBC driver</span><input list="database-odbc-drivers" value={driver} disabled={connected || busy} onChange={(event) => setDriver(event.target.value)} autoComplete="off" placeholder="Choose or type an installed driver" className={inputClass} /><datalist id="database-odbc-drivers">{availableDrivers.map((driverName) => <option key={driverName} value={driverName} />)}</datalist></label>
                     </div>
                     <div className="grid grid-cols-[1fr_112px] gap-3">
                       <label className="block"><span className={labelClass}>Host</span><input value={host} disabled={connected || busy} onChange={(event) => setHost(event.target.value)} autoComplete="off" placeholder="localhost or server address" className={inputClass} /></label>
@@ -455,7 +693,7 @@ export default function DatabaseConnectionPanel({
                 )}
                 <div className="grid grid-cols-2 gap-3">
                   <label className="block"><span className={labelClass}>Username</span><input value={username} disabled={connected || busy} onChange={(event) => setUsername(event.target.value)} autoComplete="username" placeholder="Database user" className={inputClass} /></label>
-                  <label className="block"><span className={labelClass}>Password</span><input type="password" value={password} disabled={connected || busy} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" placeholder="Database password" className={inputClass} /></label>
+                  <label className="block"><span className={labelClass}>Password</span><input type="password" value={password} disabled={connected || busy} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" placeholder="Database password" className={inputClass} /></label>
                 </div>
                 <label className="block"><span className={labelClass}>Additional ODBC options <span className="font-normal text-[#77827e]">(optional)</span></span><input value={extraOptions} disabled={connected || busy} onChange={(event) => setExtraOptions(event.target.value)} autoComplete="off" placeholder="For example: Encrypt=yes" className={inputClass} /></label>
                 <p className="text-[10px] leading-relaxed text-[#a1a1aa]">Passwords stay in memory for this app session. Install the matching ODBC driver on this computer.</p>
@@ -471,9 +709,34 @@ export default function DatabaseConnectionPanel({
                 </div>
                 <div className="grid grid-cols-2 gap-1 rounded-md border border-[#292929] bg-[#090909] p-1">
                   <button type="button" disabled={!connected} aria-pressed={databaseAccessMode === 'read-only'} onClick={() => onDatabaseAccessModeChange?.('read-only')} className={`rounded px-2 py-2 text-[11px] font-medium disabled:opacity-40 ${databaseAccessMode === 'read-only' ? 'bg-[#292929] text-[#f4f4f5]' : 'text-[#a1a1aa] hover:text-[#e4e4e7]'}`}>Read only</button>
-                  <button type="button" disabled={!connected || Boolean(databaseWriteDisabledReason)} aria-pressed={databaseAccessMode === 'read-write'} onClick={() => onDatabaseAccessModeChange?.('read-write')} title={databaseWriteDisabledReason || 'Apply DEM changes live to this database table'} className={`rounded px-2 py-2 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-40 ${databaseAccessMode === 'read-write' ? 'bg-[#343434] text-[#fff]' : 'text-[#a1a1aa] hover:text-[#e4e4e7]'}`}>Read / write</button>
+                  <button type="button" disabled={!connected || Boolean(databaseWriteDisabledReason)} aria-pressed={databaseAccessMode === 'read-write'} onClick={() => onDatabaseAccessModeChange?.('read-write')} title={databaseWriteDisabledReason || 'Write actual DEM data edits to this database table'} className={`rounded px-2 py-2 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-40 ${databaseAccessMode === 'read-write' ? 'bg-[#343434] text-[#fff]' : 'text-[#a1a1aa] hover:text-[#e4e4e7]'}`}>Read / write</button>
                 </div>
-                <p className="min-h-8 text-[10px] leading-relaxed text-[#a1a1aa]">{!connected ? 'Connect to choose database access.' : databaseSource ? (databaseAccessMode === 'read-write' ? `Writing edits to ${tableLabel(databaseSource.target)}.` : `DEM edits stay local for ${tableLabel(databaseSource.target)}.`) : databaseWriteDisabledReason || (databaseAccessMode === 'read-write' ? 'Write access is on. Save creates a new table.' : 'DEM edits stay local until write access is enabled.')}</p>
+                <p className="min-h-8 text-[10px] leading-relaxed text-[#a1a1aa]">{!connected ? 'Connect to choose database access.' : databaseSource ? (databaseWriteDisabledReason ? `Read/write unavailable: ${databaseWriteDisabledReason}` : (databaseAccessMode === 'read-write' ? (databaseWriteTiming === 'realtime' ? `DEM data edits and visible columns sync to ${tableLabel(databaseSource.target)} automatically. Reselect a hidden column to add it back; row selection and search do not change the database.` : `Data edits and visible columns wait for Run edit. Reselect a column before running to cancel its staged removal.`) : `DEM edits stay local for ${tableLabel(databaseSource.target)}.`)) : databaseWriteDisabledReason || (databaseAccessMode === 'read-write' ? 'Write access is on. Save creates a new table.' : 'DEM edits stay local until write access is enabled.')}</p>
+                {databaseSource && databaseAccessMode === 'read-write' && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="mr-auto text-[10px] text-[#888]">Write trigger</span>
+                    <div className="inline-flex rounded-md border border-[#292929] bg-[#090909] p-0.5">
+                      {['realtime', 'manual'].map((timing) => (
+                        <button key={timing} type="button" disabled={Boolean(databaseWriteDisabledReason)} aria-pressed={databaseWriteTiming === timing} onClick={() => onDatabaseWriteTimingChange?.(timing)} className={`rounded px-2 py-1 text-[10px] ${databaseWriteTiming === timing ? 'bg-[#292929] text-[#f4f4f5]' : 'text-[#a1a1aa] hover:text-[#e4e4e7]'} disabled:opacity-40`}>{timing === 'realtime' ? 'Realtime' : 'Manual'}</button>
+                      ))}
+                    </div>
+                    {databaseWriteTiming === 'manual' && <button type="button" disabled={Boolean(databaseWriteDisabledReason)} onClick={onRunDatabaseWrite} title={databaseWriteDisabledReason || 'Write the current grid data now'} className="rounded-md border border-[#383838] bg-[#242424] px-2.5 py-1 text-[10px] font-medium text-[#e4e4e7] hover:bg-[#303030] disabled:opacity-40">Run edit</button>}
+                  </div>
+                )}
+                {connectionMode === 'driver' && (
+                  <div className="space-y-2.5 border-t border-[#292929] pt-3">
+                    <h4 className="text-xs font-medium text-[#d4d4d8]">Saved connections</h4>
+                    <div className="flex min-w-0 gap-2">
+                      <SavedConnectionSelect profiles={savedConnections} value={selectedSavedConnectionId} onChange={loadSavedConnection} disabled={connected || busy || savingProfile} />
+                      <button type="button" disabled={connected || busy || savingProfile || !selectedSavedConnectionId} onClick={deleteSavedConnection} className="shrink-0 rounded-md border border-[#303034] px-2.5 text-[11px] text-[#d4d4d8] hover:bg-[#1c1c1c] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#777] disabled:opacity-40">Delete</button>
+                    </div>
+                    <div className="flex min-w-0 gap-2">
+                      <input aria-label="Connection profile name" value={savedConnectionName} onChange={(event) => setSavedConnectionName(event.target.value)} disabled={connected || busy || savingProfile} autoComplete="off" placeholder="Name this connection" className={`${inputClass} min-w-0 flex-1`} />
+                      <button type="button" disabled={connected || busy || savingProfile || !savedConnectionName.trim() || !driver.trim()} onClick={saveConnectionProfile} className="shrink-0 rounded-md border border-[#383838] bg-[#242424] px-3 text-[11px] font-medium text-[#e4e4e7] hover:bg-[#303030] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#777] disabled:opacity-40">{savingProfile ? 'Saving…' : 'Save'}</button>
+                    </div>
+                    <p className="text-[10px] leading-relaxed text-[#888]">Login details are encrypted with this device’s OS credential store. Custom ODBC options aren’t saved.</p>
+                  </div>
+                )}
                 {connected && (
                   <div className="space-y-2 border-t border-[#292929] pt-2.5">
                     <p className="text-[10px] text-[#a1a1aa]">Save {rows?.length || 0} rows as a new table</p>
@@ -500,7 +763,7 @@ export default function DatabaseConnectionPanel({
               </div>
             </div>
             <footer aria-live="polite" className="min-h-10 border-t border-[#292929] px-5 py-2.5 text-xs">
-              {error ? <p className="text-[#e5a4a4]">{error}</p> : notice ? <p className="text-[#d4d4d8]">{notice}</p> : connected && databaseSource ? <p className="text-[#a1a1aa]">{databaseAccessMode === 'read-write' ? 'DEM changes are written to the selected table as you edit.' : 'DEM stays editable; database changes are off.'}</p> : <p className="text-[#a1a1aa]">Choose a table to load it into Data Explorer.</p>}
+              {error ? <p className="text-[#e5a4a4]">{error}</p> : notice ? <p className="text-[#d4d4d8]">{notice}</p> : connected && databaseSource ? <p className="text-[#a1a1aa]">{databaseAccessMode !== 'read-write' ? 'DEM stays editable; database changes are off.' : databaseWriteTiming === 'realtime' ? 'Data edits and visible columns sync automatically; row selection and search do not.' : 'Data edits and visible columns sync when you click Run edit; reselect a column before running to cancel its removal.'}</p> : <p className="text-[#a1a1aa]">Choose a table to load it into Data Explorer.</p>}
             </footer>
           </section>
         </div>

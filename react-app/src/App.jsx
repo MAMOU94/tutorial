@@ -7315,10 +7315,14 @@ const renderAIAnswerContent = (text) => {
 function App() {
   const [file, setFile] = useState(null);
   const [databaseSource, setDatabaseSource] = useState(null);
-  const [databaseAccessMode, setDatabaseAccessMode] = useState('read-write');
-  const databaseAccessModeRef = useRef('read-write');
+  const [databaseAccessMode, setDatabaseAccessMode] = useState('read-only');
+  const [databaseWriteTiming, setDatabaseWriteTiming] = useState('realtime');
+  const [databaseManualWritePending, setDatabaseManualWritePending] = useState(false);
+  const [databaseWriteRunToken, setDatabaseWriteRunToken] = useState(0);
+  const databaseAccessModeRef = useRef('read-only');
   const databaseWriteTimerRef = useRef(null);
   const databaseWriteInFlightRef = useRef(false);
+  const databaseWriteRunHandledRef = useRef(0);
   const [openDatasetFiles, setOpenDatasetFiles] = useState([]);
   const [activeDatasetFileId, setActiveDatasetFileId] = useState('');
   const openDatasetFilesRef = useRef([]);
@@ -27514,6 +27518,7 @@ except Exception as _ngr_error:
 
   const handleLoadDatabaseTable = async (dataset) => {
     if (fullData.length > 0 && !window.confirm(`Replace the current dataset with "${dataset.name}"?`)) return false;
+    setDatabaseManualWritePending(false);
     saveActiveDatasetFile();
     resetDatasetWorkspace();
     const sheetName = dataset.name || dataset.target?.table || 'database_table';
@@ -27529,10 +27534,8 @@ except Exception as _ngr_error:
       : (tableType && !/^(?:BASE\s+)?TABLE$/i.test(tableType)
         ? 'Live writes are unavailable for database views.'
         : (primaryKeys.length === 0 ? 'Live writes require a primary key on the table.' : ''));
-    const canWriteToTable = !dataset.truncated
-      && (!tableType || /^(?:BASE\s+)?TABLE$/i.test(tableType))
-      && primaryKeys.length > 0;
-    const accessMode = canWriteToTable ? 'read-write' : 'read-only';
+    // Database writes require an explicit choice in the Database panel.
+    const accessMode = 'read-only';
     databaseAccessModeRef.current = accessMode;
     setDatabaseAccessMode(accessMode);
     setFile({ name: sheetName, path: '', isVirtual: true });
@@ -27572,9 +27575,16 @@ except Exception as _ngr_error:
   const handleDatabaseAccessModeChange = (nextMode) => {
     const accessMode = nextMode === 'read-write' ? 'read-write' : 'read-only';
     if (accessMode === 'read-write' && databaseWriteDisabledReason) return;
+    if (accessMode !== 'read-write') setDatabaseManualWritePending(false);
     databaseAccessModeRef.current = accessMode;
     setDatabaseAccessMode(accessMode);
     setDatabaseSource((previous) => previous ? { ...previous, accessMode } : previous);
+  };
+
+  const handleRunDatabaseWrite = () => {
+    if (databaseAccessMode !== 'read-write' || !databaseSource || databaseWriteDisabledReason) return;
+    setDatabaseManualWritePending(true);
+    setDatabaseWriteRunToken((current) => current + 1);
   };
 
   useEffect(() => {
@@ -27587,6 +27597,9 @@ except Exception as _ngr_error:
       || !window.electronAPI?.applyDatabaseChanges
     ) return undefined;
 
+    const isManualRun = databaseWriteRunToken !== databaseWriteRunHandledRef.current;
+    if (databaseWriteTiming !== 'realtime' && !isManualRun) return undefined;
+
     if (databaseWriteTimerRef.current) clearTimeout(databaseWriteTimerRef.current);
     // Scale the debounce with dataset size: larger datasets need more time for
     // React state to settle before we snapshot them for the write.
@@ -27594,19 +27607,36 @@ except Exception as _ngr_error:
     const writeDebounceMs = rowCount > 5000 ? 600 : rowCount > 1000 ? 450 : 350;
 
     const performWrite = async () => {
+      if (databaseAccessModeRef.current !== 'read-write') {
+        if (isManualRun) setDatabaseManualWritePending(false);
+        return;
+      }
       // If a write is already in flight, re-schedule so changes that arrived
       // during the write are not silently dropped.
       if (databaseWriteInFlightRef.current) {
         databaseWriteTimerRef.current = setTimeout(performWrite, writeDebounceMs + 200);
         return;
       }
+      if (isManualRun) databaseWriteRunHandledRef.current = databaseWriteRunToken;
       databaseWriteInFlightRef.current = true;
       const sourceSnapshot = databaseSource;
-      const currentRows = Array.isArray(fullData) ? fullData.map((row) => ({ ...row })) : [];
+      const isSameDatabaseSource = (candidate) => candidate?.connectionId === sourceSnapshot.connectionId
+        && candidate?.sheetName === sourceSnapshot.sheetName
+        && candidate?.target?.catalog === sourceSnapshot.target?.catalog
+        && candidate?.target?.schema === sourceSnapshot.target?.schema
+        && candidate?.target?.table === sourceSnapshot.target?.table;
       const currentDatabaseColumns = Array.from(new Set([
-        ...columns,
-        ...(sourceSnapshot.hiddenColumns || []).filter((column) => currentRows.some((row) => Object.prototype.hasOwnProperty.call(row, column)))
+        ...(Array.isArray(selectedColumns) ? selectedColumns.filter((column) => columns.includes(column)) : columns),
+        ...(sourceSnapshot.primaryKeys || []),
+        ...(sourceSnapshot.hiddenColumns || []).filter((column) => fullData.some((row) => Object.prototype.hasOwnProperty.call(row || {}, column)))
       ]));
+      // The database mirrors the columns shown in DEM; the local dataset keeps
+      // every column so the user can reselect one and restore it to the table.
+      const currentRows = (Array.isArray(fullData) ? fullData : []).map((row) => Object.fromEntries(
+        currentDatabaseColumns.map((column) => [column, row?.[column] ?? null])
+      ));
+      const nextHiddenColumns = Array.from(new Set(sourceSnapshot.hiddenColumns || []))
+        .filter((column) => currentRows.length === 0 || currentRows.some((row) => Object.prototype.hasOwnProperty.call(row, column)));
       try {
         const response = await window.electronAPI.applyDatabaseChanges({
           target: { ...sourceSnapshot.target, connectionId: sourceSnapshot.connectionId },
@@ -27621,16 +27651,23 @@ except Exception as _ngr_error:
           // Do NOT return here — fall through to finally so the in-flight lock is released.
         } else {
           const nextRows = Array.isArray(response.rows) ? response.rows : currentRows;
+          let localRowsToPersist = fullData;
           const changesApplied = Number(response.updated || 0) + Number(response.inserted || 0)
             + Number(response.deleted || 0) + (response.addedColumns || []).length + (response.removedColumns || []).length;
           if (response.inserted > 0 && sourceSnapshot.hiddenColumns?.length > 0) {
-            setFullData(nextRows);
+            // Merge generated hidden keys from the database while retaining
+            // columns hidden from the grid in the local DEM dataset.
+            localRowsToPersist = fullData.map((row, index) => ({
+              ...(row || {}),
+              ...(nextRows[index] || {})
+            }));
+            setFullData(localRowsToPersist);
           }
           if (changesApplied > 0) {
-            setDatabaseSource((previous) => previous?.connectionId === sourceSnapshot.connectionId
-              ? { ...previous, originalRows: nextRows, databaseColumns: currentDatabaseColumns }
+            setDatabaseSource((previous) => isSameDatabaseSource(previous)
+              ? { ...previous, originalRows: nextRows, databaseColumns: currentDatabaseColumns, hiddenColumns: nextHiddenColumns }
               : previous);
-            persistSheetDatasetCache(sourceSnapshot.sheetName, columns, nextRows);
+            persistSheetDatasetCache(sourceSnapshot.sheetName, columns, localRowsToPersist);
             setViewerNotice({
               type: 'success',
               text: `Live database update: ${response.updated || 0} row(s) changed, ${response.inserted || 0} added, ${response.deleted || 0} deleted${(response.addedColumns || []).length ? `, ${(response.addedColumns || []).length} column(s) added` : ''}${(response.removedColumns || []).length ? `, ${(response.removedColumns || []).length} column(s) removed` : ''}.`
@@ -27638,22 +27675,28 @@ except Exception as _ngr_error:
           }
         }
       } catch (error) {
+        databaseAccessModeRef.current = 'read-only';
+        setDatabaseAccessMode('read-only');
+        setDatabaseSource((previous) => isSameDatabaseSource(previous)
+          ? { ...previous, accessMode: 'read-only' }
+          : previous);
         setViewerNotice({
           type: 'error',
-          text: `Live database write failed. Your edits remain local and will be retried on the next change. ${error?.message || ''}`.trim()
+          text: `Database write failed. Your DEM edits remain local and automatic write-back is now off. Reload the table to discard them, or resolve the error and explicitly re-enable Read / write to retry. ${error?.message || ''}`.trim()
         });
       } finally {
         // Always release the lock so future writes are never permanently blocked.
         databaseWriteInFlightRef.current = false;
+        if (isManualRun) setDatabaseManualWritePending(false);
       }
     };
 
-    databaseWriteTimerRef.current = setTimeout(performWrite, writeDebounceMs);
+    databaseWriteTimerRef.current = setTimeout(performWrite, isManualRun ? 0 : writeDebounceMs);
 
     return () => {
       if (databaseWriteTimerRef.current) clearTimeout(databaseWriteTimerRef.current);
     };
-  }, [activeSheetName, columns, databaseSource, fullData, isDatasetSwitching, persistSheetDatasetCache]);
+  }, [activeSheetName, columns, databaseAccessMode, databaseSource, databaseWriteRunToken, databaseWriteTiming, fullData, isDatasetSwitching, persistSheetDatasetCache, selectedColumns]);
 
   const saveActiveDatasetFile = () => {
     const fileId = activeDatasetFileIdRef.current;
@@ -30898,16 +30941,6 @@ except Exception as _ngr_error:
       setActiveSheetName(resultSheetName);
       activeSheetNameRef.current = resultSheetName;
       resetDatasetWorkspace({ preserveData: true, preserveSheets: true, preserveViewState: true });
-      if (writeThroughDatabase) {
-        // Preserve databaseSource link; update originalRows/databaseColumns so the
-        // next write correctly diffs only new changes (not all rows again).
-        setDatabaseSource((previous) => previous ? {
-          ...previous,
-          sheetName: resultSheetName,
-          originalRows: nextDatasetRows,
-          databaseColumns: nextColumns
-        } : previous);
-      }
       suspendDatasetUndoTracking();
       applyLoadedDataset(
         nextColumns,
@@ -30917,6 +30950,11 @@ except Exception as _ngr_error:
         null,
         persistedRowNames
       );
+      if (writeThroughDatabase) {
+        // Restore the database baseline after applyLoadedDataset clears its source link.
+        // Keeping the original snapshot lets the live diff persist this transformation.
+        setDatabaseSource({ ...databaseSource, sheetName: resultSheetName });
+      }
     } finally {
       setIsDatasetSwitching(false);
     }
@@ -32062,12 +32100,10 @@ except Exception as _ngr_error:
         return acc;
       }, {}));
 
-    // Detach any live database link so the write-back effect does not try to push
-    // AI-generated rows into the connected table (which would fail and flip the
-    // mode to read-only).
+    // Detach the live database link so AI-generated rows are not written to it.
     setDatabaseSource(null);
-    setDatabaseAccessMode('read-write');
-    databaseAccessModeRef.current = 'read-write';
+    setDatabaseAccessMode('read-only');
+    databaseAccessModeRef.current = 'read-only';
 
     markSheetDatasetDirty();
     setColumns(nextColumns);
@@ -41543,9 +41579,13 @@ except Exception as _ngr_error:
         databaseAccessMode={databaseAccessMode}
         databaseWriteDisabledReason={databaseWriteDisabledReason}
         onDatabaseAccessModeChange={handleDatabaseAccessModeChange}
+        databaseWriteTiming={databaseWriteTiming}
+        onDatabaseWriteTimingChange={setDatabaseWriteTiming}
+        onRunDatabaseWrite={handleRunDatabaseWrite}
         onDisconnect={() => {
           setDatabaseSource(null);
-          setDatabaseAccessMode('read-write');
+          setDatabaseAccessMode('read-only');
+          databaseAccessModeRef.current = 'read-only';
         }}
         datasetName={datasetDisplayName}
         rows={fullData}
@@ -50449,6 +50489,13 @@ except Exception as _ngr_error:
                     handleDeleteSheet={handleDeleteSheet}
                     sourceFileName={datasetDisplayName}
                     databaseSource={databaseSource}
+                    databaseAccessMode={databaseAccessMode}
+                    databaseWriteDisabledReason={databaseWriteDisabledReason}
+                    onDatabaseAccessModeChange={handleDatabaseAccessModeChange}
+                    databaseWriteTiming={databaseWriteTiming}
+                    databaseManualWritePending={databaseManualWritePending}
+                    onDatabaseWriteTimingChange={setDatabaseWriteTiming}
+                    onRunDatabaseWrite={handleRunDatabaseWrite}
                     isVirtualSource={!hasPhysicalDatasetFile}
                     addColumnName={addColumnName} setAddColumnName={setAddColumnName}
                     addColumnValue={addColumnValue} setAddColumnValue={setAddColumnValue}
