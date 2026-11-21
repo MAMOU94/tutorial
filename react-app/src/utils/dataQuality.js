@@ -3,7 +3,7 @@ export const isMissingDataValue = (value) => {
   if (typeof value === 'number' && Number.isNaN(value)) return true;
 
   const normalized = String(value).trim().toLowerCase();
-  return normalized === '' || normalized === 'na' || normalized === 'nan';
+  return normalized === '';
 };
 
 export const normalizeMissingDataValue = (value) => (

@@ -1896,6 +1896,7 @@ const normalizeDatasetMetadata = (metadata = {}) => {
   const metadataRowNames = normalizeList(metadata?.row_names)
     .map((rowName) => String(rowName ?? ''));
   const hasMetadataRowNames = metadataRowNames.length === rawRows.length;
+  let normalizedNaCount = 0;
   const syntheticLeadingColumn = hasMetadataRowNames
     && rawColumns.length > 0
     && /^\.\.\.1$/.test(rawColumns[0])
@@ -1926,12 +1927,20 @@ const normalizeDatasetMetadata = (metadata = {}) => {
     } else if (hasMetadataRowNames && !Object.prototype.hasOwnProperty.call(nextRow, '')) {
       nextRow[''] = metadataRowNames[rowIndex];
     }
+    Object.keys(nextRow).forEach((columnName) => {
+      const value = nextRow[columnName];
+      if (typeof value === 'string' && value.trim().toLowerCase() === 'na') {
+        nextRow[columnName] = null;
+        normalizedNaCount += 1;
+      }
+    });
     return nextRow;
   });
   return {
     columns: rawColumns,
     rows,
-    rowNames: []
+    rowNames: [],
+    normalizedNaCount
   };
 };
 
@@ -7129,16 +7138,16 @@ const formatTimestamp = (dateOrNum) => {
   }
 };
 
-const formatModelDisplayName = (model = '', isCloud = false) => {
+const removeCloudWordFromModelLabel = (model = '') => String(model || '').replace(/\bcloud\b/ig, '').replace(/\s+/g, ' ').trim();
+
+const formatModelDisplayName = (model = '') => {
   const raw = String(model || '').trim();
-  if (!raw) return 'Gemma 4 31B CLOUD';
+  if (!raw) return 'Gemma 4 31B';
   let clean = raw.split('/').pop().replace(/:latest$/, '');
+  clean = removeCloudWordFromModelLabel(clean);
   clean = clean.replace(/[-_]/g, ' ');
   clean = clean.replace(/\b\w/g, (c) => c.toUpperCase());
-  if (isCloud && !clean.toUpperCase().includes('CLOUD')) {
-    clean += ' CLOUD';
-  }
-  return clean;
+  return clean.replace(/\s+/g, ' ').trim();
 };
 
 const chatCodeLanguageSupport = Object.freeze({
@@ -11341,6 +11350,7 @@ function App() {
         loadedColumns,
         loadedData,
         loadedRowNames: normalizedDataset.rowNames,
+        normalizedNaCount: normalizedDataset.normalizedNaCount,
         metadataSheets,
         resolvedSheet,
         raw: res
@@ -12682,6 +12692,7 @@ function App() {
   const consoleOutputRef = useRef(null);
   const consoleInputRef = useRef(null);
   const rConsolePendingCommandRef = useRef('');
+  const rExplorerLoadEchoRef = useRef(false);
   const rIdeChatScrollRef = useRef(null);
   const [rIdeChatAttachments, setRIdeChatAttachments] = useState([]);
   const [rIdeChatAttachmentError, setRIdeChatAttachmentError] = useState('');
@@ -13611,7 +13622,7 @@ function App() {
   useEffect(() => {
     if (!rEditorActiveModel) return;
     if (prevRIdeModelRef.current && prevRIdeModelRef.current !== rEditorActiveModel) {
-      const displayName = formatModelDisplayName(rEditorActiveModel, isREditorApiSource);
+      const displayName = formatModelDisplayName(rEditorActiveModel);
       setRIdeChatMessages((prev) => [
         ...prev,
         createRIdeMessage({
@@ -15426,7 +15437,7 @@ ${historyContext || '(none)'}`;
                                 }`}
                               style={isSelected ? { background: '#252525', border: '1px solid #383838' } : { border: '1px solid transparent' }}
                             >
-                              <span className="block truncate">{model}</span>
+                              <span className="block truncate">{removeCloudWordFromModelLabel(model)}</span>
                               {isSelected && <Check size={13} className="text-zinc-300 shrink-0 ml-1.5" />}
                             </button>
                           );
@@ -15576,7 +15587,7 @@ ${historyContext || '(none)'}`;
                                 className="flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[11px] font-mono text-zinc-300 hover:bg-zinc-800 cursor-pointer"
                                 style={apiCfg.modelState === model ? { background: '#252525', border: '1px solid #444' } : { border: '1px solid transparent' }}
                               >
-                                <span className="truncate">{model}</span>
+                                <span className="truncate">{removeCloudWordFromModelLabel(model)}</span>
                                 {apiCfg.modelState === model && <Check size={12} className="ml-2 shrink-0 text-zinc-300" />}
                               </button>
                             ))}
@@ -15744,7 +15755,7 @@ ${historyContext || '(none)'}`;
                               }`}
                             style={apiCfg.modelState === model ? { background: '#252525', border: '1px solid #383838' } : { border: '1px solid transparent' }}
                           >
-                            <span className="truncate">{model}</span>
+                            <span className="truncate">{removeCloudWordFromModelLabel(model)}</span>
                             {apiCfg.modelState === model && <Check size={13} className="text-zinc-300 shrink-0 ml-1.5" />}
                           </button>
                         )) : (
@@ -15906,7 +15917,7 @@ ${historyContext || '(none)'}`;
                             className={`w-full flex items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs font-mono tracking-tight transition-colors cursor-pointer ${apiCfg.modelState === model ? 'text-zinc-100 font-semibold shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-[#1e1e1e]'}`}
                             style={apiCfg.modelState === model ? { background: '#252525', border: '1px solid #383838' } : { border: '1px solid transparent' }}
                           >
-                            <span className="truncate">{model}</span>
+                            <span className="truncate">{removeCloudWordFromModelLabel(model)}</span>
                             {apiCfg.modelState === model && <Check size={13} className="text-zinc-300 shrink-0 ml-1.5" />}
                           </button>
                         )) : <div className="rounded-xl border border-dashed border-zinc-800 px-3 py-3 text-center text-xs font-medium text-zinc-500">No models detected</div>}
@@ -19023,7 +19034,7 @@ ${attachmentPromptContext || '(none)'}`;
             {(!rIdeChatMessages.length || !rIdeChatMessages.some(m => m.switchModel)) && (
               <div className="flex items-center justify-center gap-1.5 py-1 mb-2 select-none text-[11px] text-zinc-400 font-sans tracking-wide">
                 <span>←</span>
-                <span>Switched to {formatModelDisplayName(rEditorActiveModel, isREditorApiSource)}</span>
+                <span>Switched to {formatModelDisplayName(rEditorActiveModel)}</span>
               </div>
             )}
 
@@ -19330,9 +19341,9 @@ ${attachmentPromptContext || '(none)'}`;
                   type="button"
                   onClick={() => setIsREditorAIConfigOpen((prev) => !prev)}
                   className="truncate text-[10px] font-medium tracking-wide rounded-md px-2 py-0.5 text-zinc-400 bg-zinc-800/80 border border-zinc-700/50 hover:border-zinc-500 hover:text-zinc-200 transition-all cursor-pointer inline-flex items-center gap-1"
-                  title={`Active Model: ${rEditorActiveModel || 'None'} (Click to change Provider & Model)`}
+                  title={`Active Model: ${rEditorActiveModel ? formatModelDisplayName(rEditorActiveModel) : 'None'} (Click to change Provider & Model)`}
                 >
-                  <span>{rEditorActiveModel ? formatModelDisplayName(rEditorActiveModel, isREditorApiSource) : 'No model'}</span>
+                  <span>{rEditorActiveModel ? formatModelDisplayName(rEditorActiveModel) : 'No model'}</span>
                   <ChevronDown size={9} className="text-zinc-500 shrink-0" />
                 </button>
                 <button
@@ -19777,10 +19788,25 @@ ${attachmentPromptContext || '(none)'}`;
         }
 
         const hasInternalSyncCode = /(?:target_df_name|write_ok|current_sheet_object|preferred_df)/.test(plainText);
-        if (plainText && !suppressInternalOutput && !hasInternalSyncCode) {
+        const isExplorerLoadEcho = payload?.type === 'stdout'
+          && (rExplorerLoadEchoRef.current || plainText.includes('.ngr_csv <-'));
+        if (plainText && !suppressInternalOutput && (!hasInternalSyncCode || isExplorerLoadEcho)) {
           let displayText = plainText;
+          if (isExplorerLoadEcho) {
+            rExplorerLoadEchoRef.current = true;
+            const statusLines = Array.from(plainText.matchAll(/(?:^|\n)(Loaded [^\r\n]+ from the active Data Explorer sheet)(?=\r?\n|$)/g));
+            if (statusLines.length) {
+              const status = statusLines[statusLines.length - 1];
+              displayText = `${status[1]}\n${plainText.slice(status.index + status[0].length).replace(/^\s*\n/, '')}`;
+              rExplorerLoadEchoRef.current = false;
+            } else {
+              const errorLines = plainText.split(/\r?\n/).filter((line) => /^Error(?: in|:)/.test(line.trim()));
+              displayText = errorLines.length ? `${errorLines.join('\n')}\n` : '';
+              if (/(?:^|\n)>\s*$/.test(plainText)) rExplorerLoadEchoRef.current = false;
+            }
+          }
           const pendingCommand = rConsolePendingCommandRef.current;
-          if (pendingCommand && plainText.trim()) {
+          if (displayText && pendingCommand && plainText.trim()) {
             const trimmedText = plainText.trimStart();
             const echoedText = trimmedText.replace(/^(?:>>>|>)\s*/, '');
             const commandWasEchoed = echoedText.startsWith(pendingCommand)
@@ -19792,7 +19818,7 @@ ${attachmentPromptContext || '(none)'}`;
             displayText = `${prompt}${pendingCommand}\n${displayText}`;
             rConsolePendingCommandRef.current = '';
           }
-          appendConsoleOutput('r', (previous) => previous + displayText);
+          if (displayText) appendConsoleOutput('r', (previous) => previous + displayText);
           const activeChunkIndex = activeRChunkIndexRef.current;
           // Keep inline chunk results limited to stdout. R errors and process
           // status messages still belong in the full console, but should not
@@ -27805,6 +27831,9 @@ except Exception as _ngr_error:
               setActiveSheetName(resolvedSheet);
               persistSheetDatasetCache(resolvedSheet, loadedColumns, loadedData, normalizedDataset.rowNames);
               applyLoadedDataset(loadedColumns, loadedData, null, null, null, normalizedDataset.rowNames);
+              setViewerNotice(normalizedDataset.normalizedNaCount > 0
+                ? { type: 'na-import', text: 'NA becomes a missing value; please rename it with a valid label.' }
+                : null);
               datasetLoaded = true;
 
               // NEW: Auto-Sync to R Console
@@ -27989,6 +28018,7 @@ except Exception as _ngr_error:
         loadedColumns,
         loadedData,
         loadedRowNames,
+        normalizedNaCount,
         metadataSheets,
         resolvedSheet
       } = loadedSheetResult;
@@ -28026,6 +28056,9 @@ except Exception as _ngr_error:
         restoredAnalysisSelection,
         loadedRowNames
       );
+      setViewerNotice(normalizedNaCount > 0
+        ? { type: 'na-import', text: 'NA becomes a missing value; please rename it with a valid label.' }
+        : null);
     } catch (err) {
       setError("Metadata Error: " + err.message);
     } finally {
@@ -31674,19 +31707,23 @@ except Exception as _ngr_error:
     scopeColumnNames = null,
     successText = '',
     onSuccess = null,
+    onError = null,
     respectStudioGroupBy = true,
     studioOperationKey = '',
     overwrite = false
   }) => {
-    if (!window.electronAPI?.runDplyrTidyrTransform) {
-      setViewerNotice({ type: 'error', text: 'dplyr/tidyr transform API is not available in this build.' });
+    const fail = (message) => {
+      setViewerNotice({ type: 'error', text: message });
+      onError?.(message);
       return false;
+    };
+    if (!window.electronAPI?.runDplyrTidyrTransform) {
+      return fail('dplyr/tidyr transform API is not available in this build.');
     }
 
     let pipelineText = String(pipeline || '').trim();
     if (!pipelineText) {
-      setViewerNotice({ type: 'error', text: 'Pipeline is empty.' });
-      return false;
+      return fail('Pipeline is empty.');
     }
     let groupedSplitColumnName = '';
     if (respectStudioGroupBy && studioGroupByEnabled && resolvedStudioGroupByColumns.length > 0) {
@@ -31726,13 +31763,11 @@ except Exception as _ngr_error:
           ])
         ));
       if (transformInput.length === 0) {
-        setViewerNotice({ type: 'error', text: 'No selected rows are available for this operation.' });
-        return false;
+        return fail('No selected rows are available for this operation.');
       }
       const response = await window.electronAPI.runDplyrTidyrTransform(transformInput, pipelineText);
       if (!response?.success) {
-        setViewerNotice({ type: 'error', text: response?.error || 'Failed to apply dplyr/tidyr pipeline.' });
-        return false;
+        return fail(response?.error || 'Failed to apply dplyr/tidyr pipeline.');
       }
 
       const nextRows = normalizeRowArray(response.rows);
@@ -31745,7 +31780,7 @@ except Exception as _ngr_error:
         : (nextColumns ? nextColumns.length : 0);
 
       const applied = applyTransformedDataset(nextRows, nextColumns, studioOperationKey, { overwrite });
-      if (!applied?.applied) return false;
+      if (!applied?.applied) return fail('Transformation returned an empty table with no columns.');
 
       if (typeof onSuccess === 'function') {
         onSuccess({ response, nextRows, nextColumns, rowCount, columnCount });
@@ -31769,8 +31804,7 @@ except Exception as _ngr_error:
       }
       return true;
     } catch (err) {
-      setViewerNotice({ type: 'error', text: err.message || 'Failed to apply dplyr/tidyr pipeline.' });
-      return false;
+      return fail(err.message || 'Failed to apply dplyr/tidyr pipeline.');
     } finally {
       setIsApplyingDplyrTidyr(false);
     }
@@ -32145,7 +32179,19 @@ except Exception as _ngr_error:
     }
 
     const findText = String(findValue ?? '');
-    const replacementText = String(replaceValue ?? '');
+    const randomRange = replaceValue?.type === 'random_integer' ? replaceValue : null;
+    const minRandom = Number(randomRange?.min);
+    const maxRandom = Number(randomRange?.max);
+    if (randomRange && (
+      !Number.isSafeInteger(minRandom)
+      || !Number.isSafeInteger(maxRandom)
+      || minRandom > maxRandom
+      || maxRandom - minRandom + 1 > Number.MAX_SAFE_INTEGER
+    )) {
+      setViewerNotice({ type: 'error', text: 'Random replacement requires a valid integer range.' });
+      return false;
+    }
+    const replacementText = randomRange ? '' : String(replaceValue ?? '');
     const requestedRowIndices = Array.isArray(options?.rowIndices)
       ? new Set(options.rowIndices.map(Number).filter((rowIndex) => (
         Number.isInteger(rowIndex) && rowIndex >= 0 && rowIndex < fullData.length
@@ -32156,7 +32202,10 @@ except Exception as _ngr_error:
       if (requestedRowIndices && !requestedRowIndices.has(rowIndex)) return row;
       if (!row || String(row[targetColumn] ?? '') !== findText) return row;
       replacedCount += 1;
-      return { ...row, [targetColumn]: replacementText };
+      const replacement = randomRange
+        ? minRandom + Math.floor(Math.random() * (maxRandom - minRandom + 1))
+        : replacementText;
+      return { ...row, [targetColumn]: replacement };
     });
 
     if (replacedCount === 0) {
@@ -32412,8 +32461,9 @@ except Exception as _ngr_error:
   };
 
   const handleSaveDatasetPdf = async (options = {}) => {
-    if (!Array.isArray(selectedDataRows) || selectedDataRows.length === 0) {
-      setViewerNotice({ type: 'error', text: 'No rows selected to export.' });
+    const rowsToExport = options?.useFullData ? fullData : selectedDataRows;
+    if (!Array.isArray(rowsToExport) || rowsToExport.length === 0) {
+      setViewerNotice({ type: 'error', text: 'No rows available to export.' });
       return;
     }
     if (!Array.isArray(activeColumns) || activeColumns.length === 0) {
@@ -32480,9 +32530,9 @@ except Exception as _ngr_error:
       const pageHeight = doc.internal.pageSize.getHeight();
       const marginX = 8;
       const marginY = 10;
-      const title = 'Data Explorer Selection';
+      const title = options?.useFullData ? 'Data Explorer Dataset' : 'Data Explorer Selection';
       const sourceName = datasetDisplayName || (file?.name ? String(file.name) : 'Untitled dataset');
-      const summaryLine = `Rows: ${selectedDataRows.length} • Columns: ${activeColumns.length}`;
+      const summaryLine = `Rows: ${rowsToExport.length} • Columns: ${activeColumns.length}`;
       const minColWidth = 22;
       const availableWidth = pageWidth - marginX * 2;
       const maxColsPerPage = Math.max(1, Math.floor(availableWidth / minColWidth));
@@ -32561,7 +32611,7 @@ except Exception as _ngr_error:
         const lineHeight = doc.getFontSize() * 0.3528 * doc.getLineHeightFactor();
         const maxChars = Math.max(4, Math.floor((colWidth - cellPaddingX * 2) / 1.9));
 
-        selectedDataRows.forEach((row) => {
+        rowsToExport.forEach((row) => {
           const lineSets = cols.map((col) => {
             const text = safeCellText(row?.[col]);
             const wrapped = doc.splitTextToSize(text, colWidth - cellPaddingX * 2);
@@ -32637,13 +32687,13 @@ except Exception as _ngr_error:
         const fileName = savedPath ? savedPath.split(/[/\\]/).pop() : 'dataset.pdf';
         setViewerNotice({
           type: 'success',
-          text: `Saved PDF "${fileName}" with ${selectedDataRows.length} row(s) and ${activeColumns.length} column(s).`
+          text: `Saved PDF "${fileName}" with ${rowsToExport.length} row(s) and ${activeColumns.length} column(s).`
         });
       } else {
         doc.save(`${baseName}_selection.pdf`);
         setViewerNotice({
           type: 'success',
-          text: `Saved PDF with ${selectedDataRows.length} row(s) and ${activeColumns.length} column(s).`
+          text: `Saved PDF with ${rowsToExport.length} row(s) and ${activeColumns.length} column(s).`
         });
       }
     } catch (err) {
@@ -33264,13 +33314,17 @@ except Exception as _ngr_error:
 
   const handleApplyDplyrTidyrPipeline = async (pipelineOverride = '', options = {}) => {
     if (!Array.isArray(fullData)) {
-      setViewerNotice({ type: 'error', text: 'No dataset is currently loaded.' });
+      const message = 'No dataset is currently loaded.';
+      setViewerNotice({ type: 'error', text: message });
+      options.onError?.(message);
       return false;
     }
 
     const pipelineText = String(pipelineOverride || dplyrTidyrPipeline || '').trim();
     if (!pipelineText) {
-      setViewerNotice({ type: 'error', text: 'Enter a dplyr/tidyr pipeline before running.' });
+      const message = 'Enter a dplyr/tidyr pipeline before running.';
+      setViewerNotice({ type: 'error', text: message });
+      options.onError?.(message);
       return false;
     }
 
@@ -33278,6 +33332,7 @@ except Exception as _ngr_error:
       pipeline: pipelineText,
       scopeRowIndices: options?.scopeRowIndices,
       scopeColumnNames: options?.scopeColumnNames,
+      onError: options?.onError,
       respectStudioGroupBy: false,
       overwrite: true,
       successText: ({ rowCount, columnCount }) =>
@@ -33360,7 +33415,11 @@ except Exception as _ngr_error:
     const currentValue = fullData[safeRowIndex]?.[columnName];
     const nextValueText = String(nextValue ?? '');
     const trimmedNextValue = nextValueText.trim();
-    if (String(currentValue ?? '') === nextValueText) return true;
+    const isNaInput = /^na$/i.test(trimmedNextValue);
+    const isMissingInput = trimmedNextValue === '' || isNaInput;
+    if (isNaInput) setViewerNotice({ type: 'warning', text: 'NA is treated as a missing value in DEM.' });
+    if (!isMissingInput && String(currentValue ?? '') === nextValueText) return true;
+    if (isMissingInput && (currentValue === null || currentValue === undefined || currentValue === '')) return true;
 
     // Editing one cell should not rescan thousands of potentially large cells.
     // A small bounded sample is enough to preserve the numeric-column guard
@@ -33374,13 +33433,13 @@ except Exception as _ngr_error:
       if (nonEmptyValues.length >= 32) break;
     }
     const isNumericColumn = nonEmptyValues.length > 0 && nonEmptyValues.every((value) => Number.isFinite(Number(value)));
-    let nextCellValue = trimmedNextValue === '' ? null : nextValueText;
+    let nextCellValue = isMissingInput ? null : nextValueText;
     if (isNumericColumn) {
-      if (trimmedNextValue !== '' && !Number.isFinite(Number(trimmedNextValue))) {
+      if (!isMissingInput && !Number.isFinite(Number(trimmedNextValue))) {
         setViewerNotice({ type: 'error', text: `Column "${columnName}" is numeric. Enter a valid number.` });
         return false;
       }
-      nextCellValue = trimmedNextValue === '' ? null : Number(trimmedNextValue);
+      nextCellValue = isMissingInput ? null : Number(trimmedNextValue);
     }
 
     pendingCellUndoDeltasRef.current.push({
@@ -33395,6 +33454,7 @@ except Exception as _ngr_error:
     setFullData(nextRows);
     setResult(null);
     setError(null);
+    if (!isNaInput && viewerNotice?.type === 'na-import') setViewerNotice(null);
     // Propagate the DEM cell edit into the connected R/Python dataframe so the
     // console always reflects what the user typed in the grid.
     syncExplorerToRConsole(null, activeSheetName, { columns, rows: nextRows });
@@ -33426,6 +33486,7 @@ except Exception as _ngr_error:
     const changedCells = new Set();
     const deltas = [];
     let appliedCount = 0;
+    let naInputCount = 0;
     for (const change of changes) {
       const rowIndex = Number(change?.rowIndex);
       const columnName = String(change?.columnName || '').trim();
@@ -33436,13 +33497,17 @@ except Exception as _ngr_error:
       const currentValue = sourceRow[columnName];
       const nextValueText = String(change?.nextValue ?? '');
       const trimmedNextValue = nextValueText.trim();
-      if (String(currentValue ?? '') === nextValueText) continue;
+      const isNaInput = /^na$/i.test(trimmedNextValue);
+      const isMissingInput = trimmedNextValue === '' || isNaInput;
+      if (isNaInput) naInputCount += 1;
+      if (!isMissingInput && String(currentValue ?? '') === nextValueText) continue;
+      if (isMissingInput && (currentValue === null || currentValue === undefined || currentValue === '')) continue;
 
       const isNumericColumn = getNumericColumn(columnName);
-      if (isNumericColumn && trimmedNextValue !== '' && !Number.isFinite(Number(trimmedNextValue))) {
+      if (isNumericColumn && !isMissingInput && !Number.isFinite(Number(trimmedNextValue))) {
         continue;
       }
-      const nextCellValue = trimmedNextValue === ''
+      const nextCellValue = isMissingInput
         ? null
         : (isNumericColumn ? Number(trimmedNextValue) : nextValueText);
       changedCells.add(cellKey);
@@ -33459,7 +33524,11 @@ except Exception as _ngr_error:
       appliedCount += 1;
     }
 
+    if (naInputCount > 0) {
+      setViewerNotice({ type: 'warning', text: `Converted ${naInputCount} pasted NA value(s) to missing values in DEM.` });
+    }
     if (appliedCount === 0) return 0;
+    if (naInputCount === 0 && viewerNotice?.type === 'na-import') setViewerNotice(null);
     changedRows.forEach((row, rowIndex) => {
       nextRows[rowIndex] = row;
     });
@@ -50431,7 +50500,7 @@ except Exception as _ngr_error:
           )}
           {hasMountedDataExplorer && (
             <div
-              className={`fixed left-14 top-0 right-0 z-[80] h-screen pr-2 md:pr-3 transform transition-all duration-300 ease-out ${showViewer
+              className={`fixed left-14 top-0 right-0 bottom-0 z-[80] h-screen pr-2 md:pr-3 transform transition-all duration-300 ease-out ${showViewer
                 ? 'translate-x-0 opacity-100 pointer-events-auto'
                 : '-translate-x-full opacity-0 pointer-events-none'
                 }`}

@@ -37,15 +37,17 @@ const sampleRows = (data, maxRows = 8) => {
 };
 
 const buildDatasetContext = (columns, fullData, selectedRowIndices = null, allColumns = columns) => {
-  const scopedColumns = Array.isArray(columns) ? columns : [];
-  const availableColumns = Array.from(new Set((Array.isArray(allColumns) ? allColumns : scopedColumns).map(String)));
-  if (scopedColumns.length === 0) return 'No selected columns are available.';
+  const selectedColumns = Array.isArray(columns) ? columns : [];
+  const availableColumns = Array.from(new Set((Array.isArray(allColumns) ? allColumns : selectedColumns).map(String)));
+  const scopedColumns = selectedColumns.length > 0 ? selectedColumns : availableColumns;
+  if (scopedColumns.length === 0) return 'No dataset columns are available.';
   const sourceRows = Array.isArray(fullData) ? fullData : [];
-  const rows = Array.isArray(selectedRowIndices)
+  const hasSelectedRows = Array.isArray(selectedRowIndices) && selectedRowIndices.length > 0;
+  const rows = hasSelectedRows
     ? selectedRowIndices.map((index) => sourceRows[index]).filter(Boolean)
     : sourceRows;
   const rowEntries = rows.map((row, index) => ({
-    row_index: Array.isArray(selectedRowIndices) ? selectedRowIndices[index] : index,
+    row_index: hasSelectedRows ? selectedRowIndices[index] : index,
     row
   }));
   const sample = sampleRows(rowEntries, 8).map(({ row_index, row }) => ({
@@ -65,7 +67,7 @@ const buildDatasetContext = (columns, fullData, selectedRowIndices = null, allCo
   const sampleStr = JSON.stringify(sample, null, 2);
   return [
     `Dataset: ${rows.length} rows x ${scopedColumns.length} selected columns`,
-    Array.isArray(selectedRowIndices) ? 'Scope: currently shown and selected rows/columns only.' : '',
+    hasSelectedRows ? 'Scope: currently shown and selected rows/columns only.' : '',
     `All dataset columns available for explicit actions: ${availableColumns.join(', ')}`,
     'Columns:',
     ...colSummary,
@@ -98,7 +100,7 @@ Available actions and their parameters:
 - filter_rows:      { "action": "filter_rows",      "column": "colName",         "operator": "equals|not_equals|contains|starts_with|ends_with|greater_than|greater_equal|less_than|less_equal|between|missing|not_missing", "value": "filterValue", "value2": "optional second value" }
 - sort_rows:        { "action": "sort_rows",        "column": "colName",         "direction": "asc|desc" }
 - fill_missing:     { "action": "fill_missing",     "column": "colName", "columns": ["colA", "colB"] or ["*"], "all_columns": true, "mode": "remove_rows|fill_previous|constant|ml_prediction",  "value": "...", "group_column": "optional label column" }
-- replace_value:    { "action": "replace_value",    "column": "colName",         "find": "oldValue",         "replace": "newValue" }
+- replace_value:    { "action": "replace_value",    "column": "colName",         "find": "oldValue",         "replace": "newValue" or { "type": "random_integer", "min": 1, "max": 100 } }
 - add_row:          { "action": "add_row",          "values": { "col1": "v1", "col2": "v2" } }
 - delete_rows:      { "action": "delete_rows",      "row_indices": [0, 1] } // omit row_indices to delete the currently selected rows
 - create_dataset:   { "action": "create_dataset",   "columns": ["col1", "col2"], "rows": [{ "col1": "value", "col2": 123 }] }
@@ -121,6 +123,7 @@ Available actions and their parameters:
 - calculate:        { "action": "calculate",        "mode": "column_total|row_totals|summary", "column": "colName", "operation": "sum|average|min|max|count" }
 
 For an in-place sum, use mode "column_total" to add a new row whose values are prefixed with "T=", or mode "row_totals" to add a new column whose values are prefixed with "T=". Use mode "summary" for average, minimum, maximum, count, or a summary-table result.
+Data actions are applied automatically. For simple cell edits, use the native data action instead of run_pipeline. To replace a literal in just the matching cells with random integers, use replace_value with the match in "find" and a random_integer object in "replace"; this uses the JavaScript editor action and preserves all other cells. Reserve run_pipeline for transformations that need dplyr/tidyr.
 For missing-value prediction, use one fill_missing action with mode "ml_prediction". To fill missing values in several columns in one background run, put every target name in the "columns" array. When the user asks for all columns, use "all_columns": true and "columns": ["*"] so the application sends every currently selected column in one batch. If the user names the subject label, pass that exact column as "group_column": use the tumor-type column for a tumor task, the gender column for a gender task, and the cohort or treatment column when those are the requested subjects. Every target column is then predicted only from rows with the same label and never mixes different groups.
 The group_column must be a categorical label column only, such as tumor type, cohort, sex, or treatment group. Never use a numeric measurement column as group_column. If more than one categorical label exists, do not guess: use the exact label named by the user. Only omit group_column when no relevant label is available, so the application can automatically detect a repeated categorical label.
 When the current dataset is empty and the user asks to generate, create, or populate random/sample data, emit one create_dataset action with named columns and populated rows. Do not emit only add_column actions for this request. Keep generated datasets to at most 100 rows unless the user asks for fewer.
@@ -290,6 +293,7 @@ const OPENCODE_DEFAULT_MODEL = 'deepseek-v4-pro';
 const ANTIGRAVITY_MODEL_STORAGE_KEY = 'my-stats.r-editor.antigravity-model';
 const ANTIGRAVITY_EFFORT_STORAGE_KEY = 'my-stats.r-editor.antigravity-effort';
 const ANTIGRAVITY_DEFAULT_EFFORT = 'medium';
+const displayModelName = (model) => String(model || '').replace(/\s+cloud\b/ig, '').trim();
 
 const providerDefinitions = {
   openai: {
@@ -547,7 +551,7 @@ const ActionBadge = ({ action, onApply, onDismiss, isApplied, isRTheme }) => {
           : [action.column];
         return `Fill missing in ${targetColumns.filter(Boolean).join(', ')}`;
       }
-      case 'replace_value': return `Replace "${action.find}" with "${action.replace}" in ${action.column}`;
+      case 'replace_value': return `Replace "${action.find}" with ${action.replace?.type === 'random_integer' ? `random integers (${action.replace.min}–${action.replace.max})` : `"${action.replace}"`} in ${action.column}`;
       case 'add_row': return `Add row`;
       case 'delete_rows': return `Delete selected row(s)`;
       case 'create_dataset': return `Create dataset (${Array.isArray(action.rows) ? action.rows.length : 0} rows)`;
@@ -1427,7 +1431,10 @@ export default function DataExplorerAIAgent({
         }); break;
         case 'keep_columns': result = await onKeepColumns?.(action.columns ?? []); break;
         case 'delete_columns': result = await onDeleteColumns?.(action.columns ?? []); break;
-        case 'run_pipeline': result = await onApplyDplyrTidyrPipeline?.(action.pipeline ?? ''); break;
+        case 'run_pipeline': result = await onApplyDplyrTidyrPipeline?.(
+          action.pipeline ?? '',
+          (message) => setError(`Pipeline failed: ${message}`)
+        ); break;
         case 'undo': result = await onUndoDataset?.(); break;
         case 'summarize': result = await onShowSummary?.({ mode: 'summary' }); break;
         case 'calculate': {
@@ -1507,16 +1514,16 @@ export default function DataExplorerAIAgent({
               ? 'antigravity'
         : 'api';
   const activeModelLabel = providerId === 'ollama'
-    ? (activeOllamaModel || (isModelsLoading ? 'Detecting model…' : 'Choose model'))
+    ? displayModelName(activeOllamaModel || (isModelsLoading ? 'Detecting model…' : 'Choose model'))
       : providerId === 'claude'
         ? 'Claude subscription'
       : providerId === 'codex'
-        ? `${codexModel || 'No model detected'} · ${codexReasoningEffort}`
+        ? displayModelName(`${codexModel || 'No model detected'} · ${codexReasoningEffort}`)
         : providerId === 'opencode'
-          ? openCodeModel || 'No model detected'
+          ? displayModelName(openCodeModel || 'No model detected')
           : providerId === 'antigravity'
-            ? `${antigravityModel || 'No model detected'} · ${antigravityEffort}`
-        : activeProviderSettings.model;
+            ? displayModelName(`${antigravityModel || 'No model detected'} · ${antigravityEffort}`)
+        : displayModelName(activeProviderSettings.model);
   const activeProviderLabel = providerId === 'ollama'
     ? 'Ollama'
     : providerId === 'claude'
@@ -1733,7 +1740,7 @@ export default function DataExplorerAIAgent({
                     <div className="space-y-0.5 overflow-y-auto pr-0.5 custom-scrollbar" style={modelListStyle}>
                       {filteredModelList.length > 0 ? filteredModelList.map((model) => (
                         <button key={model} type="button" onClick={() => selectOllamaModel(model)} className={`flex w-full items-center justify-between rounded-md border px-3 py-1.5 text-left text-[10px] font-mono tracking-tight transition-colors ${selectedModel === model ? 'border-zinc-600 bg-zinc-800 font-semibold text-zinc-100' : 'border-transparent text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200'}`}>
-                          <span className="truncate">{model}</span>
+                          <span className="truncate">{displayModelName(model)}</span>
                           {selectedModel === model && <span className="ml-1.5 shrink-0 text-zinc-300">Selected</span>}
                         </button>
                       )) : <div className="rounded-lg border border-dashed border-zinc-800 px-3 py-4 text-center text-xs font-medium text-zinc-500">{isModelsLoading ? 'Fetching…' : 'No local models found'}</div>}
@@ -1894,7 +1901,7 @@ export default function DataExplorerAIAgent({
                     <div className="space-y-0.5 overflow-y-auto pr-0.5 custom-scrollbar" style={modelListStyle}>
                       {filteredModelList.length > 0 ? filteredModelList.map((model) => (
                         <button key={model} type="button" onClick={() => selectOpenCodeModel(model)} className={`flex w-full items-center justify-between rounded-md border px-3 py-1.5 text-left text-[10px] font-mono tracking-tight transition-colors ${openCodeModel === model ? 'border-zinc-600 bg-zinc-800 font-semibold text-zinc-100' : 'border-transparent text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200'}`}>
-                          <span className="truncate">{model}</span>{openCodeModel === model && <span className="ml-1.5 shrink-0 text-zinc-300">Selected</span>}
+                          <span className="truncate">{displayModelName(model)}</span>{openCodeModel === model && <span className="ml-1.5 shrink-0 text-zinc-300">Selected</span>}
                         </button>
                       )) : <div className="rounded-md border border-dashed border-zinc-800 px-3 py-3 text-center text-[10px] font-medium text-zinc-500">{openCodeModelsError || 'No models detected'}</div>}
                     </div>
@@ -1926,7 +1933,7 @@ export default function DataExplorerAIAgent({
                     <div className="space-y-0.5 overflow-y-auto pr-0.5 custom-scrollbar" style={modelListStyle}>
                       {filteredModelList.length > 0 ? filteredModelList.map((model) => (
                         <button key={model} type="button" onClick={() => selectAntigravityModel(model)} className={`flex w-full items-center justify-between rounded-md border px-3 py-1.5 text-left text-[10px] font-mono tracking-tight transition-colors ${antigravityModel === model ? 'border-zinc-600 bg-zinc-800 font-semibold text-zinc-100' : 'border-transparent text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200'}`}>
-                          <span className="truncate">{model}</span>{antigravityModel === model && <span className="ml-1.5 shrink-0 text-zinc-300">Selected</span>}
+                          <span className="truncate">{displayModelName(model)}</span>{antigravityModel === model && <span className="ml-1.5 shrink-0 text-zinc-300">Selected</span>}
                         </button>
                       )) : <div className="rounded-md border border-dashed border-zinc-800 px-3 py-3 text-center text-[10px] font-medium text-zinc-500">{antigravityModelsError || 'No models detected'}</div>}
                     </div>
@@ -1971,7 +1978,7 @@ export default function DataExplorerAIAgent({
                     <div className="space-y-0.5 overflow-y-auto pr-0.5 custom-scrollbar" style={modelListStyle}>
                       {filteredModelList.map((model) => (
                         <button key={model} type="button" onClick={() => updateProviderSetting(providerId, 'model', model)} className={`flex w-full items-center justify-between rounded-md border px-3 py-1.5 text-left text-[10px] font-mono tracking-tight transition-colors ${activeProviderSettings.model === model ? 'border-zinc-600 bg-zinc-800 font-semibold text-zinc-100' : 'border-transparent text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200'}`}>
-                          <span className="truncate pr-1.5">{model}</span>{activeProviderSettings.model === model && <span className="shrink-0 text-zinc-300">Selected</span>}
+                          <span className="truncate pr-1.5">{displayModelName(model)}</span>{activeProviderSettings.model === model && <span className="shrink-0 text-zinc-300">Selected</span>}
                         </button>
                       ))}
                     </div>

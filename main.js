@@ -9371,28 +9371,29 @@ ${String(payload?.instruction || '').trim()}`;
   ipcMain.handle('antigravity-chat-request', async (event, payload = {}) => {
     if (antigravityActiveProcess) return { success: false, error: 'An Antigravity request is already running.' };
     const model = String(payload.model || '').trim();
+    const effort = String(payload.effort || '').trim();
+    const effortConflict = /conflicts with --effort\b|--effort is not supported for model\b/i;
     const cwd = String(payload.cwd || process.cwd());
     const prompt = String(payload.prompt || '').trim();
     if (!prompt) return { success: false, error: 'Antigravity prompt is empty.' };
 
-    const child = spawn(getAntigravityBinary(), [
-      '--input-format', 'stream-json',
-      '--output-format', 'stream-json',
-      ...(model ? ['--model', model] : []),
-      ...(payload.effort ? ['--effort', String(payload.effort)] : []),
-      '--print-timeout', '10m',
-      '--print', ''
-    ], {
-      cwd,
-      env: { ...process.env, NO_COLOR: '1' },
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-    antigravityActiveProcess = child;
-    let fullText = '';
-    let stdoutBuffer = '';
-    let stderr = '';
-
-    return await new Promise((resolve) => {
+    const runAntigravityAttempt = (withEffort) => new Promise((resolve) => {
+      const child = spawn(getAntigravityBinary(), [
+        '--input-format', 'stream-json',
+        '--output-format', 'stream-json',
+        ...(model ? ['--model', model] : []),
+        ...(withEffort && effort ? ['--effort', effort] : []),
+        '--print-timeout', '10m',
+        '--print', ''
+      ], {
+        cwd,
+        env: { ...process.env, NO_COLOR: '1' },
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+      antigravityActiveProcess = child;
+      let fullText = '';
+      let stdoutBuffer = '';
+      let stderr = '';
       let settled = false;
       const finish = (result) => {
         if (settled) return;
@@ -9416,11 +9417,15 @@ ${String(payload?.instruction || '').trim()}`;
             if (eventData?.event === 'result') {
               const result = eventData.result || {};
               const responseText = String(result.response || fullText || '');
-              if (!fullText && responseText && !event.sender.isDestroyed()) event.sender.send('antigravity-response-chunk', { text: responseText, done: false });
-              if (!event.sender.isDestroyed()) event.sender.send('antigravity-response-chunk', { text: '', done: true });
-              finish(result.status === 'SUCCESS'
-                ? { success: true, text: responseText, model: model || 'Antigravity' }
-                : { success: false, error: result.error || 'Antigravity request failed.' });
+              if (result.status === 'SUCCESS') {
+                if (!fullText && responseText && !event.sender.isDestroyed()) event.sender.send('antigravity-response-chunk', { text: responseText, done: false });
+                finish({ success: true, text: responseText, model: model || 'Antigravity' });
+              } else {
+                const error = result.error || 'Antigravity request failed.';
+                finish(withEffort && effortConflict.test(error)
+                  ? { retryWithoutEffort: true }
+                  : { success: false, error });
+              }
               child.stdin.end();
             }
           } catch (_) { /* Ignore non-JSON diagnostics accidentally written to stdout. */ }
@@ -9429,7 +9434,12 @@ ${String(payload?.instruction || '').trim()}`;
       child.stderr.on('data', (chunk) => { stderr += String(chunk); });
       child.once('error', (error) => finish({ success: false, error: error.message || 'Could not start Antigravity.' }));
       child.once('close', (code) => {
-        if (!settled) finish({ success: false, error: stderr.trim() || `Antigravity exited with code ${code}.` });
+        if (!settled) {
+          const error = stderr.trim() || `Antigravity exited with code ${code}.`;
+          finish(withEffort && effortConflict.test(error)
+            ? { retryWithoutEffort: true }
+            : { success: false, error });
+        }
       });
       try {
         child.stdin.write(`${JSON.stringify({ event: 'user', message: { content: prompt } })}\n`);
@@ -9437,6 +9447,10 @@ ${String(payload?.instruction || '').trim()}`;
         finish({ success: false, error: error.message || 'Could not send the Antigravity prompt.' });
       }
     });
+    let result = await runAntigravityAttempt(Boolean(effort));
+    if (result.retryWithoutEffort) result = await runAntigravityAttempt(false);
+    if (!event.sender.isDestroyed()) event.sender.send('antigravity-response-chunk', { text: '', done: true });
+    return result;
   });
 
   ipcMain.handle('antigravity-cancel-request', async () => {

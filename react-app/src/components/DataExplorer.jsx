@@ -1206,7 +1206,8 @@ const MemoizedDataGridRow = React.memo(({
         const isRangeLeft = isRangeSelected && columnIndex === rangeSelectionBounds.colStart;
         const isRangeRight = isRangeSelected && columnIndex === rangeSelectionBounds.colEnd;
         const currentValue = row?.[c];
-        const valueText = String(currentValue ?? '');
+        const isEmptyCell = isMissingDataValue(currentValue);
+        const valueText = isEmptyCell ? 'NA' : String(currentValue);
         const colorMeta = columnColorStyles?.[c];
         const cellColorMeta = cellColorStyles?.[`${originalIndex}::${c}`];
         const cellFontMeta = cellFontStyles?.[`${originalIndex}::${c}`];
@@ -1287,13 +1288,14 @@ const MemoizedDataGridRow = React.memo(({
             data-cell-highlighted={isHighlighted ? 'true' : 'false'}
             data-cell-custom-color={cellColorMeta || columnCellColorMeta || rangeColorMeta ? 'true' : 'false'}
             data-cell-custom-text={cellTextMeta || columnTextMeta || rangeTextMeta ? 'true' : 'false'}
+            data-cell-missing={isEmptyCell ? 'true' : 'false'}
             data-range-selected={isRangeSelected ? 'true' : 'false'}
-            className={`data-grid-data-cell text-[13px] select-none ${isEditing ? 'p-1.5 align-middle' : 'px-4 py-2 truncate'} ${isRTheme ? 'text-black' : 'text-slate-700 dark:text-slate-300'} ${isHighlighted ? 'data-grid-data-cell-highlighted' : ''} ${isRangeSelected
+            className={`data-grid-data-cell text-[13px] select-none ${isEmptyCell ? 'italic opacity-60' : ''} ${isEditing ? 'p-1.5 align-middle' : 'px-4 py-2 truncate'} ${isRTheme ? 'text-black' : 'text-slate-700 dark:text-slate-300'} ${isHighlighted ? 'data-grid-data-cell-highlighted' : ''} ${isRangeSelected
               ? `data-grid-range-selected${isRangeTop ? ' data-grid-range-top' : ''}${isRangeBottom ? ' data-grid-range-bottom' : ''}${isRangeLeft ? ' data-grid-range-left' : ''}${isRangeRight ? ' data-grid-range-right' : ''}`
               : ''
               }`}
             style={cellStyle}
-            title={isEditing ? undefined : valueText}
+            title={isEditing ? undefined : isEmptyCell ? 'Missing value' : valueText}
             onMouseDown={isEditing ? undefined : (event) => onCellPointerDown?.(originalIndex, c, event)}
             onMouseEnter={isEditing ? undefined : () => onCellPointerEnter?.(originalIndex, c)}
             onMouseUp={isEditing ? undefined : () => onCellPointerUp?.()}
@@ -1307,6 +1309,7 @@ const MemoizedDataGridRow = React.memo(({
               <input
                 autoFocus
                 defaultValue={editingValueRef.current}
+                placeholder={isEmptyCell ? 'NA' : undefined}
                 onChange={(e) => { editingValueRef.current = e.target.value; }}
                 onBlur={() => commitCellEdit(originalIndex, c, currentValue)}
                 onKeyDown={(e) => {
@@ -1464,13 +1467,20 @@ const MemoizedVirtualTable = React.memo(({
   columnDataTypes = {}
 }) => {
   const tableViewportRef = React.useRef(null);
+  const horizontalScrollbarRef = React.useRef(null);
   const latestFullDataRef = React.useRef(fullData);
   const latestBeginCellEditRef = React.useRef(beginCellEdit);
   const [tableScrollTop, setTableScrollTop] = React.useState(0);
   const [tableViewportHeight, setTableViewportHeight] = React.useState(520);
+  const [hasHorizontalOverflow, setHasHorizontalOverflow] = React.useState(false);
   const ROW_HEIGHT_PX = 38;
   const ROW_OVERSCAN = 16;
+  const ROW_WINDOW_STEP = 16;
   const scrollRafRef = React.useRef(null);
+  const getVisibleWindowStart = (scrollTop) => {
+    const firstBufferedRow = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT_PX) - ROW_OVERSCAN);
+    return Math.floor(firstBufferedRow / ROW_WINDOW_STEP) * ROW_WINDOW_STEP;
+  };
 
   const handleColumnResizeStart = React.useCallback((columnName, event) => {
     event.preventDefault();
@@ -1530,6 +1540,9 @@ const MemoizedVirtualTable = React.memo(({
       ? findVisiblePositionForRow(jumpToCellTarget.rowIndex)
       : -1;
     if (!Number.isInteger(visiblePosition) || visiblePosition < 0) return null;
+    if (jumpToCellTarget.scrollAlignment === 'nearest') {
+      return latestScrollTopRef.current;
+    }
     return Math.max(
       0,
       visiblePosition * ROW_HEIGHT_PX - Math.max(0, Math.floor(tableViewportHeight / 2) - ROW_HEIGHT_PX)
@@ -1540,8 +1553,11 @@ const MemoizedVirtualTable = React.memo(({
     const viewport = tableViewportRef.current;
     if (!viewport || !jumpToCellTarget || !Number.isFinite(pendingJumpScrollTop)) return undefined;
 
-    viewport.scrollTop = pendingJumpScrollTop;
-    setTableScrollTop((prev) => (prev === pendingJumpScrollTop ? prev : pendingJumpScrollTop));
+    if (jumpToCellTarget.scrollAlignment !== 'nearest') {
+      viewport.scrollTop = pendingJumpScrollTop;
+      latestScrollTopRef.current = pendingJumpScrollTop;
+      setTableScrollTop((prev) => (prev === pendingJumpScrollTop ? prev : pendingJumpScrollTop));
+    }
 
     const safeColumnName = typeof window !== 'undefined' && window.CSS?.escape
       ? window.CSS.escape(String(jumpToCellTarget.columnName))
@@ -1552,9 +1568,13 @@ const MemoizedVirtualTable = React.memo(({
     const activateTargetCell = () => {
       const cell = viewport.querySelector(selector);
       if (!cell) return false;
-      if (typeof cell.scrollIntoView === 'function') {
-        cell.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'auto' });
-      }
+      const cellRect = cell.getBoundingClientRect();
+      const viewportRect = viewport.getBoundingClientRect();
+      if (cellRect.top < viewportRect.top) viewport.scrollTop -= viewportRect.top - cellRect.top;
+      else if (cellRect.bottom > viewportRect.bottom) viewport.scrollTop += cellRect.bottom - viewportRect.bottom;
+      if (cellRect.left < viewportRect.left) viewport.scrollLeft -= viewportRect.left - cellRect.left;
+      else if (cellRect.right > viewportRect.right) viewport.scrollLeft += cellRect.right - viewportRect.right;
+      latestScrollTopRef.current = viewport.scrollTop;
       latestBeginCellEditRef.current?.(
         jumpToCellTarget.rowIndex,
         jumpToCellTarget.columnName,
@@ -1574,8 +1594,8 @@ const MemoizedVirtualTable = React.memo(({
     };
   }, [jumpToCellTarget, pendingJumpScrollTop, selectedColumns]);
 
-  const effectiveScrollTop = Number.isFinite(pendingJumpScrollTop) ? pendingJumpScrollTop : tableScrollTop;
-  const visibleWindowStart = Math.max(0, Math.floor(effectiveScrollTop / ROW_HEIGHT_PX) - ROW_OVERSCAN);
+  const effectiveScrollTop = tableScrollTop;
+  const visibleWindowStart = getVisibleWindowStart(effectiveScrollTop);
   const visibleWindowCount = Math.max(32, Math.ceil(tableViewportHeight / ROW_HEIGHT_PX) + ROW_OVERSCAN * 2);
   const visibleWindowEnd = Math.min(totalVisibleRows, visibleWindowStart + visibleWindowCount);
   const virtualRows = React.useMemo(() => {
@@ -1596,23 +1616,45 @@ const MemoizedVirtualTable = React.memo(({
     (total, columnName) => total + getColumnWidth(columnName),
     0
   );
+  React.useEffect(() => {
+    const viewport = tableViewportRef.current;
+    if (!viewport) return undefined;
+    const updateOverflow = () => {
+      setHasHorizontalOverflow(viewport.scrollWidth > viewport.clientWidth + 1);
+    };
+    updateOverflow();
+    const observer = new ResizeObserver(updateOverflow);
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, [tableMinWidth]);
   const hasVisibleColumns = selectedColumns.length > 0;
-  const gridViewportWidth = hasVisibleColumns ? `min(100%, ${tableMinWidth}px)` : '100%';
 
   return (
-    <div
-      ref={tableViewportRef}
-      onScroll={(event) => {
-        latestScrollTopRef.current = event.currentTarget.scrollTop;
-        if (scrollRafRef.current) return;
-        scrollRafRef.current = requestAnimationFrame(() => {
-          scrollRafRef.current = null;
-          setTableScrollTop(latestScrollTopRef.current);
-        });
-      }}
-      className={`data-grid-viewport h-full min-w-0 max-w-full overflow-x-scroll overflow-y-auto ${totalVisibleRows === 0 ? (isAyuTheme ? 'data-grid-empty-viewport-ayu' : 'bg-white') : (isRTheme ? 'bg-[#d9d9d9]' : 'bg-slate-50/20')}`}
-      style={{ width: gridViewportWidth }}
-    >
+    <div className="data-grid-frame flex flex-1 min-h-0 min-w-0 flex-col">
+      <div
+        ref={tableViewportRef}
+        onScroll={(event) => {
+          const scrollbar = horizontalScrollbarRef.current;
+          if (scrollbar && Math.abs(scrollbar.scrollLeft - event.currentTarget.scrollLeft) > 0.5) {
+            scrollbar.scrollLeft = event.currentTarget.scrollLeft;
+          }
+          const nextScrollTop = event.currentTarget.scrollTop;
+          if (latestScrollTopRef.current === nextScrollTop) return;
+          latestScrollTopRef.current = nextScrollTop;
+          if (scrollRafRef.current) return;
+          scrollRafRef.current = requestAnimationFrame(() => {
+            scrollRafRef.current = null;
+            const nextScrollTop = latestScrollTopRef.current;
+            setTableScrollTop((previousScrollTop) => (
+              getVisibleWindowStart(previousScrollTop) === getVisibleWindowStart(nextScrollTop)
+                ? previousScrollTop
+                : nextScrollTop
+            ));
+          });
+        }}
+        className={`data-grid-viewport flex-1 min-h-0 min-w-0 max-w-full overflow-x-hidden overflow-y-auto ${totalVisibleRows === 0 ? (isAyuTheme ? 'data-grid-empty-viewport-ayu' : 'bg-white') : (isRTheme ? 'bg-[#d9d9d9]' : 'bg-slate-50/20')}`}
+        style={{ width: '100%' }}
+      >
       <table
         className={`data-grid-table text-left text-sm whitespace-nowrap border-collapse data-grid-white table-fixed ${isResizingColumn ? 'is-column-resizing' : ''}`}
         style={{ width: `${tableMinWidth}px`, minWidth: `${tableMinWidth}px` }}
@@ -1892,6 +1934,23 @@ const MemoizedVirtualTable = React.memo(({
           )}
         </tbody>
       </table>
+      </div>
+      {hasHorizontalOverflow && <div
+        ref={horizontalScrollbarRef}
+        role="region"
+        aria-label="Grid horizontal scrollbar"
+        tabIndex={0}
+        onScroll={(event) => {
+          const viewport = tableViewportRef.current;
+          if (viewport && Math.abs(viewport.scrollLeft - event.currentTarget.scrollLeft) > 0.5) {
+            viewport.scrollLeft = event.currentTarget.scrollLeft;
+          }
+        }}
+        className="data-grid-horizontal-scroll h-1.5 min-h-[6px] max-w-full flex-none overflow-x-auto overflow-y-hidden"
+        style={{ width: '100%' }}
+      >
+        <div aria-hidden="true" style={{ width: `${tableMinWidth}px`, height: 1 }} />
+      </div>}
     </div>
   );
 });
@@ -4236,131 +4295,169 @@ export default function DataExplorer({
     const selectedValid = selected.filter((columnName) => allColumns.includes(columnName));
     return selectedValid.length > 0 ? selectedValid : allColumns;
   }, [columns, selectedColumns]);
-  const rowQualitySummary = useMemo(() => {
-    const emptySummary = {
-      completePct: 0,
-      incompletePct: 0,
-      completeRowsPct: 0,
-      incompleteRowsPct: 0,
+  const [rowQualitySummary, setRowQualitySummary] = useState({
+    completePct: 0,
+    incompletePct: 0,
+    completeRowsPct: 0,
+    incompleteRowsPct: 0,
     incompleteRowCount: 0,
     incompleteColumnCount: 0,
     missingValueCount: 0,
     completeCellCount: 0,
     totalCellCount: 0,
     topMissingCells: [],
+    topIncompleteColumns: [],
+    sampleRows: 0,
+    totalRows: 0,
+    scannedRows: 0,
+    scanning: false,
+    sampled: false
+  });
+  useEffect(() => {
+    // shortcut: scans every row loaded in fullData; unloaded data needs store-backed scanning.
+    let cancelled = false;
+    let timer = null;
+    const emptySummary = {
+      completePct: 0,
+      incompletePct: 0,
+      completeRowsPct: 0,
+      incompleteRowsPct: 0,
+      incompleteRowCount: 0,
+      incompleteColumnCount: 0,
+      missingValueCount: 0,
+      completeCellCount: 0,
+      totalCellCount: 0,
+      topMissingCells: [],
       topIncompleteColumns: [],
       sampleRows: 0,
       totalRows: 0,
+      scannedRows: 0,
+      scanning: false,
       sampled: false
     };
-    if (!Array.isArray(fullData) || fullData.length === 0 || activeQualityColumns.length === 0) {
-      return emptySummary;
-    }
-
     const qualityRowCount = hasFilteredSubset ? totalVisibleRows : selectedRowCountLive;
-    if (qualityRowCount === 0) {
-      return {
-        ...emptySummary,
-        sampleRows: 0,
-        totalRows: 0
-      };
+    if (
+      !floatingTools.rows?.open
+      || !Array.isArray(fullData)
+      || fullData.length === 0
+      || activeQualityColumns.length === 0
+      || qualityRowCount === 0
+    ) {
+      setRowQualitySummary(emptySummary);
+      return undefined;
     }
 
-    const sampleRows = qualityRowCount;
-    const totalCells = sampleRows * activeQualityColumns.length;
+    const iterateLimit = hasFilteredSubset ? effectiveFilteredRowIndices.length : fullData.length;
     const missingByColumn = new Map(activeQualityColumns.map((col) => [col, { missingCount: 0, firstRowIndex: null }]));
     const topMissingCells = [];
     let missingValueCount = 0;
     let incompleteRowCount = 0;
     let filledCells = 0;
-
     let processedRows = 0;
-    const iterateLimit = hasFilteredSubset ? effectiveFilteredRowIndices.length : fullData.length;
-    for (let visibleIndex = 0; visibleIndex < iterateLimit; visibleIndex += 1) {
-      const rowIndex = hasFilteredSubset ? Number(effectiveFilteredRowIndices?.[visibleIndex] ?? -1) : visibleIndex;
-      if (rowIndex < 0 || !isRowChecked(rowIndex)) continue;
-      const row = fullData[rowIndex] || {};
-      let rowMissingCount = 0;
+    let visibleIndex = 0;
+    let lastPublishedAt = 0;
 
-      activeQualityColumns.forEach((col, colIndex) => {
-        const value = row?.[col];
-        const isMissing = isMissingDataValue(value);
-        if (isMissing) {
+    const publishSummary = (scanning) => {
+      const totalCells = processedRows * activeQualityColumns.length;
+      const completePct = totalCells > 0
+        ? Number(((filledCells / totalCells) * 100).toFixed(2))
+        : 0;
+      const incompletePct = totalCells > 0 ? Number((100 - completePct).toFixed(2)) : 0;
+      const completeRowsPct = processedRows > 0
+        ? Number((((processedRows - incompleteRowCount) / processedRows) * 100).toFixed(2))
+        : 0;
+      const incompleteRowsPct = processedRows > 0 ? Number((100 - completeRowsPct).toFixed(2)) : 0;
+      const incompleteColumns = Array.from(missingByColumn.entries())
+        .filter(([, summary]) => summary.missingCount > 0);
+      const topIncompleteColumns = incompleteColumns
+        .sort((a, b) => b[1].missingCount - a[1].missingCount)
+        .slice(0, 5)
+        .map(([columnName, summary]) => ({
+          columnName,
+          missingCount: summary.missingCount,
+          incompletePct: processedRows > 0
+            ? Number(((summary.missingCount / processedRows) * 100).toFixed(2))
+            : 0,
+          firstMissingRowIndex: summary.firstRowIndex
+        }));
+      setRowQualitySummary({
+        completePct,
+        incompletePct,
+        completeRowsPct,
+        incompleteRowsPct,
+        incompleteRowCount,
+        incompleteColumnCount: incompleteColumns.length,
+        missingValueCount,
+        completeCellCount: filledCells,
+        totalCellCount: totalCells,
+        allIncompleteColumns: incompleteColumns.map(([columnName, summary]) => ({
+          columnName,
+          missingCount: summary.missingCount,
+          incompletePct: processedRows > 0
+            ? Number(((summary.missingCount / processedRows) * 100).toFixed(2))
+            : 0,
+          firstMissingRowIndex: summary.firstRowIndex
+        })),
+        topMissingCells,
+        topIncompleteColumns,
+        sampleRows: processedRows,
+        totalRows: qualityRowCount,
+        scannedRows: processedRows,
+        scanning,
+        sampled: false
+      });
+    };
+
+    setRowQualitySummary({ ...emptySummary, totalRows: qualityRowCount, scanning: true });
+    const scanChunk = () => {
+      const startedAt = globalThis.performance?.now?.() ?? Date.now();
+      let visitedRows = 0;
+      while (
+        visibleIndex < iterateLimit
+        && processedRows < qualityRowCount
+        && (visitedRows === 0 || (globalThis.performance?.now?.() ?? Date.now()) - startedAt < 8)
+      ) {
+        const rowIndex = hasFilteredSubset
+          ? Number(effectiveFilteredRowIndices?.[visibleIndex] ?? -1)
+          : visibleIndex;
+        visibleIndex += 1;
+        visitedRows += 1;
+        if (rowIndex < 0 || !isRowChecked(rowIndex)) continue;
+        const row = fullData[rowIndex] || {};
+        let rowMissingCount = 0;
+        activeQualityColumns.forEach((columnName, columnIndex) => {
+          if (!isMissingDataValue(row?.[columnName])) {
+            filledCells += 1;
+            return;
+          }
           rowMissingCount += 1;
           missingValueCount += 1;
-          if (topMissingCells.length < 30) {
-            topMissingCells.push({
-              rowIndex,
-              columnName: col,
-              columnIndex: colIndex
-            });
-          }
-          const columnSummary = missingByColumn.get(col);
+          if (topMissingCells.length < 30) topMissingCells.push({ rowIndex, columnName, columnIndex });
+          const columnSummary = missingByColumn.get(columnName);
           if (columnSummary) {
             columnSummary.missingCount += 1;
             if (columnSummary.firstRowIndex === null) columnSummary.firstRowIndex = rowIndex;
           }
-        } else {
-          filledCells += 1;
-        }
-      });
-
-      if (rowMissingCount > 0) {
-        incompleteRowCount += 1;
+        });
+        if (rowMissingCount > 0) incompleteRowCount += 1;
+        processedRows += 1;
       }
-      processedRows += 1;
-      if (processedRows >= sampleRows) break;
-    }
 
-    const incompleteCells = Math.max(0, totalCells - filledCells);
-    const completePct = totalCells > 0
-      ? Number(((filledCells / totalCells) * 100).toFixed(2))
-      : 100;
-    // Use the complement so the two precise percentages always total 100%.
-    const incompletePct = totalCells > 0
-      ? Number((100 - completePct).toFixed(2))
-      : 0;
-    const completeRowsPct = sampleRows > 0
-      ? Number((((sampleRows - incompleteRowCount) / sampleRows) * 100).toFixed(2))
-      : 100;
-    const incompleteRowsPct = sampleRows > 0
-      ? Number((100 - completeRowsPct).toFixed(2))
-      : 0;
-    const incompleteColumns = Array.from(missingByColumn.entries())
-      .filter(([, summary]) => summary.missingCount > 0);
-    const topIncompleteColumns = incompleteColumns
-      .sort((a, b) => b[1].missingCount - a[1].missingCount)
-      .slice(0, 5)
-      .map(([columnName, summary]) => ({
-        columnName,
-        missingCount: summary.missingCount,
-        incompletePct: Number(((summary.missingCount / sampleRows) * 100).toFixed(2)),
-        firstMissingRowIndex: summary.firstRowIndex
-      }));
-
-    return {
-      completePct,
-      incompletePct,
-      completeRowsPct,
-      incompleteRowsPct,
-      incompleteRowCount,
-      incompleteColumnCount: incompleteColumns.length,
-      missingValueCount,
-      completeCellCount: filledCells,
-      totalCellCount: totalCells,
-      allIncompleteColumns: incompleteColumns.map(([columnName, summary]) => ({
-        columnName,
-        missingCount: summary.missingCount,
-        incompletePct: Number(((summary.missingCount / sampleRows) * 100).toFixed(2)),
-        firstMissingRowIndex: summary.firstRowIndex
-      })),
-      topMissingCells,
-      topIncompleteColumns,
-      sampleRows,
-      totalRows: qualityRowCount,
-      sampled: qualityRowCount > sampleRows
+      const complete = visibleIndex >= iterateLimit || processedRows >= qualityRowCount;
+      const now = Date.now();
+      if (complete || now - lastPublishedAt >= 100) {
+        publishSummary(!complete);
+        lastPublishedAt = now;
+      }
+      if (!complete && !cancelled) timer = setTimeout(scanChunk, 0);
     };
-  }, [activeQualityColumns, fullData, effectiveFilteredRowIndices, hasFilteredSubset, isRowChecked, selectedRowCountLive, totalVisibleRows]);
+
+    timer = setTimeout(scanChunk, 0);
+    return () => {
+      cancelled = true;
+      if (timer !== null) clearTimeout(timer);
+    };
+  }, [activeQualityColumns, effectiveFilteredRowIndices, floatingTools.rows?.open, fullData, hasFilteredSubset, isRowChecked, selectedRowCountLive, totalVisibleRows]);
   const completeness = rowQualitySummary.completePct;
   const openStudioPanelsCount = useMemo(
     () => Object.values(studioPanels).filter(Boolean).length,
@@ -4838,6 +4935,7 @@ export default function DataExplorer({
     const nextTarget = {
       rowIndex: safeRowIndex,
       columnName: String(columnName),
+      scrollAlignment: options.scrollAlignment,
       key: `${safeRowIndex}-${columnName}-${Date.now()}`
     };
     setJumpToCellTarget(nextTarget);
@@ -5472,10 +5570,13 @@ export default function DataExplorer({
     const nextValue = String(editingValueRef.current ?? '');
     const nextCell = options?.nextCell;
     try {
-      if (nextValue === String(originalValue ?? '')) {
+      const isNaInput = /^na$/i.test(nextValue.trim());
+      const originalIsMissing = originalValue === null || originalValue === undefined
+        || (typeof originalValue === 'string' && originalValue.trim() === '');
+      if (nextValue === String(originalValue ?? '') && (!isNaInput || originalIsMissing)) {
         cancelCellEdit();
         if (nextCell) {
-          queueCellActivation(nextCell.rowIndex, nextCell.columnName, { highlightDuration: 1200 });
+          queueCellActivation(nextCell.rowIndex, nextCell.columnName, { highlightDuration: 1200, scrollAlignment: 'nearest' });
         }
         return true;
       }
@@ -5484,7 +5585,7 @@ export default function DataExplorer({
         applyFormattingDefaultsToCell(rowIndex, columnName);
         cancelCellEdit();
         if (nextCell) {
-          queueCellActivation(nextCell.rowIndex, nextCell.columnName, { highlightDuration: 1200 });
+          queueCellActivation(nextCell.rowIndex, nextCell.columnName, { highlightDuration: 1200, scrollAlignment: 'nearest' });
         }
         return true;
       }
@@ -5742,7 +5843,7 @@ export default function DataExplorer({
 
   const renderDataTable = () => (
     <div
-      className={`data-explorer-data-surface relative flex-1 min-w-0 min-h-0 overflow-hidden ${isDatasetSwitching ? 'data-explorer-loading-surface' : ''}`}
+      className={`data-explorer-data-surface relative flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden ${isDatasetSwitching ? 'data-explorer-loading-surface' : ''}`}
       onPointerDown={(event) => {
         if (event.target !== event.currentTarget) return;
         isCellRangeSelectingRef.current = false;
@@ -5833,7 +5934,6 @@ export default function DataExplorer({
     ? safeActiveSheetName
     : (normalizedSheetNames[0] || safeActiveSheetName);
   const showSheetSelector = !isCsvSource && normalizedSheetNames.length > 0;
-  const [sheetBandOpen, setSheetBandOpen] = useState(false);
   const [editingSheetName, setEditingSheetName] = useState('');
   const [sheetRenameValue, setSheetRenameValue] = useState('');
   const fileLabel = String(sourceFileName || activeSheetName || 'Current dataset').trim();
@@ -5909,113 +6009,6 @@ export default function DataExplorer({
                       </span>
                       <span className="whitespace-nowrap">{fileLabel}</span>
                     </div>
-                    {showSheetSelector && (
-                      <span className="relative inline-flex items-center">
-                        <button
-                          type="button"
-                          onClick={() => setSheetBandOpen((prev) => !prev)}
-                          className={`sheet-toggle-btn ${sheetBandOpen ? 'is-open' : ''}`}
-                        >
-                          {activeSheetValue || 'Sheet'}
-                          <ChevronDown size={10} className={`sheet-toggle-chevron ${sheetBandOpen ? 'is-open' : ''}`} />
-                        </button>
-                        {sheetBandOpen && (
-                          <div className="sheet-tabs-band">
-                            <div className="sheet-dropdown-heading">WORKBOOK SHEETS</div>
-                            <div className="sheet-dropdown-subtitle">Choose a sheet to open</div>
-                            <div className="sheet-dropdown-divider" />
-                            {normalizedSheetNames.map((sheet) => {
-                              const isActive = sheet === activeSheetValue;
-                              if (editingSheetName === sheet) {
-                                return (
-                                  <div key={sheet} className="sheet-edit-row">
-                                    <input
-                                      type="text"
-                                      value={sheetRenameValue}
-                                      autoFocus
-                                      onChange={(event) => setSheetRenameValue(event.target.value)}
-                                      onKeyDown={(event) => {
-                                        if (event.key === 'Enter') commitSheetRename();
-                                        if (event.key === 'Escape') cancelSheetRename();
-                                      }}
-                                      aria-label={`Rename ${sheet}`}
-                                    />
-                                    <button
-                                      type="button"
-                                      className="sheet-edit-action is-save"
-                                      onClick={commitSheetRename}
-                                      title="Save sheet name"
-                                      aria-label="Save sheet name"
-                                    >
-                                      ✓
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="sheet-edit-action"
-                                      onClick={cancelSheetRename}
-                                      title="Cancel rename"
-                                      aria-label="Cancel rename"
-                                    >
-                                      ×
-                                    </button>
-                                  </div>
-                                );
-                              }
-                              return (
-                                <div key={sheet} className={`sheet-option-row ${isActive ? 'is-active' : ''}`}>
-                                  <button
-                                    type="button"
-                                    disabled={isApplyingDplyrTidyr}
-                                    onClick={() => {
-                                      handleSheetChange?.(sheet);
-                                      setSheetBandOpen(false);
-                                    }}
-                                    onDoubleClick={() => beginSheetRename(sheet)}
-                                    className="sheet-tab-btn"
-                                  >
-                                    {sheet}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="sheet-edit-btn"
-                                    disabled={isApplyingDplyrTidyr}
-                                    onClick={() => beginSheetRename(sheet)}
-                                    title={`Rename ${sheet}`}
-                                    aria-label={`Rename ${sheet}`}
-                                  >
-                                    <PencilLine size={12} />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="sheet-delete-btn"
-                                    disabled={isApplyingDplyrTidyr || normalizedSheetNames.length <= 1}
-                                    onClick={() => handleDeleteSheet?.(sheet)}
-                                    title={normalizedSheetNames.length <= 1 ? 'Keep at least one sheet' : `Delete ${sheet}`}
-                                    aria-label={normalizedSheetNames.length <= 1 ? 'Keep at least one sheet' : `Delete ${sheet}`}
-                                  >
-                                    <X size={12} />
-                                  </button>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </span>
-                    )}
-                    {canCreateSheet && (
-                      <button
-                        type="button"
-                        className="sheet-add-btn"
-                        title="Insert a new sheet"
-                        aria-label="Insert a new sheet"
-                        onClick={() => {
-                          setSheetBandOpen(false);
-                          handleAddSheet();
-                        }}
-                      >
-                        +
-                      </button>
-                    )}
                     {!isCsvSource && !showSheetSelector && sheetLabel ? (
                       <span className="data-explorer-file-sheet !py-0 !px-1.5 !text-[9px]">{sheetLabel}</span>
                     ) : null}
@@ -6417,7 +6410,7 @@ export default function DataExplorer({
                 {typeof handleSaveDatasetPdf === 'function' && (
                   <button
                     type="button"
-                    onClick={() => handleSaveDatasetPdf?.({ columnColors })}
+                  onClick={() => handleSaveDatasetPdf?.({ columnColors, useFullData: true })}
                     disabled={isApplyingDplyrTidyr || isSavingDatasetPdf || fullData.length === 0 || columns.length === 0 || selectedColumns.length === 0}
                     className="toolbar-menu-trigger toolbar-header-action disabled:opacity-50 disabled:cursor-not-allowed"
                     title="Export PDF"
@@ -6687,9 +6680,9 @@ export default function DataExplorer({
                     ? handleDeleteSelectedVariables({ columns: targetColumns, scopeRowIndices: agentRowScope })
                     : false
                 )}
-                onApplyDplyrTidyrPipeline={(pipeline) => (
+                onApplyDplyrTidyrPipeline={(pipeline, onError) => (
                   typeof handleApplyDplyrTidyrPipeline === 'function'
-                    ? handleApplyDplyrTidyrPipeline(pipeline, { scopeRowIndices: agentRowScope, scopeColumnNames: columns })
+                    ? handleApplyDplyrTidyrPipeline(pipeline, { scopeRowIndices: agentRowScope, scopeColumnNames: columns, onError })
                     : false
                 )}
                 onUndoDataset={() => (
@@ -6748,8 +6741,10 @@ export default function DataExplorer({
                   {activeQualityColumns.length < columns.length
                     ? ` Using ${activeQualityColumns.length.toLocaleString()} selected column(s).`
                     : ' Using all columns.'}
-                  {' A row is incomplete when any selected cell is missing.'}
-                  {rowQualitySummary.sampled ? ` Sampled the first ${rowQualitySummary.sampleRows.toLocaleString()} row(s) for speed.` : ''}
+                  {' Cell percentages count individual cells; a row is incomplete when at least one selected cell is missing.'}
+                  {rowQualitySummary.scanning
+                    ? ` Scanning all rows: ${rowQualitySummary.scannedRows.toLocaleString()} / ${rowQualitySummary.totalRows.toLocaleString()}; figures update as the scan proceeds.`
+                    : rowQualitySummary.sampled ? ` Sampled the first ${rowQualitySummary.sampleRows.toLocaleString()} row(s) for speed.` : ''}
                 </p>
                 <div className="toolbar-quality-meter" aria-hidden="true">
                   <span
@@ -6759,30 +6754,34 @@ export default function DataExplorer({
                 </div>
                 <div className="toolbar-quality-legend">
                   <span>
-                    <strong>{formatQualityPercent(rowQualitySummary.completePct)}%</strong> complete
+                    <strong>{formatQualityPercent(rowQualitySummary.completePct)}%</strong> of cells have data
                     <small> ({rowQualitySummary.completeCellCount.toLocaleString()}/{rowQualitySummary.totalCellCount.toLocaleString()} cells)</small>
                   </span>
                   <span>
-                    <strong>{formatQualityPercent(rowQualitySummary.incompletePct)}%</strong> incomplete
+                    <strong>{formatQualityPercent(rowQualitySummary.incompletePct)}%</strong> of cells are missing
                     <small> ({rowQualitySummary.missingValueCount.toLocaleString()}/{rowQualitySummary.totalCellCount.toLocaleString()} cells)</small>
                   </span>
                 </div>
                 <div className="toolbar-stats-grid toolbar-stats-grid-compact">
                   <div className="toolbar-stat-card">
-                    <span className="toolbar-stat-label">Missing Values</span>
+                    <span className="toolbar-stat-label">Missing cells</span>
                     <strong>{rowQualitySummary.missingValueCount.toLocaleString()}</strong>
+                    <small className="toolbar-stat-meta">{formatQualityPercent(rowQualitySummary.incompletePct)}% of cells</small>
                   </div>
                   <div className="toolbar-stat-card">
-                    <span className="toolbar-stat-label">Rows With Missing %</span>
-                    <strong>{formatQualityPercent(rowQualitySummary.incompleteRowsPct)}%</strong>
+                    <span className="toolbar-stat-label">Rows with missing cells</span>
+                    <strong>{rowQualitySummary.incompleteRowCount.toLocaleString()} / {rowQualitySummary.totalRows.toLocaleString()}</strong>
+                    <small className="toolbar-stat-meta">{formatQualityPercent(rowQualitySummary.incompleteRowsPct)}% of rows</small>
                   </div>
                   <div className="toolbar-stat-card">
-                    <span className="toolbar-stat-label">Rows Evaluated</span>
-                    <strong>{rowQualitySummary.sampleRows.toLocaleString()}</strong>
+                    <span className="toolbar-stat-label">Columns with missing cells</span>
+                    <strong>{rowQualitySummary.incompleteColumnCount.toLocaleString()} / {activeQualityColumns.length.toLocaleString()}</strong>
+                    <small className="toolbar-stat-meta">columns in scope</small>
                   </div>
                   <div className="toolbar-stat-card">
-                    <span className="toolbar-stat-label">Complete Rows %</span>
-                    <strong>{formatQualityPercent(rowQualitySummary.completeRowsPct)}%</strong>
+                    <span className="toolbar-stat-label">Complete rows</span>
+                    <strong>{(rowQualitySummary.totalRows - rowQualitySummary.incompleteRowCount).toLocaleString()} / {rowQualitySummary.totalRows.toLocaleString()}</strong>
+                    <small className="toolbar-stat-meta">{formatQualityPercent(rowQualitySummary.completeRowsPct)}% of rows</small>
                   </div>
                 </div>
               </div>
@@ -6811,7 +6810,11 @@ export default function DataExplorer({
                   </div>
                 ) : (
                   <div className="toolbar-quality-empty">
-                    {rowQualitySummary.totalRows === 0 ? 'No selected rows to evaluate.' : 'No missing values found in the selected rows.'}
+                    {rowQualitySummary.scanning
+                      ? 'Scanning for missing values…'
+                      : rowQualitySummary.totalRows === 0
+                        ? 'No selected rows to evaluate.'
+                        : 'No missing values found in the selected rows.'}
                   </div>
                 )}
               </div>
@@ -7429,16 +7432,28 @@ export default function DataExplorer({
 
           </div>
 
-          {viewerNotice && (
+          {viewerNotice?.type === 'na-import' ? (
+            <div
+              role="status"
+              aria-live="polite"
+              className="relative z-[1800] mr-auto ml-3 mt-2 mb-2 whitespace-nowrap text-[11px] font-semibold leading-tight text-red-300"
+            >
+              {viewerNotice.text}
+            </div>
+          ) : viewerNotice && (
             <div className={`viewer-notice viewer-notice-compact mx-3 mt-2 flex items-center gap-2 px-3 py-2 text-[12px] font-semibold border ${viewerNotice.type === 'success'
               ? (isRTheme
                 ? 'bg-emerald-900/16 text-emerald-300 border-emerald-800/25'
                 : 'bg-emerald-50/85 text-emerald-700 border-emerald-100 dark:bg-emerald-900/18 dark:text-emerald-300 dark:border-emerald-900/35')
-              : (isRTheme
-                ? 'bg-rose-900/16 text-rose-300 border-rose-800/25'
-                : 'bg-red-50/85 text-red-700 border-red-100 dark:bg-rose-900/18 dark:text-rose-300 dark:border-rose-900/35')
+              : viewerNotice.type === 'warning'
+                ? (isRTheme
+                  ? 'bg-amber-900/16 text-amber-200 border-amber-800/25'
+                  : 'bg-amber-50/90 text-amber-800 border-amber-200 dark:bg-amber-900/18 dark:text-amber-200 dark:border-amber-900/35')
+                : (isRTheme
+                  ? 'bg-rose-900/16 text-rose-300 border-rose-800/25'
+                  : 'bg-red-50/85 text-red-700 border-red-100 dark:bg-rose-900/18 dark:text-rose-300 dark:border-rose-900/35')
               }`}>
-              <span className={`inline-block w-1.5 h-1.5 rounded-full ${viewerNotice.type === 'success' ? 'bg-emerald-400' : 'bg-rose-400'
+              <span className={`inline-block w-1.5 h-1.5 rounded-full ${viewerNotice.type === 'success' ? 'bg-emerald-400' : viewerNotice.type === 'warning' ? 'bg-amber-400' : 'bg-rose-400'
                 }`} />
               {viewerNotice.text}
             </div>
@@ -8271,6 +8286,87 @@ export default function DataExplorer({
         )}
 
       </div>
+
+      {showSheetSelector && (
+        <div
+          role="tablist"
+          aria-label="Workbook sheets"
+          className={`flex h-10 min-h-10 shrink-0 items-center overflow-x-auto border-t px-3 ${isStudioWindow ? '' : 'mb-9'} ${isRTheme || isAyuTheme ? 'border-[#2f3437] bg-[#101112]' : 'border-slate-200 bg-slate-100 dark:border-[#2f3437] dark:bg-[#101112]'}`}
+        >
+          <div className="flex w-max shrink-0 items-center gap-1">
+          {normalizedSheetNames.map((sheet) => (
+            <div
+              key={sheet}
+              role="presentation"
+              className={`group relative flex h-8 max-w-64 shrink-0 items-center gap-1 rounded-md border border-t-2 px-2.5 ${sheet === activeSheetValue
+                ? (isRTheme || isAyuTheme ? 'border-[#303638] border-t-[#13c8d0] bg-[#1b1d1e] text-[#e8f0f0]' : 'border-slate-300 border-t-[#0ea5a8] bg-white text-slate-800 dark:border-[#34393b] dark:border-t-[#13c8d0] dark:bg-[#1b1d1e] dark:text-[#e8f0f0]')
+                : (isRTheme || isAyuTheme ? 'border-transparent text-[#a6adae] hover:bg-[#1a1c1d]' : 'border-transparent text-slate-500 hover:bg-white/70 dark:text-[#9ca3a4] dark:hover:bg-[#1a1c1d]')
+                }`}
+            >
+              {editingSheetName === sheet ? (
+                <>
+                  <input
+                    type="text"
+                    value={sheetRenameValue}
+                    autoFocus
+                    onChange={(event) => setSheetRenameValue(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') commitSheetRename();
+                      if (event.key === 'Escape') cancelSheetRename();
+                    }}
+                    aria-label={`Rename ${sheet}`}
+                    className="data-explorer-sheet-rename-input w-28 rounded-md border border-[#383d3f] bg-[#111314] px-1.5 py-1 text-xs font-medium text-[#f1f5f5] outline-none shadow-none selection:bg-cyan-700/60 selection:text-white focus:border-[#13c8d0] focus:ring-1 focus:ring-cyan-500/40"
+                  />
+                  <button type="button" onClick={commitSheetRename} className="text-emerald-400" title="Save sheet name" aria-label="Save sheet name">✓</button>
+                  <button type="button" onClick={cancelSheetRename} title="Cancel rename" aria-label="Cancel rename">×</button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={sheet === activeSheetValue}
+                    disabled={isApplyingDplyrTidyr}
+                    onClick={() => handleSheetChange?.(sheet)}
+                    onDoubleClick={() => beginSheetRename(sheet)}
+                    className="max-w-44 truncate text-left text-xs font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-500"
+                    title={`${sheet} (double-click to rename)`}
+                  >
+                    {sheet}
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-slate-500/20"
+                    disabled={isApplyingDplyrTidyr}
+                    onClick={() => beginSheetRename(sheet)}
+                    title={`Rename ${sheet}`}
+                    aria-label={`Rename ${sheet}`}
+                  ><PencilLine size={11} /></button>
+                  <button
+                    type="button"
+                    className="inline-flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-rose-500/15 hover:text-rose-400"
+                    disabled={isApplyingDplyrTidyr || normalizedSheetNames.length <= 1}
+                    onClick={() => handleDeleteSheet?.(sheet)}
+                    title={normalizedSheetNames.length <= 1 ? 'Keep at least one sheet' : `Delete ${sheet}`}
+                    aria-label={normalizedSheetNames.length <= 1 ? 'Keep at least one sheet' : `Delete ${sheet}`}
+                  ><X size={11} /></button>
+                </>
+              )}
+            </div>
+          ))}
+          {canCreateSheet && (
+            <button
+              type="button"
+              className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded border ${isRTheme ? 'border-cyan-900/50 text-cyan-200 hover:bg-cyan-950/50' : 'border-slate-300 text-slate-500 hover:bg-white dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+              disabled={isApplyingDplyrTidyr}
+              title="Insert a new sheet"
+              aria-label="Insert a new sheet"
+              onClick={handleAddSheet}
+            >+</button>
+          )}
+          </div>
+        </div>
+      )}
 
       {cellContextMenu && typeof document !== 'undefined' && createPortal(
         <div
@@ -10021,6 +10117,44 @@ export default function DataExplorer({
           color: #7d7d86;
           font-size: 0.62rem;
           line-height: 1.35;
+        }
+        .data-grid-viewport {
+          scrollbar-width: thin;
+          scrollbar-color: #64748b #e2e8f0;
+          scroll-behavior: auto;
+        }
+        .data-grid-viewport::-webkit-scrollbar {
+          width: 6px;
+        }
+        .data-grid-viewport::-webkit-scrollbar-track {
+          background: #e2e8f0;
+        }
+        .data-grid-viewport::-webkit-scrollbar-thumb {
+          background: #64748b;
+          border: 1px solid #e2e8f0;
+          border-radius: 9999px;
+        }
+        .data-grid-viewport::-webkit-scrollbar-thumb:hover {
+          background: #475569;
+        }
+        .data-grid-horizontal-scroll {
+          scrollbar-width: thin;
+          scrollbar-color: #64748b #e2e8f0;
+          scroll-behavior: auto;
+        }
+        .data-grid-horizontal-scroll::-webkit-scrollbar {
+          height: 6px;
+        }
+        .data-grid-horizontal-scroll::-webkit-scrollbar-track {
+          background: #e2e8f0;
+        }
+        .data-grid-horizontal-scroll::-webkit-scrollbar-thumb {
+          background: #64748b;
+          border: 1px solid #e2e8f0;
+          border-radius: 9999px;
+        }
+        .data-grid-horizontal-scroll::-webkit-scrollbar-thumb:hover {
+          background: #475569;
         }
         .data-grid-data-cell-highlighted {
           box-shadow: inset 0 0 0 2px rgba(15, 23, 42, 0.72);

@@ -100,7 +100,7 @@ normalize_input_missing_values <- function(data) {
     column <- data[[column_name]]
     if (is.character(column)) {
       trimmed <- trimws(column)
-      missing_tokens <- !is.na(column) & tolower(trimmed) %in% c("", "na", "nan")
+      missing_tokens <- !is.na(column) & trimmed == ""
       column[missing_tokens] <- NA_character_
       data[[column_name]] <- column
     } else if (is.numeric(column)) {
