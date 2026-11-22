@@ -3,6 +3,7 @@ let databaseDialect = '';
 let connectionId = '';
 let connectionCatalog = '';
 const { execFileSync } = require('node:child_process');
+const os = require('node:os');
 
 exports.listDrivers = () => {
   if (process.platform === 'win32') {
@@ -163,10 +164,39 @@ const getPrimaryKeys = async (conn, target, dialect) => {
   return fetchPrimaryKeysFallback(conn, target, dialect);
 };
 
-const serialize = (row) => Object.fromEntries(Object.entries(row).map(([key, cell]) => [
-  key,
-  typeof cell === 'bigint' ? String(cell) : (cell instanceof Date ? cell.toISOString() : cell)
-]));
+const MAX_DATABASE_PREVIEW_ROWS = 100000;
+const MAX_DATABASE_PREVIEW_BYTES = 96 * 1024 * 1024;
+const MIN_DATABASE_PREVIEW_BYTES = 16 * 1024 * 1024;
+const DATABASE_PAGE_SIZE = 1000;
+
+const getDatabasePreviewByteLimit = () => Math.max(
+  MIN_DATABASE_PREVIEW_BYTES,
+  Math.min(MAX_DATABASE_PREVIEW_BYTES, Math.floor(os.freemem() * 0.02))
+);
+
+const serializePreviewRow = (row) => {
+  let omittedBinaryValue = false;
+  const serialized = {};
+  let estimatedBytes = 2;
+  for (const [key, rawCell] of Object.entries(row || {})) {
+    let cell = rawCell;
+    if (Buffer.isBuffer(cell) || ArrayBuffer.isView(cell)) {
+      const byteLength = Buffer.isBuffer(cell) ? cell.length : cell.byteLength;
+      cell = `[Binary data omitted: ${byteLength} bytes]`;
+      omittedBinaryValue = true;
+    } else if (typeof cell === 'bigint') {
+      cell = String(cell);
+    } else if (cell instanceof Date) {
+      cell = cell.toISOString();
+    }
+    serialized[key] = cell;
+    estimatedBytes += Buffer.byteLength(key, 'utf8') + 8;
+    if (typeof cell === 'string') estimatedBytes += Buffer.byteLength(cell, 'utf8');
+    else if (typeof cell === 'number' || typeof cell === 'boolean') estimatedBytes += 8;
+    else if (cell !== null && cell !== undefined) estimatedBytes += 64;
+  }
+  return { row: serialized, estimatedBytes, omittedBinaryValue };
+};
 
 const countMatchingRows = async (conn, tableName, predicate, params) => {
   const result = await conn.query(
@@ -228,33 +258,180 @@ exports.readTable = async (target) => {
     .sort((a, b) => Number(value(a, 'ORDINAL_POSITION')) - Number(value(b, 'ORDINAL_POSITION')))
     .map((row) => value(row, 'COLUMN_NAME'))
     .filter(Boolean);
-  const dialect = databaseDialect || conn.dbmsName || '';
+  const configuredDialect = databaseDialect && databaseDialect !== 'other' ? databaseDialect : '';
+  const dialect = configuredDialect || conn.dbmsName || databaseDialect || '';
   const keys = await getPrimaryKeys(conn, target, dialect);
   const quote = (part) => quoteIdentifier(part, dialect);
   const nameParts = [target.catalog, target.schema, target.table].filter(Boolean);
   if (/postgres/i.test(dialect) && nameParts.length > 1) nameParts.shift();
   const parts = nameParts.map(quote);
   const sql = `SELECT * FROM ${parts.join('.')}`;
-  let rows;
-  if (/mysql|maria|postgres/i.test(dialect)) {
-    rows = (await conn.query(`${sql} LIMIT 10001`)).map(serialize);
-  } else if (/sqlserver/i.test(dialect)) {
-    rows = (await conn.query(`SELECT TOP 10001 * FROM ${parts.join('.')}`)).map(serialize);
-  } else {
-    const cursor = await conn.query(sql, { cursor: true, fetchSize: 1000 });
-    rows = [];
-    try {
-      while (!cursor.noData && rows.length <= 10000) {
-        const chunk = await cursor.fetch();
-        rows.push(...chunk.map(serialize));
+  const rows = [];
+  let estimatedBytes = 0;
+  const previewByteLimit = getDatabasePreviewByteLimit();
+  let truncated = false;
+  let omittedBinaryValues = false;
+  const appendPreviewRows = (chunk) => {
+    for (const rawRow of chunk) {
+      if (rows.length >= MAX_DATABASE_PREVIEW_ROWS) {
+        truncated = true;
+        return false;
       }
+      const preview = serializePreviewRow(rawRow);
+      if (estimatedBytes + preview.estimatedBytes > previewByteLimit) {
+        truncated = true;
+        return false;
+      }
+      rows.push(preview.row);
+      estimatedBytes += preview.estimatedBytes;
+      omittedBinaryValues ||= preview.omittedBinaryValue;
+    }
+    return true;
+  };
+
+  if (/mysql|maria|postgres/i.test(dialect)) {
+    const stableOrder = keys.length > 0 ? ` ORDER BY ${keys.map(quote).join(', ')}` : '';
+    let offset = 0;
+    while (rows.length < MAX_DATABASE_PREVIEW_ROWS) {
+      const chunk = await conn.query(`${sql}${stableOrder} LIMIT ${DATABASE_PAGE_SIZE} OFFSET ${offset}`);
+      if (!appendPreviewRows(chunk)) break;
+      if (chunk.length === 0) break;
+      offset += chunk.length;
+      if (rows.length >= MAX_DATABASE_PREVIEW_ROWS) {
+        truncated = true;
+        break;
+      }
+    }
+  } else if (/sqlserver/i.test(dialect)) {
+    const orderBy = keys.length > 0
+      ? keys.map(quote).join(', ')
+      : '(SELECT NULL)';
+    let offset = 0;
+    while (rows.length < MAX_DATABASE_PREVIEW_ROWS) {
+      const chunk = await conn.query(`${sql} ORDER BY ${orderBy} OFFSET ${offset} ROWS FETCH NEXT ${DATABASE_PAGE_SIZE} ROWS ONLY`);
+      if (!appendPreviewRows(chunk)) break;
+      if (chunk.length === 0) break;
+      offset += chunk.length;
+      if (rows.length >= MAX_DATABASE_PREVIEW_ROWS) {
+        truncated = true;
+        break;
+      }
+    }
+  } else {
+    const cursor = await conn.query(sql, { cursor: true, fetchSize: DATABASE_PAGE_SIZE });
+    try {
+      while (!cursor.noData && rows.length < MAX_DATABASE_PREVIEW_ROWS) {
+        const chunk = await cursor.fetch();
+        if (!appendPreviewRows(chunk)) break;
+      }
+      if (rows.length >= MAX_DATABASE_PREVIEW_ROWS && !cursor.noData) truncated = true;
     } finally {
       await cursor.close();
     }
   }
-  const truncated = rows.length > 10000;
-  if (truncated) rows.length = 10000;
-  return { columns: columnNames, rows, primaryKeys: keys, truncated };
+  truncated ||= omittedBinaryValues;
+  return { columns: columnNames, rows, primaryKeys: keys, truncated, omittedBinaryValues, dialect };
+};
+
+const splitSqlStatements = (sql) => {
+  let quote = '';
+  let lineComment = false;
+  let blockComment = false;
+  let start = 0;
+  const statements = [];
+  for (let index = 0; index < sql.length; index += 1) {
+    const current = sql[index];
+    const next = sql[index + 1];
+    if (lineComment) {
+      if (current === '\n') lineComment = false;
+      continue;
+    }
+    if (blockComment) {
+      if (current === '*' && next === '/') { blockComment = false; index += 1; }
+      continue;
+    }
+    if (quote) {
+      if (current === quote && next === quote) { index += 1; continue; }
+      if (current === quote) quote = '';
+      else if (current === '\\' && quote === "'" && next) index += 1;
+      continue;
+    }
+    if (current === '-' && next === '-') { lineComment = true; index += 1; continue; }
+    if (current === '/' && next === '*') { blockComment = true; index += 1; continue; }
+    if (current === "'" || current === '"' || current === '`') { quote = current; continue; }
+    if (current === '[') { quote = ']'; continue; }
+    if (current === ';') {
+      const statement = sql.slice(start, index).trim();
+      if (statement) statements.push(statement);
+      start = index + 1;
+    }
+  }
+  const finalStatement = sql.slice(start).trim();
+  if (finalStatement) statements.push(finalStatement);
+  return statements;
+};
+
+exports.executeSql = async ({ connectionId: id, sql: rawSql } = {}) => {
+  requireConnectionId(id);
+  const sql = String(rawSql || '').trim();
+  if (!sql || sql.length > 1000000) throw new Error('Enter a SQL statement under 1 MB.');
+  const withoutLeadingComments = sql.replace(/^(?:(?:--[^\r\n]*|\/\*[\s\S]*?\*\/)\s*)*/, '').trim();
+  if (!withoutLeadingComments) throw new Error('Enter a SQL statement.');
+  const conn = requireConnection();
+  const statements = splitSqlStatements(sql);
+  const resultSets = [];
+  const messages = [];
+  let databaseChanged = false;
+  for (const [index, statement] of statements.entries()) {
+    const queryType = statement.replace(/^(?:(?:--[^\r\n]*|\/\*[\s\S]*?\*\/)\s*)*/, '').trim();
+    if (!/^(?:SELECT|SHOW|DESCRIBE|DESC|EXPLAIN|PRAGMA)\b/i.test(queryType)) databaseChanged = true;
+    const returnsRows = /^(?:SELECT|WITH|SHOW|DESCRIBE|DESC|EXPLAIN|PRAGMA)\b/i.test(queryType);
+    let result = null;
+    let rawRows = [];
+    let columns = [];
+    let truncated = false;
+    if (returnsRows) {
+      const cursor = await conn.query(statement, { cursor: true, fetchSize: 201 });
+      try {
+        while (!cursor.noData && rawRows.length <= 200) {
+          const chunk = await cursor.fetch();
+          if (!columns.length && Array.isArray(chunk?.columns)) columns = chunk.columns.map((column) => column.name).filter(Boolean);
+          rawRows.push(...chunk.slice(0, 201 - rawRows.length));
+        }
+        truncated = rawRows.length > 200 || !cursor.noData;
+      } finally {
+        await cursor.close();
+      }
+    } else {
+      result = await conn.query(statement);
+      rawRows = Array.isArray(result) ? result : [];
+      columns = Array.isArray(result?.columns) ? result.columns.map((column) => column.name).filter(Boolean) : [];
+    }
+    const rows = rawRows.slice(0, 200).map((row) => serializePreviewRow(row).row);
+    const resultColumns = columns.length ? columns : (rows[0] ? Object.keys(rows[0]) : []);
+    if (resultColumns.length || rows.length) {
+      resultSets.push({
+        columns: resultColumns,
+        rows,
+        returnedRows: rawRows.length,
+        truncated: truncated || rawRows.length > rows.length,
+        label: `Result #${resultSets.length + 1}`
+      });
+    } else {
+      const affectedRows = Number(result?.count ?? result?.rowCount ?? result?.affectedRows) || 0;
+      messages.push(`Statement ${index + 1} completed${affectedRows ? `; ${affectedRows} row(s) affected` : ''}.`);
+    }
+  }
+  const firstResult = resultSets[0] || { rows: [], returnedRows: 0, truncated: false };
+  return {
+    success: true,
+    rows: firstResult.rows,
+    returnedRows: firstResult.returnedRows,
+    truncated: firstResult.truncated,
+    resultSets,
+    messages,
+    databaseChanged
+  };
 };
 
 exports.applyCellEdits = async ({ target, originalRows, rows, columns: requestedColumns }) => {
@@ -615,8 +792,12 @@ exports.saveDataset = async ({ connectionId: id, tableName: rawTableName, column
       await conn.query(`INSERT INTO ${table} (${columnSql}) VALUES ${valuesSql}`, params);
       inserted += batch.length;
     }
+    const persistedCount = await countMatchingRows(conn, table, '1 = 1', []);
+    if (persistedCount !== null && persistedCount !== rows.length) {
+      throw new Error(`Only ${persistedCount} of ${rows.length} rows were stored. The save was rolled back.`);
+    }
     await conn.commit();
-    return { success: true, tableName, inserted, primaryKey: rowIdColumn };
+    return { success: true, tableName, inserted: persistedCount ?? inserted, primaryKey: rowIdColumn };
   } catch (error) {
     await conn.rollback().catch(() => {});
     throw new Error(`${error?.message || 'The dataset could not be saved.'} If this database commits table creation separately, an empty table named "${tableName}" may remain.`);

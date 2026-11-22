@@ -94,12 +94,16 @@ const databaseCredentialEncryptionAvailable = () => {
 };
 
 const loadDatabaseCredentialStore = () => {
-  if (!fs.existsSync(DATABASE_CONNECTION_SECRETS_PATH)) return { version: 1, profiles: {} };
+  if (!fs.existsSync(DATABASE_CONNECTION_SECRETS_PATH)) return { version: 1, profiles: {}, connections: {}, selectedConnectionId: '' };
   const parsed = JSON.parse(fs.readFileSync(DATABASE_CONNECTION_SECRETS_PATH, 'utf8'));
   if (parsed?.version !== 1 || !parsed.profiles || typeof parsed.profiles !== 'object' || Array.isArray(parsed.profiles)) {
     throw new Error('The saved database credentials file has an invalid format.');
   }
-  return parsed;
+  return {
+    ...parsed,
+    connections: parsed.connections && typeof parsed.connections === 'object' && !Array.isArray(parsed.connections) ? parsed.connections : {},
+    selectedConnectionId: String(parsed.selectedConnectionId || '')
+  };
 };
 
 const writeDatabaseCredentialStore = (store) => {
@@ -121,6 +125,28 @@ const writeDatabaseCredentialStore = (store) => {
 };
 
 const validDatabaseProfileId = (value) => /^[a-zA-Z0-9-]{1,80}$/.test(String(value || ''));
+const sanitizeDatabaseConnectionProfile = (profile = {}) => {
+  const text = (value, maxLength) => {
+    const result = String(value || '').trim();
+    if (result.length > maxLength) throw new Error('Saved connection details are too long.');
+    return result;
+  };
+  const id = text(profile.id, 80);
+  const name = text(profile.name, 256);
+  if (!validDatabaseProfileId(id)) throw new Error('Invalid saved connection.');
+  if (!name) throw new Error('Enter a name for this connection.');
+  return {
+    id,
+    name,
+    connectionMode: profile.connectionMode === 'dsn' ? 'dsn' : 'driver',
+    system: ['mysql', 'mariadb', 'postgresql', 'sqlserver', 'other'].includes(profile.system) ? profile.system : 'other',
+    driver: text(profile.driver, 512),
+    dsn: text(profile.dsn, 512),
+    host: text(profile.host, 2048),
+    port: text(profile.port, 32),
+    database: text(profile.database, 512)
+  };
+};
 
 const loadAIConfig = () => {
   try {
@@ -603,6 +629,15 @@ const looksLikePlaceholderDataFrameTemplate = (codeText) => {
 const sanitizeRModelCodeOutput = (rawText, { expectsPatchBlocks = false, language = 'r' } = {}) => {
   let text = String(rawText || '').replace(/\r\n/g, '\n').trim();
   if (!text) return '';
+
+  if (String(language || 'r').toLowerCase() === 'sql') {
+    const fencedBlockMatch = text.match(/```sql\s*([\s\S]*?)```/i);
+    if (/```(?:r|python|py)\b/i.test(text) && !fencedBlockMatch) return '';
+    const candidate = (fencedBlockMatch?.[1] || text.replace(/```/g, '')).trim();
+    const withoutSqlComments = candidate.replace(/^(?:(?:--[^\r\n]*|\/\*[\s\S]*?\*\/)\s*)*/, '').trim();
+    const sqlStart = /^(?:SELECT|WITH|INSERT|UPDATE|DELETE|MERGE|REPLACE|CREATE|ALTER|DROP|TRUNCATE|SHOW|DESCRIBE|DESC|EXPLAIN|USE|SET|GRANT|REVOKE|BEGIN|START|COMMIT|ROLLBACK|CALL|EXEC(?:UTE)?|PRAGMA|VACUUM|ANALYZE|COMMENT|RENAME|LOCK|UNLOCK|REFRESH|DECLARE|DO)\b/i;
+    return sqlStart.test(withoutSqlComments) ? candidate : '';
+  }
 
   // When we expect patch blocks, prioritize @@SEARCH markers over code-fence extraction.
   // Models sometimes wrap @@SEARCH/@@REPLACE inside ```r ... ``` — we must preserve them.
@@ -2462,6 +2497,48 @@ app.whenReady().then(async () => {
   };
   const deniedDatabaseRequest = { success: false, error: 'Database access is limited to the main app window.' };
 
+  ipcMain.handle('database-profile-list', async (event) => {
+    if (!isTrustedDatabaseSender(event)) return deniedDatabaseRequest;
+    try {
+      const store = loadDatabaseCredentialStore();
+      const profiles = Object.values(store.connections).map(sanitizeDatabaseConnectionProfile);
+      const selectedConnectionId = profiles.some((profile) => profile.id === store.selectedConnectionId)
+        ? store.selectedConnectionId
+        : (profiles[0]?.id || '');
+      return { success: true, profiles, selectedConnectionId };
+    } catch (error) {
+      return { success: false, error: error?.message || 'Could not load saved database connections.' };
+    }
+  });
+
+  ipcMain.handle('database-profile-save', async (event, profile) => {
+    if (!isTrustedDatabaseSender(event)) return deniedDatabaseRequest;
+    try {
+      const connectionProfile = sanitizeDatabaseConnectionProfile(profile);
+      const store = loadDatabaseCredentialStore();
+      store.connections[connectionProfile.id] = connectionProfile;
+      store.selectedConnectionId = connectionProfile.id;
+      writeDatabaseCredentialStore(store);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error?.message || 'Could not save the database connection.' };
+    }
+  });
+
+  ipcMain.handle('database-profile-select', async (event, profileId) => {
+    if (!isTrustedDatabaseSender(event)) return deniedDatabaseRequest;
+    if (!validDatabaseProfileId(profileId)) return { success: false, error: 'Invalid saved connection.' };
+    try {
+      const store = loadDatabaseCredentialStore();
+      if (!store.connections[profileId]) return { success: false, error: 'Saved connection not found.' };
+      store.selectedConnectionId = profileId;
+      writeDatabaseCredentialStore(store);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error?.message || 'Could not select the saved connection.' };
+    }
+  });
+
   ipcMain.handle('database-profile-save-credentials', async (event, profileId, credentials = {}) => {
     if (!isTrustedDatabaseSender(event)) return deniedDatabaseRequest;
     if (!validDatabaseProfileId(profileId)) return { success: false, error: 'Invalid saved connection.' };
@@ -2514,6 +2591,8 @@ app.whenReady().then(async () => {
     try {
       const store = loadDatabaseCredentialStore();
       delete store.profiles[profileId];
+      delete store.connections[profileId];
+      if (store.selectedConnectionId === profileId) store.selectedConnectionId = Object.keys(store.connections)[0] || '';
       writeDatabaseCredentialStore(store);
       return { success: true };
     } catch (error) {
@@ -2540,6 +2619,11 @@ app.whenReady().then(async () => {
     if (!isTrustedDatabaseSender(event)) return deniedDatabaseRequest;
     try { return { success: true, ...(await databaseConnector.readTable(target)) }; }
     catch (error) { return { success: false, error: error?.message || 'Could not read the selected table.' }; }
+  });
+  ipcMain.handle('database-execute-sql', async (event, payload) => {
+    if (!isTrustedDatabaseSender(event)) return deniedDatabaseRequest;
+    try { return await databaseConnector.executeSql(payload || {}); }
+    catch (error) { return { success: false, error: error?.message || 'Could not execute the SQL statement.' }; }
   });
   ipcMain.handle('database-apply-cell-edits', async (event, payload) => {
     if (!isTrustedDatabaseSender(event)) return deniedDatabaseRequest;
@@ -6180,7 +6264,8 @@ app.whenReady().then(async () => {
     try {
       const rawContent = String(payload?.content ?? '');
       const content = rawContent.replace(/\r\n/g, '\n');
-      const language = String(payload?.language || 'r').toLowerCase() === 'python' ? 'python' : 'r';
+      const requestedLanguage = String(payload?.language || 'r').toLowerCase();
+      const language = ['r', 'python', 'sql'].includes(requestedLanguage) ? requestedLanguage : 'r';
       if (!content.trim()) {
         return { success: false, error: 'Editor is empty. Nothing to save.' };
       }
@@ -6193,22 +6278,27 @@ app.whenReady().then(async () => {
       const requestedDocumentMode = String(payload?.documentMode || '').toLowerCase();
       const documentMode = language === 'python'
         ? ((requestedDocumentMode === 'ipynb' || hasPythonCell) ? 'ipynb' : 'script')
-        : ((requestedDocumentMode === 'rmd' || hasRMarkdownChunk) ? 'rmd' : 'script');
+        : (language === 'r' && (requestedDocumentMode === 'rmd' || hasRMarkdownChunk) ? 'rmd' : 'script');
       const isPythonNotebook = language === 'python' && documentMode === 'ipynb';
-      const extension = isPythonNotebook ? 'ipynb' : (language === 'python' ? 'py' : (documentMode === 'rmd' ? 'Rmd' : 'R'));
+      const extension = isPythonNotebook ? 'ipynb' : (language === 'python' ? 'py' : (language === 'sql' ? 'sql' : (documentMode === 'rmd' ? 'Rmd' : 'R')));
       const defaultFileName = new RegExp(`\\.${extension}$`, 'i').test(safeBaseName)
         ? safeBaseName
         : `${safeBaseName}.${extension}`;
       const defaultPath = path.join(getWorkspaceRoot(), defaultFileName);
 
       const selection = await dialog.showSaveDialog({
-        title: `Save ${language === 'python' ? 'Python Script' : (documentMode === 'rmd' ? 'R Markdown' : 'R Script')}`,
+        title: `Save ${language === 'sql' ? 'SQL Script' : (language === 'python' ? 'Python Script' : (documentMode === 'rmd' ? 'R Markdown' : 'R Script'))}`,
         defaultPath,
         buttonLabel: 'Save File',
         filters: language === 'python'
           ? (isPythonNotebook
             ? [{ name: 'Jupyter Notebook', extensions: ['ipynb'] }, { name: 'Python Script', extensions: ['py'] }, { name: 'All Files', extensions: ['*'] }]
             : [{ name: 'Python Script', extensions: ['py'] }, { name: 'Jupyter Notebook', extensions: ['ipynb'] }, { name: 'All Files', extensions: ['*'] }])
+          : language === 'sql'
+          ? [
+            { name: 'SQL Script', extensions: ['sql'] },
+            { name: 'All Files', extensions: ['*'] }
+          ]
           : [
             { name: documentMode === 'rmd' ? 'R Markdown' : 'R Script', extensions: documentMode === 'rmd' ? ['Rmd', 'rmd', 'qmd'] : ['R', 'r'] },
             { name: 'All Files', extensions: ['*'] }
@@ -6244,11 +6334,12 @@ app.whenReady().then(async () => {
         defaultPath: getWorkspaceRoot(),
         properties: ['openFile'],
         filters: [
-          { name: 'Scripts (R, R Markdown, Python, Jupyter)', extensions: ['R', 'r', 'Rmd', 'rmd', 'qmd', 'py', 'ipynb'] },
+          { name: 'Scripts (R, R Markdown, Python, Jupyter, SQL)', extensions: ['R', 'r', 'Rmd', 'rmd', 'qmd', 'py', 'ipynb', 'sql'] },
           { name: 'R Script', extensions: ['R', 'r'] },
           { name: 'R Markdown', extensions: ['Rmd', 'rmd', 'qmd'] },
           { name: 'Python Script', extensions: ['py'] },
           { name: 'Jupyter Notebook', extensions: ['ipynb'] },
+          { name: 'SQL Script', extensions: ['sql'] },
           { name: 'All Files', extensions: ['*'] }
         ]
       });
@@ -6260,7 +6351,7 @@ app.whenReady().then(async () => {
       const filePath = selection.filePaths[0];
       const rawContent = fs.readFileSync(filePath, 'utf8');
       const ext = path.extname(filePath).toLowerCase();
-      const detectedLanguage = ['.py', '.ipynb'].includes(ext) ? 'python' : 'r';
+      const detectedLanguage = ext === '.sql' ? 'sql' : (['.py', '.ipynb'].includes(ext) ? 'python' : 'r');
       const documentMode = detectedLanguage === 'r'
         ? (['.rmd', '.qmd'].includes(ext) ? 'rmd' : 'script')
         : (ext === '.ipynb' ? 'ipynb' : 'script');
@@ -7387,9 +7478,10 @@ if (isTRUE(res$ok)) {
       if (!ready) throw new Error('Local Ollama is not running or not ready');
 
       const mode = String(payload?.mode || 'editor').trim().toLowerCase();
-      const language = String(payload?.language || 'r').trim().toLowerCase() === 'python' ? 'python' : 'r';
-      const languageName = language === 'python' ? 'Python' : 'R';
-      const codeFence = language === 'python' ? 'python' : 'r';
+      const requestedLanguage = String(payload?.language || 'r').trim().toLowerCase();
+      const language = ['r', 'python', 'sql'].includes(requestedLanguage) ? requestedLanguage : 'r';
+      const languageName = language === 'sql' ? 'SQL' : (language === 'python' ? 'Python' : 'R');
+      const codeFence = language === 'sql' ? 'sql' : (language === 'python' ? 'python' : 'r');
       const instruction = String(payload?.instruction || '').trim();
       if (!instruction) {
         return { success: false, error: 'No instruction provided' };
@@ -7452,21 +7544,25 @@ if (isTRUE(res$ok)) {
       const datasetSelectedColumns = String(contextPayload?.datasetSelectedColumns || '').trim().slice(0, 2200);
       const sourceDatabaseTable = String(contextPayload?.sourceDatabaseTable || '').trim();
       const preferredDataFrameName = String(contextPayload?.preferredDataFrameName || '').trim();
-      const databaseTableInstruction = language === 'r' && sourceDatabaseTable
-        ? `The selected database table ${sourceDatabaseTable} is already synced into the R workspace as ${preferredDataFrameName || 'the active dataframe'}. Use that object directly and edit it in place. It is not a local file. Do not use a file path, read.csv(), read_excel(), file.exists(), exists(), or a stop() guard to load/check it. Preserve columns, rows, and primary keys for database write-back; adding/removing rows or columns only changes the in-memory dataframe and cannot be applied to the database.`
-        : '';
+      const databaseTableInstruction = language === 'sql' && sourceDatabaseTable
+        ? `The active database table is ${sourceDatabaseTable}. Use its supplied schema and primary keys when relevant.`
+        : (language === 'r' && sourceDatabaseTable
+          ? `The selected database table ${sourceDatabaseTable} is already synced into the R workspace as ${preferredDataFrameName || 'the active dataframe'}. Use that object directly and edit it in place. It is not a local file. Do not use a file path, read.csv(), read_excel(), file.exists(), exists(), or a stop() guard to load/check it. Preserve columns, rows, and primary keys for database write-back; adding/removing rows or columns only changes the in-memory dataframe and cannot be applied to the database.`
+          : '');
       const applyMode = String(contextPayload?.applyMode || '').trim().toLowerCase();
       const agentProfile = String(payload?.agentProfile || '').trim().toLowerCase();
-      const isClaudeCodeAgent = agentProfile === 'claude-r-expert' || agentProfile === 'claude-python-expert';
+      const isClaudeCodeAgent = agentProfile === 'claude-r-expert' || agentProfile === 'claude-python-expert' || agentProfile === 'claude-sql-expert';
       const isClaudeCodeRAgent = agentProfile === 'claude-r-expert';
       const claudeCodeAgentSpec = isClaudeCodeRAgent ? getClaudeRAgentSpecification() : '';
       const expectsPatchBlocks = mode === 'editor' && applyMode === 'patch';
       const isReplaceMode = mode === 'editor' && applyMode === 'replace';
       const isAppendMode = mode === 'editor' && applyMode === 'append';
-      const omicsGuidance = language === 'python'
+      const omicsGuidance = language === 'sql' ? '' : (language === 'python'
         ? 'For omics use pandas/numpy/scipy/statsmodels, Biopython, Scanpy/anndata, scvi-tools, scrublet, celltypist, muon/MuData, episcanpy, pycisTopic, pybedtools, pyranges, pysam, matplotlib, and seaborn as appropriate.'
-        : 'For omics use Bioconductor and R packages such as SummarizedExperiment, SingleCellExperiment, scater, scran, scuttle, DropletUtils, scDblFinder, SingleR/celldex, Seurat, Signac, ArchR, chromVAR, GenomicRanges, edgeR, DESeq2, limma, muscat, SpatialExperiment, minfi, and sesame as appropriate.';
-      const groundedExecutionClause = `Execute the user request directly with minimal necessary ${languageName} code changes. Scope lock: answer only within the exact context of the current question/request. Do not add extra features, side tasks, or narrative text. Use CURRENT_EDITOR_CODE, TARGET_BLOCK, RELATED_BLOCKS, RECENT_HISTORY, DATASET_CONTEXT_META, DATASET_SCHEMA, and DATASET_PREVIEW_ROWS as grounding truth. Keep names and dependencies consistent with context; do not invent datasets, files, APIs, or column names unless explicitly requested. ${databaseTableInstruction} Support bulk and single-cell RNA-seq, ATAC-seq, multiome, ChIP-seq, methylation, spatial, proteomics, metagenomics, and related omics workflows. Follow the workflow in strict order: clarify the goal and scope, inspect inputs and metadata, state prerequisites and the ordered plan, execute one step, validate its output, then continue. Never skip or silently reorder steps. Stop at the first missing input, failed validation, unavailable package, incompatible matrix, or ambiguous design and explain the blocker. Separate QC, normalization, integration, dimensionality reduction, clustering, annotation, differential testing, enrichment, and visualization. Preserve sparse matrices, check package availability and versions, track parameters and random seeds when relevant, and never claim biological results without evidence. ${omicsGuidance}`;
+        : 'For omics use Bioconductor and R packages such as SummarizedExperiment, SingleCellExperiment, scater, scran, scuttle, DropletUtils, scDblFinder, SingleR/celldex, Seurat, Signac, ArchR, chromVAR, GenomicRanges, edgeR, DESeq2, limma, muscat, SpatialExperiment, minfi, and sesame as appropriate.');
+      const groundedExecutionClause = language === 'sql'
+        ? `Write expert SQL for the active database connection, including schema design, DDL, queries, or data changes as requested. The Data Explorer grid access mode does not restrict Advanced mode SQL; the connected database account enforces its own permissions. Use supplied schema context when available and do not claim a statement ran. ${databaseTableInstruction}`
+        : `Execute the user request directly with minimal necessary ${languageName} code changes. Scope lock: answer only within the exact context of the current question/request. Do not add extra features, side tasks, or narrative text. Use CURRENT_EDITOR_CODE, TARGET_BLOCK, RELATED_BLOCKS, RECENT_HISTORY, DATASET_CONTEXT_META, DATASET_SCHEMA, and DATASET_PREVIEW_ROWS as grounding truth. Keep names and dependencies consistent with context; do not invent datasets, files, APIs, or column names unless explicitly requested. ${databaseTableInstruction} Support bulk and single-cell RNA-seq, ATAC-seq, multiome, ChIP-seq, methylation, spatial, proteomics, metagenomics, and related omics workflows. Follow the workflow in strict order: clarify the goal and scope, inspect inputs and metadata, state prerequisites and the ordered plan, execute one step, validate its output, then continue. Never skip or silently reorder steps. Stop at the first missing input, failed validation, unavailable package, incompatible matrix, or ambiguous design and explain the blocker. Separate QC, normalization, integration, dimensionality reduction, clustering, annotation, differential testing, enrichment, and visualization. Preserve sparse matrices, check package availability and versions, track parameters and random seeds when relevant, and never claim biological results without evidence. ${omicsGuidance}`;
       const claudeCodeAgentClause = isClaudeCodeAgent
         ? (
           claudeCodeAgentSpec
@@ -7493,7 +7589,9 @@ if (isTRUE(res$ok)) {
         ? `You are a general-purpose AI assistant in a direct conversation. Do not assume the user wants R, Python, data science, dataset analysis, or editor changes. Respond naturally to the user's actual request. If code is requested, provide it conversationally; do not force a code-only response or modify the editor.`
         : isDiscussionMode
         ? `You are an expert ${languageName} and data science colleague engaged in an interactive discussion. Respond naturally and conversationally. For greetings, casual questions, or conceptual advice, reply in friendly, informative prose without generating unsolicited code. Only provide code when the user explicitly asks for code or scripts. Keep your deep expertise in ${languageName}, statistics, and scientific analysis evident.`
-        : (mode === 'console'
+        : (language === 'sql'
+          ? `You are the SQL agent connected to the active database. Return exactly one runnable SQL statement in a single markdown sql block and nothing else. Never return R or Python code, never assign SQL to a variable, and never wrap a SQL statement in a string. ${groundedExecutionClause}`
+          : (mode === 'console'
           ? `Return only runnable, executable ${languageName} code for this console step. ${strictCodeBlockContract} No explanations. No comment-only output. ${groundedExecutionClause}`
           : (
             expectsPatchBlocks
@@ -7522,7 +7620,7 @@ ${groundedExecutionClause}`
                       : `Return only runnable, executable ${languageName} code. Read CURRENT_EDITOR_CODE first. You may use any relevant blocks from CURRENT_EDITOR_CODE, TARGET_BLOCK, RELATED_BLOCKS, and RECENT_HISTORY to satisfy the request while keeping unrelated behavior stable. ${strictCodeBlockContract} No narration, no comment-only output. ${groundedExecutionClause}`
                   )
               )
-          ));
+          )));
 
       const finalPrompt = toToon(`${language}_code_request`, {
         mode,
@@ -7677,7 +7775,9 @@ ${groundedExecutionClause} ${claudeCodeAgentClause}`
       }
 
       if (!responseText && !expectsPatchBlocks) {
-        const retryPrompt = `${finalPrompt}\n\nINVALID_PREVIOUS_RESPONSE:\n${rawResponseText.slice(0, 1400)}\n\nRetry now with ONLY executable ${languageName} code. Return exactly one markdown ${codeFence} code block and nothing else. No comments-only response.`;
+        const retryPrompt = language === 'sql'
+          ? `${finalPrompt}\n\nINVALID_PREVIOUS_RESPONSE:\n${rawResponseText.slice(0, 1400)}\n\nThe previous response was not SQL. Do not write R or Python code, do not assign SQL to a variable, and do not use # comments. Return exactly one runnable SQL statement inside a markdown code fence labeled sql. Start the statement with a SQL keyword such as SHOW, SELECT, CREATE, INSERT, UPDATE, or DELETE.`
+          : `${finalPrompt}\n\nINVALID_PREVIOUS_RESPONSE:\n${rawResponseText.slice(0, 1400)}\n\nRetry now with ONLY executable ${languageName} code. Return exactly one markdown ${codeFence} code block and nothing else. No comments-only response.`;
         rawResponseText = await requestLocalCode(retryPrompt, 0.02);
         responseText = sanitizeRModelCodeOutput(rawResponseText, { expectsPatchBlocks: false, language });
       }

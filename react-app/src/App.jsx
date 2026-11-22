@@ -32,7 +32,7 @@ import { vscodeDark } from '@uiw/codemirror-theme-vscode';
 import { autocompletion, selectedCompletionIndex, setSelectedCompletion, startCompletion } from '@codemirror/autocomplete';
 import { Decoration, EditorView, ViewPlugin, WidgetType, showTooltip, tooltips } from '@codemirror/view';
 import { StateEffect, StateField } from '@codemirror/state';
-import { HighlightStyle, LanguageSupport, LRLanguage, syntaxHighlighting } from '@codemirror/language';
+import { HighlightStyle, LanguageSupport, LRLanguage, StreamLanguage, syntaxHighlighting } from '@codemirror/language';
 import { parseMixed } from '@lezer/common';
 import { classHighlighter, highlightTree, tags as t } from '@lezer/highlight';
 
@@ -55,6 +55,38 @@ import mp4FileIcon from './assets/mp4-file-icon.svg';
 import jsonFileIcon from './assets/json-file-icon.svg';
 import terminalFileIcon from './assets/terminal-file-icon.svg';
 import ipynbFileIcon from './assets/ipynb-file-icon.svg';
+import sqlFileIcon from './assets/sql-database-generic.svg';
+
+const SQL_KEYWORDS = new Set('add all alter and as asc begin between by case cast check column commit constraint create cross current_date current_time database default delete desc distinct drop else end except exists fetch from full function grant group having in index inner insert intersect into is join left like limit not null offset on or order outer primary procedure references revoke right rollback row select set table then top transaction union unique update values view when where'.split(' '));
+const sqlEditorLanguage = StreamLanguage.define({
+  startState: () => ({ inBlockComment: false }),
+  token(stream, state) {
+    if (state.inBlockComment) {
+      if (stream.match(/.*?\*\//)) state.inBlockComment = false;
+      else stream.skipToEnd();
+      return 'comment';
+    }
+    if (stream.eatSpace()) return null;
+    if (stream.match('--')) {
+      stream.skipToEnd();
+      return 'comment';
+    }
+    if (stream.match('/*')) {
+      state.inBlockComment = !stream.match(/.*?\*\//);
+      if (state.inBlockComment) stream.skipToEnd();
+      return 'comment';
+    }
+    if (stream.match(/'(?:[^']|'')*(?:'|$)/)) return 'string';
+    if (stream.match(/"(?:[^"]|"")*"|`[^`]*`|\[[^\]]*\]/)) return 'typeName';
+    if (stream.match(/[A-Za-z_][A-Za-z0-9_$]*/)) {
+      return SQL_KEYWORDS.has(stream.current().toLowerCase()) ? 'keyword' : null;
+    }
+    if (stream.match(/\d+(?:\.\d+)?/)) return 'number';
+    if (stream.match(/<=|>=|<>|!=|::|[-+*/%=<>]/)) return 'operator';
+    stream.next();
+    return null;
+  }
+});
 
 const selectRCompletionOnHover = ViewPlugin.fromClass(class {
   constructor(view) {
@@ -112,6 +144,7 @@ const workspaceFileLogoByExtension = {
   sh: terminalFileIcon,
   bash: terminalFileIcon,
   zsh: terminalFileIcon,
+  sql: sqlFileIcon,
   fish: terminalFileIcon,
   ksh: terminalFileIcon,
   csh: terminalFileIcon,
@@ -879,12 +912,13 @@ const WorkspaceFileIcon = ({ fileName }) => {
   const extension = String(fileName || '').toLowerCase().split('.').pop();
   const isRFile = /^r$/i.test(String(fileName || '').split('.').pop());
   const isPythonFile = /^(py|pyw)$/i.test(String(fileName || '').split('.').pop());
+  const isSqlFile = /^sql$/i.test(String(fileName || '').split('.').pop());
   const fileLogo = workspaceFileLogoByExtension[extension];
   const isLanguageLogo = isRFile || isPythonFile || Boolean(fileLogo);
   return (
-    <span className={`${isLanguageLogo ? 'inline-flex h-[30px] w-[30px] shrink-0 items-center justify-center' : `inline-flex h-[30px] w-[30px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-md border ${tileClass}`}`} title={isRFile ? 'R file' : isPythonFile ? 'Python file' : `${label} file`}>
+    <span className={`${isLanguageLogo ? 'inline-flex h-[30px] w-[30px] shrink-0 items-center justify-center' : `inline-flex h-[30px] w-[30px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-md border ${tileClass}`}`} title={isRFile ? 'R file' : isPythonFile ? 'Python file' : isSqlFile ? 'SQL file' : `${label} file`}>
       {isLanguageLogo ? (
-        <img src={isRFile ? rFileIcon : isPythonFile ? pythonFileIcon : fileLogo} alt="" aria-hidden="true" className="h-[30px] w-[30px] shrink-0 object-contain" />
+        <img src={isRFile ? rFileIcon : isPythonFile ? pythonFileIcon : isSqlFile ? sqlFileIcon : fileLogo} alt="" aria-hidden="true" className="h-[30px] w-[30px] shrink-0 object-contain" />
       ) : (
         <>
           <Icon size={14} className={className} strokeWidth={2.2} aria-hidden="true" />
@@ -1911,7 +1945,13 @@ const normalizeDatasetMetadata = (metadata = {}) => {
 
   const rows = rawRows.map((row, rowIndex) => {
     if (!row || typeof row !== 'object' || Array.isArray(row)) return row;
-    const nextRow = { ...row };
+    const needsUnnamedColumnRepair = rawColumns[0] === ''
+      && !Object.prototype.hasOwnProperty.call(row, '')
+      && Object.prototype.hasOwnProperty.call(row, '1');
+    const needsRowNameRepair = syntheticLeadingColumn
+      || (hasMetadataRowNames && !Object.prototype.hasOwnProperty.call(row, ''));
+    // Reuse normal row objects to avoid doubling memory for large file imports.
+    const nextRow = needsUnnamedColumnRepair || needsRowNameRepair ? { ...row } : row;
     // jsonlite serializes an unnamed data-frame field as "1" in row objects
     // even though the metadata correctly keeps its empty column name.
     if (rawColumns[0] === ''
@@ -7324,6 +7364,8 @@ const renderAIAnswerContent = (text) => {
 function App() {
   const [file, setFile] = useState(null);
   const [databaseSource, setDatabaseSource] = useState(null);
+  const [activeDatabaseConnection, setActiveDatabaseConnection] = useState(null);
+  const [databaseRefreshToken, setDatabaseRefreshToken] = useState(0);
   const [databaseAccessMode, setDatabaseAccessMode] = useState('read-only');
   const [databaseWriteTiming, setDatabaseWriteTiming] = useState('realtime');
   const [databaseManualWritePending, setDatabaseManualWritePending] = useState(false);
@@ -7333,6 +7375,14 @@ function App() {
   const databaseWriteTimerRef = useRef(null);
   const databaseWriteInFlightRef = useRef(false);
   const databaseWriteRunHandledRef = useRef(0);
+  const activeDatabaseConnectionId = String(databaseSource?.connectionId || activeDatabaseConnection?.connectionId || '');
+  const canSelectSqlEditor = Boolean(activeDatabaseConnectionId);
+  const activeDatabaseTables = Array.isArray(activeDatabaseConnection?.tables)
+    ? activeDatabaseConnection.tables.map((table) => [table.catalog, table.schema, table.table].filter(Boolean).join('.')).filter(Boolean)
+    : [];
+  const activeSqlDatabaseContext = canSelectSqlEditor
+    ? `Connected database dialect: ${databaseSource?.dialect || activeDatabaseConnection?.dialect || 'database default'}. Available tables: ${activeDatabaseTables.join(', ') || '(select a table to inspect its columns)'}.${databaseSource?.target?.table ? ` Active table: ${[databaseSource.target.catalog, databaseSource.target.schema, databaseSource.target.table].filter(Boolean).join('.')}. Columns: ${(databaseSource.databaseColumns || []).join(', ')}. Primary key: ${(databaseSource.primaryKeys || []).join(', ')}.` : ''} The Data Explorer grid access mode does not limit SQL generated or run in Advanced mode; the database itself enforces the connected account's permissions.`
+    : '';
   const [openDatasetFiles, setOpenDatasetFiles] = useState([]);
   const [activeDatasetFileId, setActiveDatasetFileId] = useState('');
   const openDatasetFilesRef = useRef([]);
@@ -7341,6 +7391,10 @@ function App() {
   const [selectedImage, setSelectedImage] = useState(null);
   const [columns, setColumns] = useState([]);
   const [fullData, setFullData] = useState([]);
+  const fullDataRef = useRef(fullData);
+  useLayoutEffect(() => {
+    fullDataRef.current = fullData;
+  }, [fullData]);
   const [datasetRowNames, setDatasetRowNames] = useState([]);
   const [groupVar, setGroupVar] = useState('');
   const [groupVar2, setGroupVar2] = useState(''); // Second factor for factorial designs
@@ -11795,7 +11849,9 @@ function App() {
   ));
 
   const [editorLanguage, setEditorLanguage] = useState(() => (
-    window.localStorage.getItem('editor_language') === 'python' ? 'python' : 'r'
+    ['r', 'python', 'sql'].includes(window.localStorage.getItem('editor_language'))
+      ? window.localStorage.getItem('editor_language')
+      : 'r'
   ));
 
   const [rMarkdownMode, setRMarkdownMode] = useState(false);
@@ -11823,12 +11879,12 @@ function App() {
     window.localStorage.setItem('r_markdown_mode', String(rMarkdownMode));
   }, [rMarkdownMode]);
 
-  const editorLanguageExtension = editorLanguage === 'python' ? python() : rMarkdown();
+  const editorLanguageExtension = editorLanguage === 'python' ? python() : (editorLanguage === 'sql' ? sqlEditorLanguage : rMarkdown());
   const isRMarkdownMode = editorLanguage === 'r' && rMarkdownMode;
-  const editorFileExtension = editorLanguage === 'python'
-    ? (pythonNotebookMode ? 'ipynb' : 'py')
-    : (isRMarkdownMode ? 'Rmd' : 'R');
-  const editorLanguageLabel = editorLanguage === 'python' ? 'Python' : 'R';
+  const editorFileExtension = editorLanguage === 'sql'
+    ? 'sql'
+    : (editorLanguage === 'python' ? (pythonNotebookMode ? 'ipynb' : 'py') : (isRMarkdownMode ? 'Rmd' : 'R'));
+  const editorLanguageLabel = editorLanguage === 'sql' ? 'SQL' : (editorLanguage === 'python' ? 'Python' : 'R');
 
   const createLanguageWorkspace = (language) => ({
     aiSource: 'local',
@@ -11838,7 +11894,7 @@ function App() {
     ideChatMessages: [{
       id: `ide-welcome-${language}`,
       role: 'assistant',
-      text: `Tell me what to build in ${language === 'python' ? 'Python' : 'R'}. I will generate code with your selected AI runtime and write it into the editor.`
+      text: `Tell me what to build in ${language === 'sql' ? 'SQL' : (language === 'python' ? 'Python' : 'R')}. I will generate code with your selected AI runtime and write it into the editor.`
     }],
     idePendingChange: null,
     ollamaMode: 'chat',
@@ -11855,7 +11911,8 @@ function App() {
   });
   const [languageWorkspaces, setLanguageWorkspaces] = useState(() => ({
     r: createLanguageWorkspace('r'),
-    python: createLanguageWorkspace('python')
+    python: createLanguageWorkspace('python'),
+    sql: createLanguageWorkspace('sql')
   }));
   const activeLanguageWorkspace = languageWorkspaces[editorLanguage];
   const updateLanguageWorkspace = (field, updater) => {
@@ -12412,9 +12469,12 @@ function App() {
       else window.electronAPI?.offRPlotGenerated?.();
     };
   }, [addGeneratedPlots, editorLanguage, isBiostatsModeEnabled, isBioinformaticsModeEnabled]);
-  const consoleOutputsRef = useRef({ r: '', python: '' });
-  const consoleOutputFlushTimersRef = useRef({ r: null, python: null });
-  const [consoleOutputs, setConsoleOutputs] = useState({ r: '', python: '' });
+  const consoleOutputsRef = useRef({ r: '', python: '', sql: '' });
+  const consoleOutputFlushTimersRef = useRef({ r: null, python: null, sql: null });
+  const [consoleOutputs, setConsoleOutputs] = useState({ r: '', python: '', sql: '' });
+  const [sqlResultSets, setSqlResultSets] = useState([]);
+  const [activeSqlResultTab, setActiveSqlResultTab] = useState('output');
+  const [refreshingDatabaseAfterSql, setRefreshingDatabaseAfterSql] = useState(false);
   const [rChunkOutputs, setRChunkOutputs] = useState({});
   const rChunkOutputsRef = useRef({});
   const rConsoleOutput = consoleOutputs[editorLanguage] || '';
@@ -13185,7 +13245,7 @@ function App() {
       const freshTab = {
         id: `untitled-${Date.now()}`,
         path: null,
-        name: `Untitled.${editorLanguage === 'python' ? 'py' : 'R'}`,
+        name: `Untitled.${editorLanguage === 'sql' ? 'sql' : (editorLanguage === 'python' ? 'py' : 'R')}`,
         language: editorLanguage,
         documentMode: 'script',
         content: '',
@@ -13224,7 +13284,7 @@ function App() {
     const currentTabs = editorOpenedTabsRef.current;
     const untitledCount = currentTabs.filter((t) => !t.path).length + 1;
     const documentMode = 'script';
-    const ext = lang === 'python' ? 'py' : 'R';
+    const ext = lang === 'sql' ? 'sql' : (lang === 'python' ? 'py' : 'R');
     const newName = `Untitled-${untitledCount}.${ext}`;
     const newTabId = `untitled-${Date.now()}`;
 
@@ -13266,20 +13326,22 @@ function App() {
   }, [editorLanguage, setEditorContentForLanguage, setEditorLanguage]);
 
   const handleEditorLanguageSwitch = useCallback((targetLanguage) => {
-    const language = targetLanguage === 'python' ? 'python' : 'r';
+    const language = targetLanguage === 'sql' && canSelectSqlEditor
+      ? 'sql'
+      : (targetLanguage === 'python' ? 'python' : 'r');
     const existingTab = editorOpenedTabsRef.current.find((tab) => tab.language === language);
     if (existingTab) {
       handleSelectEditorTab(existingTab.id);
       return;
     }
     handleNewEditorTab(language);
-  }, [handleNewEditorTab, handleSelectEditorTab]);
+  }, [canSelectSqlEditor, handleNewEditorTab, handleSelectEditorTab]);
 
   const openFileInEditor = useCallback((filePath, content, language, documentMode) => {
     const currentTabs = editorOpenedTabsRef.current;
     const existingTab = currentTabs.find((t) => t.path === filePath);
     const fileName = filePath.split(/[/\\]/).pop();
-    const lang = language || (/\.py$/i.test(filePath) ? 'python' : 'r');
+    const lang = language || (/\.sql$/i.test(filePath) ? 'sql' : (/\.py$/i.test(filePath) ? 'python' : 'r'));
     const mode = lang === 'r'
       ? (documentMode || (/\.(?:rmd|qmd)$/i.test(filePath) ? 'rmd' : 'script'))
       : (documentMode || (/\.ipynb$/i.test(filePath) ? 'ipynb' : 'script'));
@@ -13581,7 +13643,7 @@ function App() {
                     : '';
 
   const rEditorAgentProfile = (isREditorAgentMode || rEditorAISource === 'agent')
-    ? (editorLanguage === 'python' ? 'claude-python-expert' : 'claude-r-expert')
+    ? (editorLanguage === 'sql' ? 'claude-sql-expert' : (editorLanguage === 'python' ? 'claude-python-expert' : 'claude-r-expert'))
     : null;
   const getREditorAssistantLabel = (source = rEditorAISource) => {
     let base = 'Ollama';
@@ -14348,7 +14410,7 @@ function App() {
   const extractFencedCodeBlock = (text) => {
     if (!text) return '';
     const content = String(text);
-    const genericBlockMatch = content.match(/```(?:r|R|python|py)?\s*\n?([\s\S]*?)(?:```|$)/i);
+    const genericBlockMatch = content.match(/```(?:r|R|python|py|sql)?\s*\n?([\s\S]*?)(?:```|$)/i);
     if (genericBlockMatch?.[1]) return String(genericBlockMatch[1]).trim();
 
     return '';
@@ -14357,7 +14419,7 @@ function App() {
   const removeFencedCodeBlocks = (text) => {
     if (!text) return '';
     return String(text)
-      .replace(/```(?:r|R|python|py)?\s*\n?[\s\S]*?(?:```|$)/gi, '')
+      .replace(/```(?:r|R|python|py|sql)?\s*\n?[\s\S]*?(?:```|$)/gi, '')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
   };
@@ -14463,6 +14525,15 @@ function App() {
   const sanitizeEditorCode = (text) => {
     if (!text) return '';
     const content = String(text).trim();
+
+    if (editorLanguage === 'sql') {
+      const sqlFenceMatch = content.match(/```sql\s*([\s\S]*?)```/i);
+      if (/```(?:r|python|py)\b/i.test(content) && !sqlFenceMatch) return '';
+      const candidate = (sqlFenceMatch?.[1] || content.replace(/```/g, '')).trim();
+      const withoutSqlComments = candidate.replace(/^(?:(?:--[^\r\n]*|\/\*[\s\S]*?\*\/)\s*)*/, '').trim();
+      const sqlStart = /^(?:SELECT|WITH|INSERT|UPDATE|DELETE|MERGE|REPLACE|CREATE|ALTER|DROP|TRUNCATE|SHOW|DESCRIBE|DESC|EXPLAIN|USE|SET|GRANT|REVOKE|BEGIN|START|COMMIT|ROLLBACK|CALL|EXEC(?:UTE)?|PRAGMA|VACUUM|ANALYZE|COMMENT|RENAME|LOCK|UNLOCK|REFRESH|DECLARE|DO)\b/i;
+      return sqlStart.test(withoutSqlComments) ? candidate : '';
+    }
 
     // 1. Precise Markdown Block Extraction
     const codeBlockMatch = content.match(/```(?:r|javascript|python|sql|)?\n?([\s\S]*?)```/i);
@@ -14788,11 +14859,15 @@ function App() {
         const scopedContextPayload = activeChunk
           ? { ...contextPayload, editorCode: activeChunkCode, activeRMarkdownChunk: true, activeRMarkdownChunkIndex: activeChunk.index }
           : contextPayload;
-        const sourceDatabaseTable = String(contextPayload.sourceDatabaseTable || '').trim();
+        const sourceDatabaseTable = String(contextPayload.sourceDatabaseTable || (databaseSource?.target
+          ? [databaseSource.target.catalog, databaseSource.target.schema, databaseSource.target.table].filter(Boolean).join('.')
+          : '')).trim();
         const preferredDataFrameName = String(contextPayload.preferredDataFrameName || '').trim();
-        const databaseTableInstruction = editorLanguage === 'r' && sourceDatabaseTable
-          ? `DATABASE TABLE RULE: The selected database table ${sourceDatabaseTable} is already synced into the R workspace as ${preferredDataFrameName || 'the active dataframe'}. Use that dataframe object directly and edit it in place. It is not a file: do not use a file path, read.csv(), read_excel(), file.exists(), exists(), or a stop() guard to load/check it. For database write-back, preserve its existing columns, rows, and primary keys; adding/removing rows or columns only changes the in-memory dataframe and cannot be applied to the database.`
-          : '';
+        const databaseTableInstruction = editorLanguage === 'sql' && canSelectSqlEditor
+          ? `${activeSqlDatabaseContext} Generate expert SQL appropriate to the user's request, including DDL or data changes when requested. Use supplied schema details when available and never claim a statement ran.`
+          : (editorLanguage === 'r' && sourceDatabaseTable
+            ? `DATABASE TABLE RULE: The selected database table ${sourceDatabaseTable} is already synced into the R workspace as ${preferredDataFrameName || 'the active dataframe'}. Use that dataframe object directly and edit it in place. It is not a file: do not use a file path, read.csv(), read_excel(), file.exists(), exists(), or a stop() guard to load/check it. For database write-back, preserve its existing columns, rows, and primary keys; adding/removing rows or columns only changes the in-memory dataframe and cannot be applied to the database.`
+            : '');
         const datasetContextMeta = String(contextPayload.datasetContextMeta || '').trim();
         const datasetSchema = String(contextPayload.datasetSchema || '').trim();
         const datasetPreview = String(contextPayload.datasetPreview || '').trim();
@@ -14825,13 +14900,15 @@ function App() {
 
         const animationCaptureInstruction = editorLanguage === 'r'
           ? 'For animated R plots, save GIF output with ngr_animation_path("animation.gif") so the Plot Gallery can capture it.'
-          : 'For animated Python plots, use matplotlib FuncAnimation and plt.show() so the Plot Gallery can capture the animation as a GIF.';
-        const groundedExecutionClause = `Execute the user request directly with minimal necessary ${editorLanguageLabel} code changes. Scope lock: answer only within the exact context of the current question/request. Do not add extra features, side tasks, or narrative text. Keep names and dependencies consistent with context; do not invent datasets, files, APIs, or column names unless explicitly requested. ${editorLanguage === 'r' ? 'For R data transformations, never emit a bare dplyr verb such as mutate() or filter(); pipe from or assign back to the existing data frame (for example, df <- df %>% mutate(...)).' : ''} ${animationCaptureInstruction}`;
+          : (editorLanguage === 'python' ? 'For animated Python plots, use matplotlib FuncAnimation and plt.show() so the Plot Gallery can capture the animation as a GIF.' : '');
+        const groundedExecutionClause = editorLanguage === 'sql'
+          ? 'Write expert SQL for the active database connection. Return SQL appropriate to the request, including schema or data changes when requested. Use supplied schema details when available and do not claim the statement ran.'
+          : `Execute the user request directly with minimal necessary ${editorLanguageLabel} code changes. Scope lock: answer only within the exact context of the current question/request. Do not add extra features, side tasks, or narrative text. Keep names and dependencies consistent with context; do not invent datasets, files, APIs, or column names unless explicitly requested. ${editorLanguage === 'r' ? 'For R data transformations, never emit a bare dplyr verb such as mutate() or filter(); pipe from or assign back to the existing data frame (for example, df <- df %>% mutate(...)).' : ''} ${animationCaptureInstruction}`;
 
         const chunkScopeInstruction = activeChunk
           ? `\n${R_MARKDOWN_CHUNK_POLICY}\n`
           : '';
-        const editorContext = activeChunkCode || localRequestBundle.context || '# empty script';
+        const editorContext = activeChunkCode || localRequestBundle.context || (editorLanguage === 'r' ? '# empty script' : '');
         const onlinePrompt = `${isAgent ? `You are a Claude Code ${editorLanguageLabel} Expert senior programming agent.` : `You are a senior ${editorLanguageLabel} programming assistant.`}
 ${claudeCodeAgentClause}
 ${groundedExecutionClause}
@@ -16649,9 +16726,9 @@ ${historyContext || '(none)'}`;
       const savedPath = String(response?.filePath || '');
       const fileName = savedPath
         ? savedPath.split(/[/\\]/).pop()
-        : `${suggestedName}.${editorLanguage === 'python'
-          ? (documentMode === 'ipynb' ? 'ipynb' : 'py')
-          : (documentMode === 'rmd' ? 'Rmd' : 'R')}`;
+        : `${suggestedName}.${editorLanguage === 'sql'
+          ? 'sql'
+          : (editorLanguage === 'python' ? (documentMode === 'ipynb' ? 'ipynb' : 'py') : (documentMode === 'rmd' ? 'Rmd' : 'R'))}`;
       if (savedPath) {
         const currentId = activeEditorTabIdRef.current;
         setEditorOpenedTabs((prev) =>
@@ -17984,9 +18061,11 @@ Everything else is executed as a shell command in the PTY terminal:
       // Other intents (add, create, etc.) for online models use full-script integration.
       const fullScriptIntegrationMode = !rIdeChatDiscussionMode && !rIdeChatFreeMode && (((!isREditorOllamaSource && hasExistingCode && !wantsFreshContext && !isEditIntent)
         || (isEditIntent && hasExistingCode && !wantsFreshContext)));
-      const nextMode = (wantsFreshContext || fullScriptIntegrationMode)
+      const nextMode = editorLanguage === 'sql'
         ? 'replace'
-        : getRIdeApplyMode(normalizedInstruction, currentEditorText);
+        : ((wantsFreshContext || fullScriptIntegrationMode)
+          ? 'replace'
+          : getRIdeApplyMode(normalizedInstruction, currentEditorText));
       const strictContextPayload = {
         ...localRequestBundle.contextPayload,
         ...(activeChunk ? { editorCode: activeChunkCode, activeRMarkdownChunk: true, activeRMarkdownChunkIndex: activeChunk.index } : {}),
@@ -17995,12 +18074,15 @@ Everything else is executed as a shell command in the PTY terminal:
         fullScriptIntegrationMode
       };
       const originalCodeForPrompt = String(currentEditorText || '').trim();
-      const editorCodeFence = editorLanguage === 'python' ? 'python' : 'r';
+      const editorCodeFence = editorLanguage === 'sql' ? 'sql' : (editorLanguage === 'python' ? 'python' : 'r');
+      const sqlDatabaseInstruction = editorLanguage === 'sql' && canSelectSqlEditor
+        ? `${activeSqlDatabaseContext} Generate expert SQL appropriate to the user's request, including DDL or data changes when requested. The database's own permissions decide which statements can execute.`
+        : '';
       const chunkScopeClause = activeChunk
         ? `${R_MARKDOWN_CHUNK_POLICY}\n\n`
         : '';
 
-      const effectiveInstruction = `${chunkScopeClause}${(fullScriptIntegrationMode)
+      const effectiveInstruction = `${sqlDatabaseInstruction ? `${sqlDatabaseInstruction}\n\n` : ''}${chunkScopeClause}${(fullScriptIntegrationMode)
         ? `${normalizedInstruction}
 
 IMPORTANT: The editor already contains code. You MUST read the ORIGINAL CODE below.
@@ -18074,7 +18156,9 @@ ${originalCodeForPrompt || '# (empty script)'}
         const groundedExecutionClause = `Execute the user request directly with minimal necessary ${editorLanguageLabel} code changes. Scope lock: answer only within the exact context of the current question/request. Do not add extra features, side tasks, or narrative text. Keep names and dependencies consistent with context; do not invent datasets, files, APIs, or column names unless explicitly requested. ${editorLanguage === 'r' ? 'For R data transformations, never emit a bare dplyr verb such as mutate() or filter(); pipe from or assign back to the existing data frame (for example, df <- df %>% mutate(...)).' : ''} ${animationCaptureInstruction}`;
 
         // ── Expert conversational persona ──────────────────────────────────
-        const expertPersona = `You are a friendly, highly experienced ${editorLanguageLabel} and data science expert. You are the user's colleague and mentor — warm, approachable, and deeply knowledgeable in ${editorLanguageLabel}, statistics, data analysis, machine learning, and scientific computing.
+        const expertPersona = editorLanguage === 'sql'
+          ? `You are the SQL expert for the currently connected database. Help the user with any SQL task, including schema design, DDL, queries, and data changes. Return one runnable SQL statement in a fenced sql block and keep explanations brief. Never return R or Python code, assign SQL to a variable, or wrap SQL in a string. Never claim a query ran; the user runs it from the editor. Ground identifiers in the supplied database context when available. The Data Explorer grid access mode does not restrict Advanced mode SQL.`
+          : `You are a friendly, highly experienced ${editorLanguageLabel} and data science expert. You are the user's colleague and mentor — warm, approachable, and deeply knowledgeable in ${editorLanguageLabel}, statistics, data analysis, machine learning, and scientific computing.
 
 ## Interaction Style
 - Respond naturally and conversationally, like a real expert colleague would.
@@ -18177,9 +18261,11 @@ ${groundedExecutionClause}`)));
         const contextPayload = localRequestBundle.contextPayload || {};
         const sourceDatabaseTable = String(contextPayload.sourceDatabaseTable || '').trim();
         const preferredDataFrameName = String(contextPayload.preferredDataFrameName || '').trim();
-        const databaseTableInstruction = editorLanguage === 'r' && sourceDatabaseTable
-          ? `DATABASE TABLE RULE: The selected database table ${sourceDatabaseTable} is already synced into the R workspace as ${preferredDataFrameName || 'the active dataframe'}. Use that dataframe object directly and edit it in place. It is not a file: do not use a file path, read.csv(), read_excel(), file.exists(), exists(), or a stop() guard to load/check it. For database write-back, preserve its existing columns, rows, and primary keys; adding/removing rows or columns only changes the in-memory dataframe and cannot be applied to the database.`
-          : '';
+        const databaseTableInstruction = editorLanguage === 'sql' && canSelectSqlEditor
+          ? `${activeSqlDatabaseContext} Generate expert SQL appropriate to the user's request, including DDL or data changes when requested. Return one statement for the user to review and run; use supplied schema details when available and do not invent table or column names.`
+          : (editorLanguage === 'r' && sourceDatabaseTable
+            ? `DATABASE TABLE RULE: The selected database table ${sourceDatabaseTable} is already synced into the R workspace as ${preferredDataFrameName || 'the active dataframe'}. Use that dataframe object directly and edit it in place. It is not a file: do not use a file path, read.csv(), read_excel(), file.exists(), exists(), or a stop() guard to load/check it. For database write-back, preserve its existing columns, rows, and primary keys; adding/removing rows or columns only changes the in-memory dataframe and cannot be applied to the database.`
+            : '');
         const datasetContextMeta = String(contextPayload.datasetContextMeta || '').trim();
         const datasetSchema = String(contextPayload.datasetSchema || '').trim();
         const datasetPreview = String(contextPayload.datasetPreview || '').trim();
@@ -18231,8 +18317,8 @@ ${databaseTableInstruction}
 USER REQUEST: ${nextInstruction}
 
 CURRENT_EDITOR_CODE:
-\`\`\`r
-${currentEditorText || '# empty script'}
+\`\`\`${editorCodeFence}
+${currentEditorText || (editorLanguage === 'r' ? '# empty script' : '')}
 \`\`\`
 ${targetBlockSection}${relatedBlocksSection}${datasetSection}
 
@@ -18429,7 +18515,7 @@ ${attachmentPromptContext || '(none)'}`;
       let rawText = await generateCodeFromActiveSource(effectiveInstruction, {
         onProgress: (text, isFinal = false) => {
           updateStreamingMessage(text, isFinal);
-          streamCodeIntoREditor(text, editorStreamState);
+          if (editorLanguage !== 'sql') streamCodeIntoREditor(text, editorStreamState);
         }
       });
       if (requestId !== rIdeChatRequestIdRef.current) return;
@@ -18442,7 +18528,9 @@ ${attachmentPromptContext || '(none)'}`;
       if (rIdeChatDiscussionMode || rIdeChatFreeMode) {
         const parsed = parseThoughtAndContent(rawText || '');
         const discussionContent = parsed.content || rawText || '';
-        const discussionCode = rIdeChatDiscussionMode ? extractFencedCodeBlock(discussionContent) : '';
+        const discussionCode = rIdeChatDiscussionMode
+          ? (editorLanguage === 'sql' ? sanitizeEditorCode(discussionContent) : extractFencedCodeBlock(discussionContent))
+          : '';
         const discussionText = rIdeChatDiscussionMode
           ? removeFencedCodeBlocks(discussionContent)
           : discussionContent;
@@ -18874,7 +18962,9 @@ ${attachmentPromptContext || '(none)'}`;
             onKeyDown={handleConsoleKeyDown}
             onClick={handleConsoleInputClick}
             className="flex-1 border-none bg-transparent font-mono text-[13px] text-zinc-200 outline-none placeholder-zinc-500"
-            placeholder={editorLanguage === 'python' ? 'Type Python command...' : 'Type R command...'}
+            placeholder={editorLanguage === 'sql'
+              ? (canSelectSqlEditor ? 'Enter SQL statement...' : 'Connect to a database...')
+              : (editorLanguage === 'python' ? 'Type Python command...' : 'Type R command...')}
             autoComplete="off"
             spellCheck="false"
           />
@@ -19638,8 +19728,8 @@ ${attachmentPromptContext || '(none)'}`;
   };
 
   useEffect(() => {
-    // Start the selected persistent R/Python console on app mount and language changes.
-    if (window.electronAPI?.startRConsole) {
+    // SQL runs through the active database connection, not an R/Python process.
+    if (editorLanguage !== 'sql' && window.electronAPI?.startRConsole) {
       window.electronAPI.startRConsole(editorLanguage);
 
       // Setup listener for R console output
@@ -20014,6 +20104,12 @@ ${attachmentPromptContext || '(none)'}`;
   };
 
   const updateConsoleSuggestions = (value = rConsoleInput, caretPos, options = {}) => {
+    if (editorLanguage === 'sql') {
+      setRConsoleSuggestions([]);
+      setRConsoleSuggestionIndex(0);
+      setRConsoleSuggestionToken(null);
+      return;
+    }
     const force = Boolean(options?.force);
     const token = getConsoleToken(value, caretPos);
     const query = String(token?.text || '').replace(/`/g, '').toLowerCase();
@@ -20173,6 +20269,153 @@ except Exception as _ngr_error:
     }
   };
 
+  const refreshDatabaseAfterSql = async () => {
+    const connectionId = activeDatabaseConnectionId;
+    if (!connectionId || !window.electronAPI?.readDatabaseTable) return;
+    setRefreshingDatabaseAfterSql(true);
+    setDatabaseRefreshToken((value) => value + 1);
+    try {
+      const sourceSnapshot = databaseSource;
+      if (!sourceSnapshot?.target || String(sourceSnapshot.connectionId || '') !== connectionId) return;
+      const result = await window.electronAPI.readDatabaseTable({
+        ...sourceSnapshot.target,
+        connectionId
+      });
+      if (!result?.success) throw new Error(result?.error || 'Could not refresh the loaded Data Explorer table.');
+
+      const refreshedRows = Array.isArray(result.rows) ? result.rows : [];
+      const databaseColumns = Array.isArray(result.columns) ? result.columns : [];
+      const primaryKeys = Array.isArray(result.primaryKeys) ? result.primaryKeys : [];
+      const internalRowId = primaryKeys.find((column) => /^_*data_explorer_row_id$/i.test(column)) || '';
+      const displayColumns = internalRowId
+        ? databaseColumns.filter((column) => column !== internalRowId)
+        : databaseColumns;
+
+      setColumns(displayColumns);
+      setFullData(refreshedRows);
+      setDatasetRowNames([]);
+      setSelectedColumns((previous) => Array.from(new Set([
+        ...previous.filter((column) => displayColumns.includes(column)),
+        ...displayColumns.filter((column) => !previous.includes(column))
+      ])));
+      setSelectedRowsMode('all');
+      setSelectedRows([]);
+      persistSheetDatasetCache(sourceSnapshot.sheetName, displayColumns, refreshedRows);
+      setDatabaseSource((previous) => (
+        previous?.connectionId === connectionId
+        && previous?.target?.table === sourceSnapshot.target.table
+          ? {
+            ...previous,
+            originalRows: refreshedRows,
+            databaseColumns,
+            primaryKeys,
+            hiddenColumns: internalRowId ? [internalRowId] : [],
+            truncated: Boolean(result.truncated),
+            omittedBinaryValues: Boolean(result.omittedBinaryValues)
+          }
+          : previous
+      ));
+      if (isDataExplorerConnectedRef.current) {
+        syncExplorerToRConsole(null, sourceSnapshot.sheetName, {
+          columns: databaseColumns,
+          rows: refreshedRows
+        }, true);
+      }
+      setViewerNotice({ type: 'success', text: `Data Explorer refreshed from the database (${refreshedRows.length} rows).` });
+    } catch (error) {
+      setViewerNotice({ type: 'error', text: `SQL completed, but Data Explorer could not refresh: ${error?.message || 'unknown refresh error'}` });
+    } finally {
+      setRefreshingDatabaseAfterSql(false);
+    }
+  };
+
+  const executeSqlCommand = async (sql) => {
+    const query = String(sql || '').trim();
+    if (!query || rConsoleRunning) return false;
+    const addSqlOutput = (text) => {
+      appendConsoleOutput('sql', (previous) => `${previous}${previous ? '\n\n' : ''}${text}`);
+      setTimeout(() => setConsoleOutputs(consoleOutputsRef.current), 60);
+    };
+    setSqlResultSets([]);
+    setActiveSqlResultTab('output');
+    if (!canSelectSqlEditor || !activeDatabaseConnectionId) {
+      addSqlOutput('[SQL Error] Connect to a database before running SQL.');
+      return false;
+    }
+    if (!window.electronAPI?.executeDatabaseSql) {
+      addSqlOutput('[SQL Error] Database SQL execution is unavailable in this app build.');
+      return false;
+    }
+
+    setRPromptState('busy');
+    setRConsoleRunning(true);
+    try {
+      const result = await window.electronAPI.executeDatabaseSql({
+        connectionId: activeDatabaseConnectionId,
+        sql: query
+      });
+      if (!result?.success) throw new Error(result?.error || 'SQL execution failed.');
+      const resultSets = Array.isArray(result.resultSets) ? result.resultSets : [];
+      setSqlResultSets(resultSets);
+      if (resultSets.length) setActiveSqlResultTab(resultSets[0].label || 'Result #1');
+      (Array.isArray(result.messages) ? result.messages : []).forEach(addSqlOutput);
+      if (!resultSets.length && !result.messages?.length) addSqlOutput('Statement completed.');
+      if (result.databaseChanged) void refreshDatabaseAfterSql();
+      return true;
+    } catch (error) {
+      addSqlOutput(`[SQL Error] ${error?.message || 'Could not execute SQL.'}`);
+      return false;
+    } finally {
+      setRConsoleRunning(false);
+      setRPromptState('ready');
+    }
+  };
+
+  const renderSqlResultsPanel = () => {
+    const activeResult = sqlResultSets.find((result) => (result.label || '') === activeSqlResultTab);
+    const cellText = (value) => {
+      if (value === null || value === undefined) return 'NULL';
+      if (typeof value === 'object') {
+        try { return JSON.stringify(value); } catch { return String(value); }
+      }
+      return String(value);
+    };
+    return (
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[#151515] font-mono text-[12px] text-zinc-300">
+        <div role="tablist" aria-label="SQL output and results" className="sql-results-scrollbar flex h-8 shrink-0 items-stretch overflow-x-auto border-b border-[#303030] bg-[#1a1a1a]">
+          <button type="button" role="tab" aria-selected={activeSqlResultTab === 'output'} onClick={() => setActiveSqlResultTab('output')} className={`shrink-0 border-r border-[#303030] px-3 text-[11px] ${activeSqlResultTab === 'output' ? 'border-t-2 border-t-sky-500 bg-[#222] text-zinc-100' : 'border-t-2 border-t-transparent text-zinc-400 hover:bg-[#202020] hover:text-zinc-200'}`}>Output</button>
+          {sqlResultSets.map((result, index) => {
+            const label = result.label || `Result #${index + 1}`;
+            return <button key={`${label}-${index}`} type="button" role="tab" aria-selected={activeSqlResultTab === label} onClick={() => setActiveSqlResultTab(label)} className={`shrink-0 border-r border-[#303030] px-3 text-[11px] ${activeSqlResultTab === label ? 'border-t-2 border-t-sky-500 bg-[#222] text-zinc-100' : 'border-t-2 border-t-transparent text-zinc-400 hover:bg-[#202020] hover:text-zinc-200'}`}>{label}</button>;
+          })}
+          <span className="ml-auto shrink-0 self-center px-3 text-[10px] text-zinc-500">{rConsoleRunning ? 'Running…' : (refreshingDatabaseAfterSql ? 'Refreshing Data Explorer…' : '')}</span>
+        </div>
+        {activeSqlResultTab === 'output' || !activeResult ? (
+          <div className="sql-results-scrollbar min-h-0 flex-1 overflow-auto p-2.5">
+            {rConsoleOutput ? <div className="whitespace-pre-wrap break-words leading-relaxed">{renderRConsoleOutput(rConsoleOutput)}</div> : <span className="text-zinc-500">{canSelectSqlEditor ? 'SQL output will appear here.' : 'Connect to a database to run SQL.'}</span>}
+          </div>
+        ) : (
+          <div className="sql-results-scrollbar min-h-0 flex-1 overflow-auto">
+            <table className="sql-result-grid w-max min-w-full border-collapse text-left text-[11px]">
+              <thead className="sticky top-0 z-10 bg-[#202020] text-zinc-400">
+                <tr>{(activeResult.columns || []).map((column, index) => <th key={`${column}-${index}`} className="whitespace-nowrap border border-[#353535] px-2 py-1.5 font-medium">{column}</th>)}</tr>
+              </thead>
+              <tbody>
+                {(activeResult.rows || []).map((row, rowIndex) => (
+                  <tr key={rowIndex} className="hover:bg-[#202020]">
+                    {(activeResult.columns || []).map((column, columnIndex) => <td key={`${column}-${columnIndex}`} title={cellText(row[column])} className="max-w-[420px] whitespace-nowrap border border-[#333] px-2 py-1 text-zinc-300">{cellText(row[column])}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {activeResult.truncated && <div className="border-t border-[#303030] px-2 py-1.5 text-[10px] text-amber-400">Showing the first 200 rows.</div>}
+            {!activeResult.rows?.length && <div className="p-2 text-[11px] text-zinc-500">No rows returned.</div>}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const runEditorSelection = async (selection, options = {}) => {
     const view = getVisibleRConsoleEditor();
     let selectedText = selection;
@@ -20244,6 +20487,11 @@ except Exception as _ngr_error:
       activeRChunkIndexRef.current = null;
       lastRChunkIndexRef.current = null;
       clearTimeout(rChunkPlotCaptureTimerRef.current);
+    }
+
+    if (editorLanguage === 'sql') {
+      await executeSqlCommand(codeToRun);
+      return;
     }
 
     if (editorLanguage === 'python') {
@@ -20360,6 +20608,13 @@ except Exception as _ngr_error:
 
     setRConsoleSuggestions([]);
     setRConsoleSuggestionToken(null);
+    if (editorLanguage === 'sql') {
+      setRConsoleHistory(prev => [...prev, code].slice(-200));
+      setRConsoleHistoryIndex(-1);
+      setRConsoleInput('');
+      await executeSqlCommand(code);
+      return;
+    }
     if (!window.electronAPI?.sendRConsole) return;
 
     // Add to local history and output locally for immediate feedback
@@ -26940,7 +27195,7 @@ except Exception as _ngr_error:
       ? loadedColumns.map((columnName) => String(columnName))
       : [];
     const safeLoadedData = Array.isArray(loadedData) ? loadedData : [];
-    const autoDetectSampleLimit = 5000;
+    const autoDetectSampleLimit = 1000;
 
     const selectedColumnsForDetection = Array.isArray(selectionContext?.selectedColumns)
       ? selectionContext.selectedColumns
@@ -26976,7 +27231,7 @@ except Exception as _ngr_error:
     }
     loadedColumns = detectionColumns;
     // Keep the full dataset intact, but avoid blocking the first render by
-    // rescanning every row several times just to choose default analysis fields.
+    // rescanning a large dataset several times just to choose default analysis fields.
     if (detectionRows.length > autoDetectSampleLimit) {
       const sampleHalf = Math.floor(autoDetectSampleLimit / 2);
       loadedData = [
@@ -27558,7 +27813,7 @@ except Exception as _ngr_error:
       : databaseColumns;
     const tableType = String(dataset.target?.type || '').trim();
     const writeUnavailableReason = dataset.truncated
-      ? 'Live writes are unavailable because this table is truncated.'
+      ? 'Live writes are unavailable because this table preview is limited.'
       : (tableType && !/^(?:BASE\s+)?TABLE$/i.test(tableType)
         ? 'Live writes are unavailable for database views.'
         : (primaryKeys.length === 0 ? 'Live writes require a primary key on the table.' : ''));
@@ -27577,18 +27832,20 @@ except Exception as _ngr_error:
     setDatabaseSource({
       sheetName,
       target: dataset.target,
+      dialect: dataset.dialect || '',
       connectionId: dataset.connectionId,
       originalRows: dataset.rows,
       primaryKeys,
       databaseColumns,
       hiddenColumns: internalRowId ? [internalRowId] : [],
       truncated: Boolean(dataset.truncated),
+      omittedBinaryValues: Boolean(dataset.omittedBinaryValues),
       accessMode
     });
     setShowViewer(true);
     setViewerNotice({
       type: 'success',
-      text: `Loaded ${dataset.rows.length} rows from ${sheetName}${dataset.truncated ? ' (first 10,000 rows only)' : ''}. ${accessMode === 'read-write' ? 'Live database writes are enabled.' : writeUnavailableReason || 'Database writes are off. Reopen Database to enable Read / write.'}`
+      text: `Loaded ${dataset.rows.length} rows from ${sheetName}${dataset.truncated ? ' (preview limited for safety)' : ''}${dataset.omittedBinaryValues ? '. Binary values are shown as placeholders' : ''}. ${accessMode === 'read-write' ? 'Live database writes are enabled.' : writeUnavailableReason || 'Database writes are off. Reopen Database to enable Read / write.'}`
     });
     if (isDataExplorerConnectedRef.current) {
       syncExplorerToRConsole(null, sheetName, {
@@ -33403,7 +33660,8 @@ except Exception as _ngr_error:
 
   const handleInlineCellEdit = async (rowIndex, columnName, nextValue) => {
     const safeRowIndex = Number(rowIndex);
-    if (!Number.isInteger(safeRowIndex) || safeRowIndex < 0 || safeRowIndex >= fullData.length) {
+    const currentRows = Array.isArray(fullDataRef.current) ? fullDataRef.current : [];
+    if (!Number.isInteger(safeRowIndex) || safeRowIndex < 0 || safeRowIndex >= currentRows.length) {
       setViewerNotice({ type: 'error', text: 'Unable to edit this row.' });
       return false;
     }
@@ -33412,7 +33670,7 @@ except Exception as _ngr_error:
       return false;
     }
 
-    const currentValue = fullData[safeRowIndex]?.[columnName];
+    const currentValue = currentRows[safeRowIndex]?.[columnName];
     const nextValueText = String(nextValue ?? '');
     const trimmedNextValue = nextValueText.trim();
     const isNaInput = /^na$/i.test(trimmedNextValue);
@@ -33424,10 +33682,10 @@ except Exception as _ngr_error:
     // Editing one cell should not rescan thousands of potentially large cells.
     // A small bounded sample is enough to preserve the numeric-column guard
     // while keeping large-row datasets responsive.
-    const sampleLimit = Math.min(fullData.length, 256);
+    const sampleLimit = Math.min(currentRows.length, 256);
     const nonEmptyValues = [];
     for (let i = 0; i < sampleLimit; i += 1) {
-      const value = fullData[i]?.[columnName];
+      const value = currentRows[i]?.[columnName];
       if (value === undefined || value === null || String(value).trim() === '') continue;
       nonEmptyValues.push(value);
       if (nonEmptyValues.length >= 32) break;
@@ -33445,12 +33703,13 @@ except Exception as _ngr_error:
     pendingCellUndoDeltasRef.current.push({
       rowIndex: safeRowIndex,
       columnName,
-      hadPreviousValue: Object.prototype.hasOwnProperty.call(fullData[safeRowIndex] || {}, columnName),
+      hadPreviousValue: Object.prototype.hasOwnProperty.call(currentRows[safeRowIndex] || {}, columnName),
       previousValue: currentValue
     });
     markSheetDatasetDirty();
-    const nextRows = [...fullData];
+    const nextRows = [...currentRows];
     nextRows[safeRowIndex] = { ...nextRows[safeRowIndex], [columnName]: nextCellValue };
+    fullDataRef.current = nextRows;
     setFullData(nextRows);
     setResult(null);
     setError(null);
@@ -33462,15 +33721,16 @@ except Exception as _ngr_error:
   };
 
   const handleInlineCellRangeEdit = async (changes = []) => {
-    if (!Array.isArray(changes) || changes.length === 0 || !Array.isArray(fullData)) return 0;
+    const currentRows = Array.isArray(fullDataRef.current) ? fullDataRef.current : [];
+    if (!Array.isArray(changes) || changes.length === 0) return 0;
 
     const numericColumnCache = new Map();
     const getNumericColumn = (columnName) => {
       if (numericColumnCache.has(columnName)) return numericColumnCache.get(columnName);
-      const sampleLimit = Math.min(fullData.length, 256);
+      const sampleLimit = Math.min(currentRows.length, 256);
       const nonEmptyValues = [];
       for (let index = 0; index < sampleLimit; index += 1) {
-        const value = fullData[index]?.[columnName];
+        const value = currentRows[index]?.[columnName];
         if (value === undefined || value === null || String(value).trim() === '') continue;
         nonEmptyValues.push(value);
         if (nonEmptyValues.length >= 32) break;
@@ -33481,7 +33741,7 @@ except Exception as _ngr_error:
       return isNumeric;
     };
 
-    const nextRows = [...fullData];
+    const nextRows = [...currentRows];
     const changedRows = new Map();
     const changedCells = new Set();
     const deltas = [];
@@ -33490,10 +33750,10 @@ except Exception as _ngr_error:
     for (const change of changes) {
       const rowIndex = Number(change?.rowIndex);
       const columnName = String(change?.columnName || '').trim();
-      if (!Number.isInteger(rowIndex) || rowIndex < 0 || rowIndex >= fullData.length || !columns.includes(columnName)) continue;
+      if (!Number.isInteger(rowIndex) || rowIndex < 0 || rowIndex >= currentRows.length || !columns.includes(columnName)) continue;
       const cellKey = `${rowIndex}::${columnName}`;
       if (changedCells.has(cellKey)) continue;
-      const sourceRow = changedRows.get(rowIndex) || fullData[rowIndex] || {};
+      const sourceRow = changedRows.get(rowIndex) || currentRows[rowIndex] || {};
       const currentValue = sourceRow[columnName];
       const nextValueText = String(change?.nextValue ?? '');
       const trimmedNextValue = nextValueText.trim();
@@ -33534,6 +33794,7 @@ except Exception as _ngr_error:
     });
     pendingCellUndoDeltasRef.current.push(...deltas);
     markSheetDatasetDirty();
+    fullDataRef.current = nextRows;
     setFullData(nextRows);
     setResult(null);
     setError(null);
@@ -34053,7 +34314,7 @@ except Exception as _ngr_error:
   const hasLoadedDataset = fullData.length > 0 && columns.length > 0;
   const hasPhysicalDatasetFile = Boolean(file?.path);
   const databaseWriteDisabledReason = databaseSource?.truncated
-    ? 'Read/write is disabled because this table was truncated to the first 10,000 rows.'
+    ? 'Read/write is disabled because this database preview is limited.'
     : (databaseSource?.target?.type && !/^(?:BASE\s+)?TABLE$/i.test(String(databaseSource.target.type).trim())
       ? 'Read/write is disabled for database views.'
       : (databaseSource && databaseSource.primaryKeys.length === 0
@@ -35546,8 +35807,19 @@ except Exception as _ngr_error:
                         aria-pressed={editorLanguage === 'python'}
                         className={`min-w-[50px] px-2.5 py-0.5 text-[10.5px] uppercase tracking-wider font-semibold rounded-lg transition-all cursor-pointer ${editorLanguage === 'python' ? 'bg-[#242424] text-zinc-100 border border-[#383838] shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-[#1e1e1e] border border-transparent'}`}
                       >
-                        Python
+                        Py
                       </button>
+                      {canSelectSqlEditor && (
+                        <button
+                          type="button"
+                          onClick={() => handleEditorLanguageSwitch('sql')}
+                          aria-pressed={editorLanguage === 'sql'}
+                          title="Use the SQL expert with the active database"
+                          className={`min-w-[38px] px-2 py-0.5 text-[10.5px] uppercase tracking-wider font-semibold rounded-lg transition-all cursor-pointer ${editorLanguage === 'sql' ? 'bg-[#242424] text-zinc-100 border border-[#383838] shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-[#1e1e1e] border border-transparent'}`}
+                        >
+                          SQL
+                        </button>
+                      )}
                     </div>
                     <button
                       type="button"
@@ -35558,24 +35830,26 @@ except Exception as _ngr_error:
                       <FolderOpen size={12} className={isFilesOverlayOpen ? 'text-cyan-300' : 'text-zinc-400'} />
                       <span>File +</span>
                     </button>
-                    <button
-                      type="button"
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                        if (editorLanguage === 'python') insertPythonNotebookCell();
-                        else insertRMarkdownChunk();
-                      }}
-                      onClick={(event) => {
-                        if (event.detail === 0) {
+                    {editorLanguage !== 'sql' && (
+                      <button
+                        type="button"
+                        onMouseDown={(event) => {
+                          event.preventDefault();
                           if (editorLanguage === 'python') insertPythonNotebookCell();
                           else insertRMarkdownChunk();
-                        }
-                      }}
-                      className="inline-flex h-7 items-center gap-1.5 rounded-xl px-2.5 text-[10.5px] font-semibold tracking-wide transition-all bg-[#141414] hover:bg-[#1e1e1e] border border-[#262626] hover:border-[#383838] text-zinc-400 hover:text-zinc-200 cursor-pointer"
-                      title={editorLanguage === 'python' ? 'Add a Python cell and convert this file to an IPYNB notebook' : 'Add an R Markdown chunk and convert this R document to Rmd'}
-                    >
-                      <span>{editorLanguage === 'python' ? 'Cell +' : 'Chunk +'}</span>
-                    </button>
+                        }}
+                        onClick={(event) => {
+                          if (event.detail === 0) {
+                            if (editorLanguage === 'python') insertPythonNotebookCell();
+                            else insertRMarkdownChunk();
+                          }
+                        }}
+                        className="inline-flex h-7 items-center gap-1.5 rounded-xl px-2.5 text-[10.5px] font-semibold tracking-wide transition-all bg-[#141414] hover:bg-[#1e1e1e] border border-[#262626] hover:border-[#383838] text-zinc-400 hover:text-zinc-200 cursor-pointer"
+                        title={editorLanguage === 'python' ? 'Add a Python cell and convert this file to an IPYNB notebook' : 'Add an R Markdown chunk and convert this R document to Rmd'}
+                      >
+                        <span>{editorLanguage === 'python' ? 'Cell +' : 'Chunk +'}</span>
+                      </button>
+                    )}
                     {isAIEditorLoading && (
                       <div className="flex items-center gap-1.5 ml-1 px-2 py-0.5 rounded-xl border border-[#262626] bg-[#141414]">
                         <div className="w-1.5 h-1.5 rounded-full bg-zinc-300 animate-pulse" />
@@ -35621,18 +35895,19 @@ except Exception as _ngr_error:
                       aria-label="Save terminal session"
                     >
                       <Save size={12} className="text-zinc-400" />
-                      {isSavingTerminalSession ? 'Saving' : 'Save Session'}
+                      {isSavingTerminalSession ? 'Saving' : 'Session'}
                     </button>
                     <button
                       type="button"
-                      onClick={() => (rConsoleRunning ? stopEditorExecution() : runEditorSelection())}
+                      disabled={editorLanguage === 'sql' && rConsoleRunning}
+                      onClick={() => (rConsoleRunning ? (editorLanguage === 'sql' ? null : stopEditorExecution()) : runEditorSelection())}
                       className={`inline-flex h-7 items-center gap-1.5 rounded-xl px-3 text-[11px] font-bold tracking-wider transition-all cursor-pointer text-white border shadow-[0_2px_10px_rgba(16,185,129,0.25)] ${rConsoleRunning
                         ? 'bg-rose-600/90 hover:bg-rose-500 border-rose-400/40'
                         : 'bg-emerald-600/90 hover:bg-emerald-500 border-emerald-400/40 hover:shadow-[0_2px_14px_rgba(16,185,129,0.4)]'
                         }`}
-                      title={rConsoleRunning ? 'Stop the running command' : 'Run current selection or all code (Ctrl+Enter)'}
+                      title={rConsoleRunning ? (editorLanguage === 'sql' ? 'SQL statement is running' : 'Stop the running command') : 'Run current selection or all code (Ctrl+Enter)'}
                     >
-                      {rConsoleRunning ? <><X size={11} /> STOP</> : <><Play size={11} fill="currentColor" className="text-emerald-100" /> RUN</>}
+                      {rConsoleRunning ? (editorLanguage === 'sql' ? 'SQL…' : <><X size={11} /> STOP</>) : <><Play size={11} fill="currentColor" className="text-emerald-100" /> RUN</>}
                     </button>
                   </div>
                 </div>
@@ -35785,21 +36060,21 @@ except Exception as _ngr_error:
               <div className="flex min-h-[260px] min-w-0 flex-1 flex-col overflow-hidden pt-[42px]" style={{ background: '#131313' }}>
                 {/* Console Output - VS Code Terminal Style */}
                 <div ref={consoleOutputRef} className="flex flex-col flex-1 min-h-[220px] overflow-y-auto custom-scrollbar scroll-smooth console-output-vscode">
-                  {rConsoleOutput ? (
+                  {editorLanguage === 'sql' ? renderSqlResultsPanel() : rConsoleOutput ? (
                     <div className="whitespace-pre-wrap leading-relaxed">
                       {renderRConsoleOutput(rConsoleOutput)}
                     </div>
-                  ) : (
+                  ) : editorLanguage !== 'sql' ? (
                     <>
                       {renderRConsolePrompt()}
                       <div className="flex min-h-[220px] flex-1 flex-col items-center justify-center space-y-2" style={{ color: '#666666' }}>
                         <Terminal size={18} />
-                        <p className="text-xs font-bold tracking-wider">{editorLanguage === 'python' ? 'PYTHON INTERACTIVE SESSION READY' : 'R INTERACTIVE SESSION READY'}</p>
-                        <p className="text-[10px]" style={{ color: '#555555' }}>{editorLanguage === 'python' ? 'TRY `print("hello")` OR `import pandas as pd`' : 'TRY `SUMMARY(CARS)` OR `PLOT(RNORM(100))`'}</p>
+                        <p className="text-xs font-bold tracking-wider">{editorLanguage === 'sql' ? 'DATABASE SQL CONSOLE READY' : (editorLanguage === 'python' ? 'PYTHON INTERACTIVE SESSION READY' : 'R INTERACTIVE SESSION READY')}</p>
+                        <p className="text-[10px]" style={{ color: '#555555' }}>{editorLanguage === 'sql' ? (canSelectSqlEditor ? 'RUN SQL; DATABASE PERMISSIONS APPLY' : 'CONNECT TO A DATABASE TO RUN SQL') : (editorLanguage === 'python' ? 'TRY `print("hello")` OR `import pandas as pd`' : 'TRY `SUMMARY(CARS)` OR `PLOT(RNORM(100))`')}</p>
                       </div>
                     </>
-                  )}
-                  {rConsoleOutput && renderRConsolePrompt()}
+                  ) : null}
+                  {rConsoleOutput && editorLanguage !== 'sql' && renderRConsolePrompt()}
                 </div>
 
                 {/* Pip Package Installer (Python) */}
@@ -41662,7 +41937,10 @@ except Exception as _ngr_error:
         databaseWriteTiming={databaseWriteTiming}
         onDatabaseWriteTimingChange={setDatabaseWriteTiming}
         onRunDatabaseWrite={handleRunDatabaseWrite}
+        databaseRefreshToken={databaseRefreshToken}
+        onConnected={setActiveDatabaseConnection}
         onDisconnect={() => {
+          setActiveDatabaseConnection(null);
           setDatabaseSource(null);
           setDatabaseAccessMode('read-only');
           databaseAccessModeRef.current = 'read-only';
@@ -42101,8 +42379,19 @@ except Exception as _ngr_error:
                             aria-pressed={editorLanguage === 'python'}
                             className={`min-w-[48px] px-2 py-0.5 text-[10.5px] uppercase tracking-wider font-semibold rounded-lg transition-all cursor-pointer ${editorLanguage === 'python' ? 'bg-[#242424] text-zinc-100 border border-[#383838] shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-[#1e1e1e] border border-transparent'}`}
                           >
-                            Python
+                            Py
                           </button>
+                          {canSelectSqlEditor && (
+                            <button
+                              type="button"
+                              onClick={() => handleEditorLanguageSwitch('sql')}
+                              aria-pressed={editorLanguage === 'sql'}
+                              title="Use the SQL expert with the active database"
+                              className={`min-w-[38px] px-2 py-0.5 text-[10.5px] uppercase tracking-wider font-semibold rounded-lg transition-all cursor-pointer ${editorLanguage === 'sql' ? 'bg-[#242424] text-zinc-100 border border-[#383838] shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-[#1e1e1e] border border-transparent'}`}
+                            >
+                              SQL
+                            </button>
+                          )}
                         </div>
                         <button
                           type="button"
@@ -42113,24 +42402,26 @@ except Exception as _ngr_error:
                           <FolderOpen size={12} className={isFilesOverlayOpen ? 'text-zinc-200' : 'text-zinc-400'} />
                           <span>File +</span>
                         </button>
-                        <button
-                          type="button"
-                          onMouseDown={(event) => {
-                            event.preventDefault();
-                            if (editorLanguage === 'python') insertPythonNotebookCell();
-                            else insertRMarkdownChunk();
-                          }}
-                          onClick={(event) => {
-                            if (event.detail === 0) {
+                        {editorLanguage !== 'sql' && (
+                          <button
+                            type="button"
+                            onMouseDown={(event) => {
+                              event.preventDefault();
                               if (editorLanguage === 'python') insertPythonNotebookCell();
                               else insertRMarkdownChunk();
-                            }
-                          }}
-                          className="inline-flex h-7 items-center gap-1.5 rounded-xl px-2.5 text-[10.5px] font-semibold tracking-wide transition-all bg-[#141414] hover:bg-[#1e1e1e] border border-[#262626] hover:border-[#383838] text-zinc-400 hover:text-zinc-200 cursor-pointer"
-                          title={editorLanguage === 'python' ? 'Add a Python cell and convert this file to an IPYNB notebook' : 'Add an R Markdown chunk and convert this R document to Rmd'}
-                        >
-                          <span>{editorLanguage === 'python' ? 'Cell +' : 'Chunk +'}</span>
-                        </button>
+                            }}
+                            onClick={(event) => {
+                              if (event.detail === 0) {
+                                if (editorLanguage === 'python') insertPythonNotebookCell();
+                                else insertRMarkdownChunk();
+                              }
+                            }}
+                            className="inline-flex h-7 items-center gap-1.5 rounded-xl px-2.5 text-[10.5px] font-semibold tracking-wide transition-all bg-[#141414] hover:bg-[#1e1e1e] border border-[#262626] hover:border-[#383838] text-zinc-400 hover:text-zinc-200 cursor-pointer"
+                            title={editorLanguage === 'python' ? 'Add a Python cell and convert this file to an IPYNB notebook' : 'Add an R Markdown chunk and convert this R document to Rmd'}
+                          >
+                            <span>{editorLanguage === 'python' ? 'Cell +' : 'Chunk +'}</span>
+                          </button>
+                        )}
                         {isAIEditorLoading && (
                           <div className="flex items-center gap-1.5 ml-1 px-2 py-1 rounded-xl border border-[#262626] bg-[#141414]">
                             <div className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-pulse" />
@@ -42173,18 +42464,19 @@ except Exception as _ngr_error:
                           title="Save terminal session, editor code, console history, dataset, and temporary memory"
                           aria-label="Save terminal session"
                         >
-                          <Save size={12} className="text-zinc-400" /> {isSavingTerminalSession ? 'Saving' : 'Save Session'}
+                          <Save size={12} className="text-zinc-400" /> {isSavingTerminalSession ? 'Saving' : 'Session'}
                         </button>
                         <button
                           type="button"
-                          onClick={() => (rConsoleRunning ? stopEditorExecution() : runEditorSelection())}
+                          disabled={editorLanguage === 'sql' && rConsoleRunning}
+                          onClick={() => (rConsoleRunning ? (editorLanguage === 'sql' ? null : stopEditorExecution()) : runEditorSelection())}
                           className={`inline-flex h-7 items-center gap-1.5 rounded-xl px-3 text-[11px] font-bold tracking-wider transition-all cursor-pointer text-white border shadow-[0_2px_10px_rgba(16,185,129,0.25)] ${rConsoleRunning
                             ? 'bg-rose-600/90 hover:bg-rose-500 border-rose-400/40'
                             : 'bg-emerald-600/90 hover:bg-emerald-500 border-emerald-400/40 hover:shadow-[0_2px_14px_rgba(16,185,129,0.4)]'
                             }`}
-                          title={rConsoleRunning ? 'Stop the running command' : 'Run current selection or all code (Ctrl+Enter)'}
+                          title={rConsoleRunning ? (editorLanguage === 'sql' ? 'SQL statement is running' : 'Stop the running command') : 'Run current selection or all code (Ctrl+Enter)'}
                         >
-                          {rConsoleRunning ? <><X size={11} /> STOP</> : <><Play size={11} fill="currentColor" className="text-white" /> RUN</>}
+                          {rConsoleRunning ? (editorLanguage === 'sql' ? 'SQL…' : <><X size={11} /> STOP</>) : <><Play size={11} fill="currentColor" className="text-white" /> RUN</>}
                         </button>
                       </div>
                     </div>
@@ -42331,21 +42623,21 @@ except Exception as _ngr_error:
 
                   <div className="flex-1 min-h-0 min-w-0 flex flex-col rounded-none border border-zinc-800 bg-[#131313] overflow-hidden shadow-[0_8px_30px_rgba(2,6,23,0.45)]">
                     <div ref={consoleOutputRef} className="flex flex-col flex-1 min-h-0 p-4 font-mono text-[13px] overflow-y-auto custom-scrollbar scroll-smooth bg-[#101010]">
-                      {rConsoleOutput ? (
+                      {editorLanguage === 'sql' ? renderSqlResultsPanel() : rConsoleOutput ? (
                         <div className="whitespace-pre-wrap leading-relaxed text-zinc-200">
                           {renderRConsoleOutput(rConsoleOutput)}
                         </div>
-                      ) : (
+                      ) : editorLanguage !== 'sql' ? (
                         <>
                           {renderRConsolePrompt()}
                           <div className="flex min-h-[220px] flex-1 flex-col items-center justify-center text-zinc-500 space-y-2 opacity-80">
                             <Terminal size={18} className="text-zinc-600" />
-                            <p className="text-xs font-semibold tracking-wide">{editorLanguage === 'python' ? 'Python interactive session is ready' : 'R interactive session is ready'}</p>
-                            <p className="text-[11px] text-zinc-600">{editorLanguage === 'python' ? 'Try `print("hello")` or `import pandas as pd`' : 'Try `summary(cars)` or `plot(rnorm(100))`'}</p>
+                            <p className="text-xs font-semibold tracking-wide">{editorLanguage === 'sql' ? 'Database SQL console is ready' : (editorLanguage === 'python' ? 'Python interactive session is ready' : 'R interactive session is ready')}</p>
+                            <p className="text-[11px] text-zinc-600">{editorLanguage === 'sql' ? (canSelectSqlEditor ? 'Run SQL directly against the database; database permissions apply.' : 'Connect to a database to run SQL.') : (editorLanguage === 'python' ? 'Try `print("hello")` or `import pandas as pd`' : 'Try `summary(cars)` or `plot(rnorm(100))`')}</p>
                           </div>
                         </>
-                      )}
-                      {rConsoleOutput && renderRConsolePrompt()}
+                      ) : null}
+                      {rConsoleOutput && editorLanguage !== 'sql' && renderRConsolePrompt()}
                     </div>
 
                     <div className="order-3 px-3 py-1 bg-[#101010]">
@@ -50500,7 +50792,7 @@ except Exception as _ngr_error:
           )}
           {hasMountedDataExplorer && (
             <div
-              className={`fixed left-14 top-0 right-0 bottom-0 z-[80] h-screen pr-2 md:pr-3 transform transition-all duration-300 ease-out ${showViewer
+              className={`fixed left-14 top-4 right-0 bottom-0 z-[80] h-[calc(100vh-1rem)] transform transition-all duration-300 ease-out ${showViewer
                 ? 'translate-x-0 opacity-100 pointer-events-auto'
                 : '-translate-x-full opacity-0 pointer-events-none'
                 }`}

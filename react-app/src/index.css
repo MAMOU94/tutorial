@@ -5553,3 +5553,36 @@ textarea:-webkit-autofill:focus {
   opacity: 1;
   pointer-events: auto;
 }
+
+.sql-results-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #4b4b4b #171717;
+}
+
+.sql-results-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.sql-results-scrollbar::-webkit-scrollbar-track {
+  background: #171717;
+}
+
+.sql-results-scrollbar::-webkit-scrollbar-thumb {
+  border: 1px solid #171717;
+  border-radius: 6px;
+  background: #4b4b4b;
+}
+
+.sql-results-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #666;
+}
+
+.sql-result-grid th,
+.sql-result-grid td {
+  border: 1px solid #3b3b3b !important;
+}
+
+.sql-result-grid tbody tr:nth-child(even) {
+  background: #191919;
+}

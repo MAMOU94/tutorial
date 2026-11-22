@@ -10,6 +10,7 @@ const databaseSystems = {
   other: { label: 'Other ODBC database', driver: '' }
 };
 const savedConnectionProfilesKey = 'ngr.database-connection-profiles.v1';
+const savedConnectionSelectionKey = 'ngr.database-connection-selection.v1';
 const loadSavedConnectionProfiles = () => {
   try {
     if (typeof window === 'undefined') return [];
@@ -18,16 +19,16 @@ const loadSavedConnectionProfiles = () => {
     const safeProfiles = saved.map((profile) => ({
       id: String(profile?.id || ''),
       name: String(profile?.name || ''),
+      connectionMode: profile?.connectionMode === 'dsn' ? 'dsn' : 'driver',
       system: Object.prototype.hasOwnProperty.call(databaseSystems, profile?.system) ? profile.system : 'other',
       driver: String(profile?.driver || ''),
+      dsn: String(profile?.dsn || ''),
       host: String(profile?.host || ''),
       port: String(profile?.port || ''),
-      database: String(profile?.database || '')
+      database: String(profile?.database || ''),
+      username: String(profile?.username || ''),
+      password: String(profile?.password || '')
     })).filter((profile) => profile.id && profile.name);
-    // Rewrite old profile records too, in case they contain credentials or options.
-    try {
-      window.localStorage.setItem(savedConnectionProfilesKey, JSON.stringify(safeProfiles));
-    } catch { /* Keep using the sanitized in-memory profiles if storage is read-only. */ }
     return safeProfiles;
   } catch {
     return [];
@@ -251,6 +252,8 @@ export default function DatabaseConnectionPanel({
   databaseWriteTiming = 'realtime',
   onDatabaseWriteTimingChange,
   onRunDatabaseWrite,
+  databaseRefreshToken = 0,
+  onConnected,
   onDisconnect
 }) {
   const [localOpen, setLocalOpen] = useState(false);
@@ -271,7 +274,7 @@ export default function DatabaseConnectionPanel({
   const [password, setPassword] = useState('');
   const [extraOptions, setExtraOptions] = useState('');
   const [destinationTable, setDestinationTable] = useState('');
-  const [savedConnections, setSavedConnections] = useState(loadSavedConnectionProfiles);
+  const [savedConnections, setSavedConnections] = useState([]);
   const [savedConnectionName, setSavedConnectionName] = useState('');
   const [selectedSavedConnectionId, setSelectedSavedConnectionId] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
@@ -281,6 +284,7 @@ export default function DatabaseConnectionPanel({
   const [selectedTable, setSelectedTable] = useState(null);
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
+  const [savingDataset, setSavingDataset] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [panelPosition, setPanelPosition] = useState({ x: 56, y: 48 });
@@ -292,86 +296,127 @@ export default function DatabaseConnectionPanel({
   const profileCredentialLoadRef = useRef(0);
   const filteredTables = useMemo(() => tables.filter((table) => tableLabel(table).toLowerCase().includes(search.toLowerCase())), [tables, search]);
 
-  const persistSavedConnections = (nextConnections) => {
-    try {
-      window.localStorage.setItem(savedConnectionProfilesKey, JSON.stringify(nextConnections));
-      setSavedConnections(nextConnections);
-      return true;
-    } catch {
-      setError('Could not save the connection profile in this app.');
-      return false;
-    }
-  };
-
-  const loadSavedConnection = async (profileId) => {
+  const loadSavedConnection = async (profileId, profiles = savedConnections) => {
     const loadId = ++profileCredentialLoadRef.current;
     setSelectedSavedConnectionId(profileId);
-    const profile = savedConnections.find((item) => item.id === profileId);
+    try {
+      const selected = await window.electronAPI?.selectDatabaseProfile?.(profileId);
+      if (selected && !selected.success) setError(selected.error || 'Could not select the saved connection.');
+    } catch (selectError) {
+      setError(selectError?.message || 'Could not select the saved connection.');
+    }
+    const profile = profiles.find((item) => item.id === profileId);
     if (!profile) return;
-    setConnectionMode('driver');
+    setConnectionMode(profile.connectionMode || 'driver');
     setSystem(profile.system);
     setDriver(profile.driver);
+    setDsn(profile.dsn || '');
     setHost(profile.host);
     setPort(profile.port);
     setDatabase(profile.database);
     setSavedConnectionName(profile.name);
-    setUsername('');
-    setExtraOptions('');
-    setPassword('');
-    setError('');
-    setNotice(`Loading saved login for "${profile.name}"…`);
+    let savedUsername = '';
+    let savedPassword = '';
     try {
-      const result = await window.electronAPI?.getDatabaseProfileCredentials?.(profile.id);
+      const credentials = await window.electronAPI?.getDatabaseProfileCredentials?.(profile.id);
       if (loadId !== profileCredentialLoadRef.current) return;
-      if (!result?.success) {
-        setNotice(`Loaded "${profile.name}". ${result?.error || 'Saved login details could not be loaded.'}`);
-        return;
+      if (credentials?.success && credentials.hasCredentials) {
+        savedUsername = credentials.username || '';
+        savedPassword = credentials.password || '';
+      } else if (credentials && !credentials.success) {
+        setError(credentials.error || 'Could not load the saved database login.');
       }
-      setUsername(result.username || '');
-      setPassword(result.password || '');
-      setNotice(result.hasCredentials
-        ? `Loaded "${profile.name}" and its saved login.`
-        : `Loaded "${profile.name}". Enter the database login to connect.`);
-    } catch (loadError) {
-      if (loadId !== profileCredentialLoadRef.current) return;
-      setNotice(`Loaded "${profile.name}". ${loadError?.message || 'Saved login details could not be loaded.'}`);
-    }
+    } catch { /* Keep connection fields loaded and ask for the login if needed. */ }
+    setUsername(savedUsername);
+    setExtraOptions('');
+    setPassword(savedPassword);
+    setError('');
+    setNotice(savedUsername || savedPassword
+      ? `Loaded "${profile.name}" and its saved login.`
+      : `Loaded "${profile.name}". Enter the database login to connect.`);
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    const restoreSavedConnection = async () => {
+      const stored = await window.electronAPI?.listDatabaseProfiles?.();
+      if (!stored?.success) throw new Error(stored?.error || 'Could not load saved database connections.');
+      let profiles = Array.isArray(stored.profiles) ? stored.profiles : [];
+      let selectedId = profiles.some((profile) => profile.id === stored.selectedConnectionId) ? stored.selectedConnectionId : '';
+      if (!profiles.length) {
+        const legacyProfiles = loadSavedConnectionProfiles();
+        let legacySelectedId = '';
+        try { legacySelectedId = window.localStorage.getItem(savedConnectionSelectionKey) || ''; } catch { /* Ignore missing legacy browser storage. */ }
+        for (const legacy of legacyProfiles) {
+          const { username: legacyUsername, password: legacyPassword, ...profile } = legacy;
+          const savedProfile = await window.electronAPI?.saveDatabaseProfile?.(profile);
+          if (!savedProfile?.success) throw new Error(savedProfile?.error || 'Could not migrate a saved connection.');
+          if (legacyUsername || legacyPassword) {
+            const credentials = await window.electronAPI?.saveDatabaseProfileCredentials?.(profile.id, {
+              username: legacyUsername,
+              password: legacyPassword
+            });
+            if (!credentials?.success) throw new Error(credentials?.error || 'Could not migrate a saved login to encrypted storage.');
+          }
+        }
+        profiles = legacyProfiles.map(({ username, password, ...profile }) => profile);
+        selectedId = profiles.some((profile) => profile.id === legacySelectedId) ? legacySelectedId : (profiles[0]?.id || '');
+        if (profiles.length) {
+          try {
+            window.localStorage.removeItem(savedConnectionProfilesKey);
+            window.localStorage.removeItem(savedConnectionSelectionKey);
+          } catch { /* Migrated profiles are stored in app data now. */ }
+        }
+      }
+      if (cancelled) return;
+      setSavedConnections(profiles);
+      if (selectedId) await loadSavedConnection(selectedId, profiles);
+    };
+    restoreSavedConnection().catch((restoreError) => {
+      if (!cancelled) setError(restoreError?.message || 'Could not restore the saved database connection.');
+    });
+    return () => { cancelled = true; };
+    // Load profiles from app data; import old renderer-local profiles once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const saveConnectionProfile = async () => {
     const name = savedConnectionName.trim();
-    if (!name || !driver.trim() || savingProfile) return;
+    if (!name || (connectionMode === 'driver' ? !driver.trim() : !dsn.trim()) || savingProfile) return;
     const previous = savedConnections.find((item) => item.name.toLowerCase() === name.toLowerCase());
     const profile = {
       id: previous?.id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       name,
+      connectionMode,
       system,
       driver: driver.trim(),
+      dsn: dsn.trim(),
       host: host.trim(),
       port: port.trim(),
       database: database.trim()
     };
     const nextConnections = [profile, ...savedConnections.filter((item) => item.id !== profile.id)];
-    if (!persistSavedConnections(nextConnections)) return;
     setSavingProfile(true);
     setError('');
     try {
+      const savedProfile = await window.electronAPI?.saveDatabaseProfile?.(profile);
+      if (!savedProfile?.success) throw new Error(savedProfile?.error || 'Could not save the database connection.');
       const result = await window.electronAPI?.saveDatabaseProfileCredentials?.(profile.id, {
         username: username.trim(),
         password
       });
       if (!result?.success) {
-        persistSavedConnections(savedConnections);
-        setError(result?.error || 'Could not securely save the database login.');
-        return;
+        if (previous) await window.electronAPI?.saveDatabaseProfile?.(previous);
+        else await window.electronAPI?.deleteDatabaseProfileCredentials?.(profile.id);
+        throw new Error(result?.error || 'Could not securely save the database login.');
       }
+      setSavedConnections(nextConnections);
       setSelectedSavedConnectionId(profile.id);
       setSavedConnectionName('');
       setNotice(result.hasCredentials
         ? `Saved "${name}" with login details encrypted by this device.`
         : `Saved "${name}". No login details were provided.`);
     } catch (saveError) {
-      persistSavedConnections(savedConnections);
       setError(saveError?.message || 'Could not securely save the database login.');
     } finally {
       setSavingProfile(false);
@@ -382,22 +427,24 @@ export default function DatabaseConnectionPanel({
     if (!selectedSavedConnectionId || savingProfile) return;
     const nextConnections = savedConnections.filter((item) => item.id !== selectedSavedConnectionId);
     const deletedId = selectedSavedConnectionId;
-    const previousConnections = savedConnections;
-    if (!persistSavedConnections(nextConnections)) return;
     setSavingProfile(true);
     try {
       const result = await window.electronAPI?.deleteDatabaseProfileCredentials?.(deletedId);
       if (!result?.success) {
-        persistSavedConnections(previousConnections);
         setError(result?.error || 'Could not delete the saved database login.');
         return;
       }
-      setSelectedSavedConnectionId('');
-      setUsername('');
-      setPassword('');
-      setNotice('Saved connection deleted.');
+      setSavedConnections(nextConnections);
+      const nextSelectedId = nextConnections[0]?.id || '';
+      if (nextSelectedId) await loadSavedConnection(nextSelectedId, nextConnections);
+      else {
+        setSelectedSavedConnectionId('');
+        setSavedConnectionName('');
+        setUsername('');
+        setPassword('');
+        setNotice('Saved connection deleted.');
+      }
     } catch (deleteError) {
-      persistSavedConnections(previousConnections);
       setError(deleteError?.message || 'Could not delete the saved database login.');
     } finally {
       setSavingProfile(false);
@@ -446,6 +493,18 @@ export default function DatabaseConnectionPanel({
       }).catch(() => {});
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!databaseRefreshToken || !connectionId || typeof window.electronAPI?.listDatabaseTables !== 'function') return;
+    let cancelled = false;
+    window.electronAPI.listDatabaseTables(connectionId).then((result) => {
+      if (cancelled || !result?.success) return;
+      const refreshedTables = Array.isArray(result.tables) ? result.tables : [];
+      setTables(refreshedTables);
+      onConnected?.({ connectionId, dialect: system, tables: refreshedTables });
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [databaseRefreshToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let cancelled = false;
@@ -564,12 +623,12 @@ export default function DatabaseConnectionPanel({
     try {
       const result = await window.electronAPI?.connectDatabase?.(connectionString, system);
       if (!result?.success) throw new Error(result?.error || 'Could not connect.');
-      setPassword('');
       setConnectionId(result.connectionId);
       const response = await window.electronAPI.listDatabaseTables(result.connectionId);
       if (!response?.success) throw new Error(response?.error || 'Connected, but could not list tables.');
       setConnected(true);
       setTables(response.tables || []);
+      onConnected?.({ connectionId: result.connectionId, dialect: system, tables: response.tables || [] });
       setNotice(`${response.tables?.length || 0} tables and views found.`);
     } catch (err) {
       setError(err?.message || 'Could not connect to the database.');
@@ -588,14 +647,16 @@ export default function DatabaseConnectionPanel({
       const loaded = await onLoadTable?.({
         target: selectedTable,
         connectionId,
+        dialect: result.dialect || system,
         name: tableLabel(selectedTable),
         columns: result.columns || [],
         rows: result.rows || [],
         primaryKeys: result.primaryKeys || [],
-        truncated: Boolean(result.truncated)
+        truncated: Boolean(result.truncated),
+        omittedBinaryValues: Boolean(result.omittedBinaryValues)
       });
       if (loaded !== false) {
-        setNotice(`Loaded ${result.rows?.length || 0} rows${result.truncated ? ' (first 10,000 only)' : ''}.`);
+        setNotice(`Loaded ${result.rows?.length || 0} rows${result.truncated ? ' (preview limited for safety)' : ''}${result.omittedBinaryValues ? '. Binary values are shown as placeholders' : ''}.`);
         setOpen(false);
       }
     } catch (err) {
@@ -610,6 +671,7 @@ export default function DatabaseConnectionPanel({
     const tableName = destinationTable.trim();
     if (!window.confirm(`Save ${rows.length} rows as a new database table named "${tableName}"? A row ID will be added. Existing tables will not be changed.`)) return;
     setBusy(true);
+    setSavingDataset(true);
     setError('');
     setNotice('');
     try {
@@ -629,6 +691,7 @@ export default function DatabaseConnectionPanel({
     } catch (err) {
       setError(err?.message || 'Could not save this dataset.');
     } finally {
+      setSavingDataset(false);
       setBusy(false);
     }
   };
@@ -658,7 +721,7 @@ export default function DatabaseConnectionPanel({
             aria-modal="false"
             aria-labelledby="database-connect-title"
             style={{ left: 0, top: 0, transform: `translate3d(${panelPosition.x}px, ${panelPosition.y}px, 0)`, transition: 'transform 300ms cubic-bezier(0.22, 1, 0.36, 1)' }}
-            className="pointer-events-auto fixed left-0 top-0 flex max-h-[calc(100vh-2rem)] w-[min(88rem,calc(100vw-3rem))] flex-col overflow-hidden rounded-lg border border-[#292929] bg-[#101010] text-[#e4e4e7] shadow-[0_20px_60px_rgba(0,0,0,0.75)] will-change-transform"
+            className="pointer-events-auto fixed left-0 top-0 flex h-[min(62vh,calc(100vh-2rem))] max-h-[calc(100vh-2rem)] w-[min(88rem,calc(100vw-3rem))] flex-col overflow-hidden rounded-lg border border-[#292929] bg-[#101010] text-[#e4e4e7] shadow-[0_20px_60px_rgba(0,0,0,0.75)] will-change-transform"
             data-dragging="false"
           >
             <header
@@ -724,26 +787,25 @@ export default function DatabaseConnectionPanel({
                     {databaseWriteTiming === 'manual' && <button type="button" disabled={Boolean(databaseWriteDisabledReason)} onClick={onRunDatabaseWrite} title={databaseWriteDisabledReason || 'Write the current grid data now'} className="rounded-md border border-[#383838] bg-[#242424] px-2.5 py-1 text-[10px] font-medium text-[#e4e4e7] hover:bg-[#303030] disabled:opacity-40">Run edit</button>}
                   </div>
                 )}
-                {connectionMode === 'driver' && (
-                  <div className="space-y-2.5 border-t border-[#292929] pt-3">
-                    <h4 className="text-xs font-medium text-[#d4d4d8]">Saved connections</h4>
-                    <div className="flex min-w-0 gap-2">
-                      <SavedConnectionSelect profiles={savedConnections} value={selectedSavedConnectionId} onChange={loadSavedConnection} disabled={connected || busy || savingProfile} />
-                      <button type="button" disabled={connected || busy || savingProfile || !selectedSavedConnectionId} onClick={deleteSavedConnection} className="shrink-0 rounded-md border border-[#303034] px-2.5 text-[11px] text-[#d4d4d8] hover:bg-[#1c1c1c] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#777] disabled:opacity-40">Delete</button>
-                    </div>
-                    <div className="flex min-w-0 gap-2">
-                      <input aria-label="Connection profile name" value={savedConnectionName} onChange={(event) => setSavedConnectionName(event.target.value)} disabled={connected || busy || savingProfile} autoComplete="off" placeholder="Name this connection" className={`${inputClass} min-w-0 flex-1`} />
-                      <button type="button" disabled={connected || busy || savingProfile || !savedConnectionName.trim() || !driver.trim()} onClick={saveConnectionProfile} className="shrink-0 rounded-md border border-[#383838] bg-[#242424] px-3 text-[11px] font-medium text-[#e4e4e7] hover:bg-[#303030] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#777] disabled:opacity-40">{savingProfile ? 'Saving…' : 'Save'}</button>
-                    </div>
-                    <p className="text-[10px] leading-relaxed text-[#888]">Login details are encrypted with this device’s OS credential store. Custom ODBC options aren’t saved.</p>
+                <div className="space-y-2.5 border-t border-[#292929] pt-3">
+                  <h4 className="text-xs font-medium text-[#d4d4d8]">Saved connections</h4>
+                  <div className="flex min-w-0 gap-2">
+                    <SavedConnectionSelect profiles={savedConnections} value={selectedSavedConnectionId} onChange={loadSavedConnection} disabled={connected || busy || savingProfile} />
+                    <button type="button" disabled={connected || busy || savingProfile || !selectedSavedConnectionId} onClick={deleteSavedConnection} className="shrink-0 rounded-md border border-[#303034] px-2.5 text-[11px] text-[#d4d4d8] hover:bg-[#1c1c1c] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#777] disabled:opacity-40">Delete</button>
                   </div>
-                )}
+                  {connected && <p className="text-[10px] leading-relaxed text-[#a1a1aa]">Disconnect the active database before switching saved connections.</p>}
+                  <div className="flex min-w-0 gap-2">
+                    <input aria-label="Connection profile name" value={savedConnectionName} onChange={(event) => setSavedConnectionName(event.target.value)} disabled={busy || savingProfile} autoComplete="off" placeholder="Name this connection" className={`${inputClass} min-w-0 flex-1`} />
+                    <button type="button" disabled={busy || savingProfile || !savedConnectionName.trim() || (connectionMode === 'driver' ? !driver.trim() : !dsn.trim())} onClick={saveConnectionProfile} className="shrink-0 rounded-md border border-[#383838] bg-[#242424] px-3 text-[11px] font-medium text-[#e4e4e7] hover:bg-[#303030] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#777] disabled:opacity-40">{savingProfile ? 'Saving…' : 'Save'}</button>
+                  </div>
+                  <p className="text-[10px] leading-relaxed text-[#888]">Connection details are saved in this app. Login details are encrypted with this device’s OS credential store.</p>
+                </div>
                 {connected && (
                   <div className="space-y-2 border-t border-[#292929] pt-2.5">
                     <p className="text-[10px] text-[#a1a1aa]">Save {rows?.length || 0} rows as a new table</p>
                     <div className="flex min-w-0 gap-2">
                       <input aria-label="New table name" value={destinationTable} onChange={(event) => setDestinationTable(event.target.value)} disabled={busy} autoComplete="off" placeholder="New table name" className={`${inputClass} min-w-0 flex-1`} />
-                      <button type="button" disabled={busy || databaseAccessMode !== 'read-write' || !rows?.length || !columns?.length || !destinationTable.trim()} onClick={saveDataset} className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-[#292929] px-2.5 py-2 text-[11px] font-medium text-[#f4f4f5] hover:bg-[#3a3a3a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a1a1aa] disabled:opacity-50">{busy ? <Loader2 size={13} className="animate-spin" /> : <Database size={13} />}Save table</button>
+                      <button type="button" disabled={busy || databaseAccessMode !== 'read-write' || !rows?.length || !columns?.length || !destinationTable.trim()} onClick={saveDataset} className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-[#292929] px-2.5 py-2 text-[11px] font-medium text-[#f4f4f5] hover:bg-[#3a3a3a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a1a1aa] disabled:opacity-50">{savingDataset ? <Loader2 size={13} className="animate-spin" /> : <Database size={13} />}Save table</button>
                     </div>
                   </div>
                 )}
@@ -753,7 +815,7 @@ export default function DatabaseConnectionPanel({
                   <div className="mb-3 flex items-center justify-between"><h3 className="text-xs font-medium text-[#e4e4e7]">Tables and views</h3><span className="text-[11px] tabular-nums text-[#a1a1aa]">{tables.length}</span></div>
                   <div className="relative"><Search size={14} className="absolute left-3 top-2.5 text-[#71717a]" /><input value={search} onChange={(event) => setSearch(event.target.value)} aria-label="Search tables" placeholder="Search by name or schema" disabled={!connected} className={`${inputClass} pl-9`} /></div>
                 </div>
-                <div className="min-h-[180px] flex-1 overflow-y-auto p-2.5">
+                <div className="min-h-[180px] max-h-[min(28vh,20rem)] flex-1 overflow-y-auto overscroll-contain p-2.5">
                   {!connected ? <p className="p-3 text-xs text-[#a1a1aa]">Connect to browse available tables.</p> : filteredTables.length === 0 ? <p className="p-3 text-xs text-[#a1a1aa]">No matching tables.</p> : filteredTables.map((table, index) => (
                     <button key={`${table.catalog}:${table.schema}:${table.table}:${index}`} type="button" onClick={() => setSelectedTable(table)} aria-pressed={selectedTable === table} className={`mb-1 flex min-h-9 w-full items-center justify-between rounded-md px-3 py-2 text-left text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#a1a1aa] ${selectedTable === table ? 'bg-[#292929] text-[#f4f4f5]' : 'text-[#d4d4d8] hover:bg-[#1f1f1f]'}`}>
                       <span className="min-w-0 truncate">{tableLabel(table)}</span><span className="ml-3 shrink-0 text-[10px] text-[#a1a1aa]">{table.type}</span>

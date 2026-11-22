@@ -1146,7 +1146,7 @@ const MemoizedDataGridRow = React.memo(({
         : (isRTheme ? 'hover:bg-cyan-950/30' : 'hover:bg-slate-50 dark:hover:bg-slate-900/40')
         }`}
     >
-      <td className="data-grid-selection-cell px-3 py-2 text-center">
+      <td className="data-grid-selection-cell sticky left-0 z-[2] bg-inherit px-3 py-2 text-center">
         <input
           type="checkbox"
           checked={isSelected}
@@ -1156,7 +1156,7 @@ const MemoizedDataGridRow = React.memo(({
         />
       </td>
       <td
-        className={`data-grid-row-index-cell relative px-3 py-2 text-[13px] font-mono text-center select-none cursor-pointer ${isRTheme ? 'text-black/75 hover:bg-cyan-900/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}
+        className={`data-grid-row-index-cell sticky left-[40px] z-[2] bg-inherit relative px-3 py-2 text-[13px] font-mono text-center select-none cursor-pointer ${isRTheme ? 'text-black/75 hover:bg-cyan-900/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}
         style={{
           ...cellColorStyles?.[`row-header::${originalIndex}`],
           ...cellFontStyles?.[`row-header::${originalIndex}`],
@@ -1290,7 +1290,7 @@ const MemoizedDataGridRow = React.memo(({
             data-cell-custom-text={cellTextMeta || columnTextMeta || rangeTextMeta ? 'true' : 'false'}
             data-cell-missing={isEmptyCell ? 'true' : 'false'}
             data-range-selected={isRangeSelected ? 'true' : 'false'}
-            className={`data-grid-data-cell text-[13px] select-none ${isEmptyCell ? 'italic opacity-60' : ''} ${isEditing ? 'p-1.5 align-middle' : 'px-4 py-2 truncate'} ${isRTheme ? 'text-black' : 'text-slate-700 dark:text-slate-300'} ${isHighlighted ? 'data-grid-data-cell-highlighted' : ''} ${isRangeSelected
+            className={`data-grid-data-cell text-[13px] select-none ${isEmptyCell ? 'italic' : ''} ${isEditing ? 'p-1.5 align-middle' : 'px-4 py-2 truncate'} ${isRTheme ? 'text-black' : 'text-slate-700 dark:text-slate-300'} ${isHighlighted ? 'data-grid-data-cell-highlighted' : ''} ${isRangeSelected
               ? `data-grid-range-selected${isRangeTop ? ' data-grid-range-top' : ''}${isRangeBottom ? ' data-grid-range-bottom' : ''}${isRangeLeft ? ' data-grid-range-left' : ''}${isRangeRight ? ' data-grid-range-right' : ''}`
               : ''
               }`}
@@ -1477,6 +1477,12 @@ const MemoizedVirtualTable = React.memo(({
   const ROW_OVERSCAN = 16;
   const ROW_WINDOW_STEP = 16;
   const scrollRafRef = React.useRef(null);
+  // Tracks the last value we actually committed to React state.
+  // Prevents the boundary feedback loop: when scrollTop hits 0 or maxScroll
+  // the browser keeps firing scroll events with the same value, which (without
+  // this guard) causes setTableScrollTop → re-render → scrollHeight changes →
+  // another scroll event → infinite lag at top/bottom extremities.
+  const committedScrollTopRef = React.useRef(0);
   const getVisibleWindowStart = (scrollTop) => {
     const firstBufferedRow = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT_PX) - ROW_OVERSCAN);
     return Math.floor(firstBufferedRow / ROW_WINDOW_STEP) * ROW_WINDOW_STEP;
@@ -1530,7 +1536,12 @@ const MemoizedVirtualTable = React.memo(({
     const maxScroll = Math.max(0, totalVisibleRows * ROW_HEIGHT_PX - tableViewportHeight);
     if (viewport.scrollTop > maxScroll) {
       viewport.scrollTop = maxScroll;
-      setTableScrollTop(maxScroll);
+      // Only commit if the value actually changed to avoid a feedback loop
+      if (committedScrollTopRef.current !== maxScroll) {
+        committedScrollTopRef.current = maxScroll;
+        latestScrollTopRef.current = maxScroll;
+        setTableScrollTop(maxScroll);
+      }
     }
   }, [totalVisibleRows, tableViewportHeight]);
 
@@ -1556,6 +1567,7 @@ const MemoizedVirtualTable = React.memo(({
     if (jumpToCellTarget.scrollAlignment !== 'nearest') {
       viewport.scrollTop = pendingJumpScrollTop;
       latestScrollTopRef.current = pendingJumpScrollTop;
+      committedScrollTopRef.current = pendingJumpScrollTop;
       setTableScrollTop((prev) => (prev === pendingJumpScrollTop ? prev : pendingJumpScrollTop));
     }
 
@@ -1570,11 +1582,19 @@ const MemoizedVirtualTable = React.memo(({
       if (!cell) return false;
       const cellRect = cell.getBoundingClientRect();
       const viewportRect = viewport.getBoundingClientRect();
-      if (cellRect.top < viewportRect.top) viewport.scrollTop -= viewportRect.top - cellRect.top;
-      else if (cellRect.bottom > viewportRect.bottom) viewport.scrollTop += cellRect.bottom - viewportRect.bottom;
-      if (cellRect.left < viewportRect.left) viewport.scrollLeft -= viewportRect.left - cellRect.left;
-      else if (cellRect.right > viewportRect.right) viewport.scrollLeft += cellRect.right - viewportRect.right;
+      let scrollTop = viewport.scrollTop;
+      let scrollLeft = viewport.scrollLeft;
+      if (cellRect.top < viewportRect.top) scrollTop -= viewportRect.top - cellRect.top;
+      else if (cellRect.bottom > viewportRect.bottom) scrollTop += cellRect.bottom - viewportRect.bottom;
+      const rowIndexRect = viewport.querySelector('.data-grid-row-index-cell')?.getBoundingClientRect();
+      const visibleLeft = Math.max(viewportRect.left, rowIndexRect?.right ?? viewportRect.left);
+      if (cellRect.left < visibleLeft) scrollLeft -= visibleLeft - cellRect.left;
+      else if (cellRect.right > viewportRect.right) scrollLeft += cellRect.right - viewportRect.right;
+      if (scrollTop !== viewport.scrollTop || scrollLeft !== viewport.scrollLeft) {
+        viewport.scrollTo({ top: scrollTop, left: scrollLeft, behavior: 'smooth' });
+      }
       latestScrollTopRef.current = viewport.scrollTop;
+      committedScrollTopRef.current = viewport.scrollTop;
       latestBeginCellEditRef.current?.(
         jumpToCellTarget.rowIndex,
         jumpToCellTarget.columnName,
@@ -1633,23 +1653,44 @@ const MemoizedVirtualTable = React.memo(({
     <div className="data-grid-frame flex flex-1 min-h-0 min-w-0 flex-col">
       <div
         ref={tableViewportRef}
+        tabIndex={0}
+        aria-label="Data grid. Use arrow keys to scroll."
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+          const viewport = event.currentTarget;
+          const horizontalStep = viewport.querySelector('.data-grid-data-cell')?.getBoundingClientRect().width || 80;
+          const scroll = {
+            ArrowUp: { top: -ROW_HEIGHT_PX },
+            ArrowDown: { top: ROW_HEIGHT_PX },
+            ArrowLeft: { left: -horizontalStep },
+            ArrowRight: { left: horizontalStep }
+          }[event.key];
+          if (!scroll) return;
+          event.preventDefault();
+          viewport.scrollBy({ ...scroll, behavior: 'smooth' });
+        }}
         onScroll={(event) => {
           const scrollbar = horizontalScrollbarRef.current;
           if (scrollbar && Math.abs(scrollbar.scrollLeft - event.currentTarget.scrollLeft) > 0.5) {
             scrollbar.scrollLeft = event.currentTarget.scrollLeft;
           }
           const nextScrollTop = event.currentTarget.scrollTop;
+          // Guard 1: ignore if browser scroll position hasn't changed (fires at extremities)
           if (latestScrollTopRef.current === nextScrollTop) return;
           latestScrollTopRef.current = nextScrollTop;
-          if (scrollRafRef.current) return;
+          if (scrollRafRef.current) {
+            // Already have a pending RAF — it will pick up the latest ref value
+            return;
+          }
           scrollRafRef.current = requestAnimationFrame(() => {
             scrollRafRef.current = null;
-            const nextScrollTop = latestScrollTopRef.current;
-            setTableScrollTop((previousScrollTop) => (
-              getVisibleWindowStart(previousScrollTop) === getVisibleWindowStart(nextScrollTop)
-                ? previousScrollTop
-                : nextScrollTop
-            ));
+            const value = latestScrollTopRef.current;
+            // Guard 2: skip the React state update if we already committed this
+            // exact value — prevents the boundary feedback loop where re-rendering
+            // changes scrollHeight which triggers another scroll event at max/0.
+            if (committedScrollTopRef.current === value) return;
+            committedScrollTopRef.current = value;
+            setTableScrollTop(value);
           });
         }}
         className={`data-grid-viewport flex-1 min-h-0 min-w-0 max-w-full overflow-x-hidden overflow-y-auto ${totalVisibleRows === 0 ? (isAyuTheme ? 'data-grid-empty-viewport-ayu' : 'bg-white') : (isRTheme ? 'bg-[#d9d9d9]' : 'bg-slate-50/20')}`}
@@ -1679,7 +1720,7 @@ const MemoizedVirtualTable = React.memo(({
         {hasVisibleColumns && <thead className={`data-grid-header sticky top-0 z-10 shadow-sm ${isRTheme ? 'bg-[#0b1220] text-cyan-100/80' : 'bg-slate-100 dark:bg-slate-900/50 text-slate-600 dark:text-slate-400'
           }`}>
           <tr>
-            <th className={`data-grid-utility-header-cell px-3 py-2 border-b w-10 text-center ${isRTheme ? 'border-cyan-900/40' : 'border-slate-200 dark:border-slate-800'}`}>
+            <th className={`data-grid-utility-header-cell sticky left-0 z-20 px-3 py-2 border-b w-10 text-center ${isRTheme ? 'bg-[#0b1220] border-cyan-900/40' : 'bg-slate-100 dark:bg-slate-900/50 border-slate-200 dark:border-slate-800'}`}>
               <input
                 ref={visibleRowsCheckboxRef}
                 type="checkbox"
@@ -1688,7 +1729,7 @@ const MemoizedVirtualTable = React.memo(({
                 className={`rounded cursor-pointer ${isRTheme ? 'border-cyan-700 text-cyan-400 focus:ring-cyan-500' : 'border-slate-300 text-blue-600 focus:ring-blue-500'}`}
               />
             </th>
-            <th className={`data-grid-utility-header-cell relative px-3 py-2 border-b text-sm font-medium w-12 text-center ${isRTheme ? 'border-cyan-900/40' : 'border-slate-200 dark:border-slate-800'}`}>
+            <th className={`data-grid-utility-header-cell sticky left-[40px] z-20 relative px-3 py-2 border-b text-sm font-medium w-12 text-center ${isRTheme ? 'bg-[#0b1220] border-cyan-900/40' : 'bg-slate-100 dark:bg-slate-900/50 border-slate-200 dark:border-slate-800'}`}>
               #
               {onInsertColumn && (
                 <button
@@ -1946,7 +1987,7 @@ const MemoizedVirtualTable = React.memo(({
             viewport.scrollLeft = event.currentTarget.scrollLeft;
           }
         }}
-        className="data-grid-horizontal-scroll h-1.5 min-h-[6px] max-w-full flex-none overflow-x-auto overflow-y-hidden"
+        className="data-grid-horizontal-scroll h-[10px] min-h-[10px] max-w-full flex-none overflow-x-auto overflow-y-hidden"
         style={{ width: '100%' }}
       >
         <div aria-hidden="true" style={{ width: `${tableMinWidth}px`, height: 1 }} />
@@ -6507,6 +6548,9 @@ export default function DataExplorer({
                 columns={effectiveSelectedColumns}
                 allColumns={columns}
                 selectedRowIndices={selectedDataRowIndices}
+                additionalContext={databaseSource?.target && databaseAccessMode === 'read-write' && !databaseWriteDisabledReason
+                  ? `DATABASE SQL DML GUIDANCE (active table: ${[databaseSource.target.catalog, databaseSource.target.schema, databaseSource.target.table].filter(Boolean).join('.')}): When the user asks for SQL, explain or generate standard DML statements using this table and its real columns: SELECT ... FROM table WHERE ... ORDER BY ...; INSERT INTO table (columns) VALUES (values); UPDATE table SET column = value WHERE primary_key = value; DELETE FROM table WHERE primary_key = value; and dialect-appropriate UPSERT/MERGE when requested. Include a WHERE clause for targeted UPDATE and DELETE statements. SQL examples are not executed by this agent. For actual edits in DEM, use the supported DATA_ACTION protocol so the app can apply and write the changes safely; never claim raw SQL was run.`
+                  : ''}
                 theme={theme}
                 isRTheme={isRTheme}
                 defaultOllamaUrl={aiAgentDefaultOllamaUrl}
@@ -10124,7 +10168,22 @@ export default function DataExplorer({
           scroll-behavior: auto;
         }
         .data-grid-viewport::-webkit-scrollbar {
-          width: 6px;
+          width: 10px;
+        }
+        .data-grid-viewport::-webkit-scrollbar-button:single-button:vertical:decrement,
+        .data-grid-viewport::-webkit-scrollbar-button:single-button:vertical:increment {
+          display: block;
+          height: 10px;
+          background-color: transparent;
+          background-repeat: no-repeat;
+          background-position: center;
+          background-size: 8px 8px;
+        }
+        .data-grid-viewport::-webkit-scrollbar-button:single-button:vertical:decrement {
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 8l4-4 4 4z' fill='%2394a3b8'/%3E%3C/svg%3E");
+        }
+        .data-grid-viewport::-webkit-scrollbar-button:single-button:vertical:increment {
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4z' fill='%2394a3b8'/%3E%3C/svg%3E");
         }
         .data-grid-viewport::-webkit-scrollbar-track {
           background: #e2e8f0;
@@ -10132,6 +10191,8 @@ export default function DataExplorer({
         .data-grid-viewport::-webkit-scrollbar-thumb {
           background: #64748b;
           border: 1px solid #e2e8f0;
+          border-left-width: 2px;
+          border-right-width: 2px;
           border-radius: 9999px;
         }
         .data-grid-viewport::-webkit-scrollbar-thumb:hover {
@@ -10143,14 +10204,35 @@ export default function DataExplorer({
           scroll-behavior: auto;
         }
         .data-grid-horizontal-scroll::-webkit-scrollbar {
-          height: 6px;
+          height: 10px;
+        }
+        .data-grid-horizontal-scroll::-webkit-scrollbar-button:single-button:horizontal:decrement,
+        .data-grid-horizontal-scroll::-webkit-scrollbar-button:single-button:horizontal:increment {
+          display: block;
+          width: 10px;
+          background-color: transparent;
+          background-repeat: no-repeat;
+          background-position: center;
+          background-size: 8px 8px;
+        }
+        .data-grid-horizontal-scroll::-webkit-scrollbar-button:single-button:horizontal:decrement {
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M8 2L4 6l4 4z' fill='%2394a3b8'/%3E%3C/svg%3E");
+        }
+        .data-grid-horizontal-scroll::-webkit-scrollbar-button:single-button:horizontal:increment {
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M4 2l4 4-4 4z' fill='%2394a3b8'/%3E%3C/svg%3E");
         }
         .data-grid-horizontal-scroll::-webkit-scrollbar-track {
+          background: #e2e8f0;
+        }
+        .data-grid-horizontal-scroll::-webkit-scrollbar-corner,
+        .data-grid-viewport::-webkit-scrollbar-corner {
           background: #e2e8f0;
         }
         .data-grid-horizontal-scroll::-webkit-scrollbar-thumb {
           background: #64748b;
           border: 1px solid #e2e8f0;
+          border-top-width: 2px;
+          border-bottom-width: 2px;
           border-radius: 9999px;
         }
         .data-grid-horizontal-scroll::-webkit-scrollbar-thumb:hover {
@@ -10159,6 +10241,19 @@ export default function DataExplorer({
         .data-grid-data-cell-highlighted {
           box-shadow: inset 0 0 0 2px rgba(15, 23, 42, 0.72);
           background-image: linear-gradient(0deg, rgba(15, 23, 42, 0.12), rgba(15, 23, 42, 0.12));
+        }
+        .data-grid-table.data-grid-white th,
+        .data-grid-table.data-grid-white td {
+          border: 0.25px solid #000 !important;
+        }
+        .data-grid-table.data-grid-white .data-grid-column-header-cell:not([data-colored-header="true"]),
+        .data-grid-table.data-grid-white .data-grid-column-header-cell:not([data-colored-header="true"]) button,
+        .data-grid-table.data-grid-white .data-grid-data-cell:not([data-cell-custom-text="true"]) {
+          color: #000 !important;
+        }
+        .data-grid-table.data-grid-white .data-grid-data-cell[data-cell-missing="true"] {
+          color: #808080 !important;
+          opacity: 1 !important;
         }
         .data-grid-range-selected {
           position: relative;
@@ -14619,6 +14714,14 @@ export default function DataExplorer({
           border-color: rgba(56, 189, 248, 0.5) !important;
           box-shadow: none !important;
           transform: none !important;
+        }
+        .data-grid-table.data-grid-white th,
+        .data-grid-table.data-grid-white td {
+          border: 0.25px solid #000000 !important;
+        }
+        .data-explorer-ayu-theme table.data-grid-white th,
+        .data-explorer-ayu-theme table.data-grid-white td {
+          border: 0.25px solid #000000 !important;
         }
       `}</style>
 

@@ -4,6 +4,7 @@ import rFileIcon from '../assets/r-file-icon.svg';
 import rmdFileIcon from '../assets/rmd-file-icon.svg';
 import pythonFileIcon from '../assets/python-file-icon.svg';
 import ipynbFileIcon from '../assets/ipynb-file-icon.svg';
+import sqlFileIcon from '../assets/sql-database-generic.svg';
 
 /**
  * EditorOpenedFilesBar
@@ -88,6 +89,11 @@ const EditorOpenedFilesBar = ({
   }, [checkScroll]);
 
   const getLanguageBadge = (lang) => {
+    if (lang === 'sql') {
+      return (
+        <img src={sqlFileIcon} alt="SQL" className="h-4 w-4 shrink-0 aspect-square object-contain" title="SQL Script" />
+      );
+    }
     if (lang === 'python') {
       return (
         <img src={pythonFileIcon} alt="Python" className="h-4 w-4 shrink-0 aspect-square object-contain" title="Python Script" />
