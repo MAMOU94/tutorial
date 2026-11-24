@@ -1,4 +1,4 @@
-# NGR — Next-Generation Research Platform
+# NGR Application
 
 NGR is a desktop application for preparing datasets, running statistical analyses, building visualizations, and working with R, Python, and AI-assisted research tools. It combines an Electron desktop shell with a React interface, R analysis workers, and Python utilities.
 
@@ -14,9 +14,9 @@ The typical workflow is:
 
 ## Application sections
 
-### Workspace and Files
+### File Explorer
 
-The workspace browser provides access to files in the current project folder. It can:
+The File Explorer provides access to files in the current project folder. It can:
 
 - Browse folders and workspace files.
 - Open supported files in the application.
@@ -56,7 +56,7 @@ Used for hypothesis testing and group comparisons.
 - **Correlation Matrix**: pairwise Pearson and Spearman correlations with normality-aware handling.
 - Paired and independent sample choices.
 - Optional second grouping factor and subject identifier for factorial or repeated-measures designs.
-- Assumption checks and parametric/non-parametric path selection where applicable.
+- Automatic test-path selection in supported workflows. The analysis checks the design and assumptions such as normality, and variance homogeneity where applicable, to choose a parametric or non-parametric path. The selected test and diagnostics are shown with the results; users should review them for their study design.
 
 #### Machine Learning and Regression
 
@@ -99,9 +99,13 @@ The Bioinformatics section groups sequence-analysis workflows and their input co
 
 The FastQ, alignment, metagenomics, and eccDNA panels expose their workflow configuration. DNA-seq and RNA-seq entries are currently represented as preparation panels in the interface, so their complete execution support may depend on the installed runtime/tooling.
 
+Bioinformatics tools use Conda-compatible environments. Micromamba is the default environment manager; supported setup paths can also use Mamba or Conda. FastQC uses a `fastq_quality` environment, while eccDNA Finder can use an environment bundled with the app and copied to `~/.ngr/micromamba-root` on first launch. Running a workflow still requires its environment, packages, compatible tools, and valid input files.
+
 ### Data Explorer
 
-Data Explorer is the spreadsheet-style data preparation area. It works on the current working dataset and provides:
+Data Explorer is the app's working dataset and spreadsheet-style preparation area. The uploaded or created data shown in the grid is the active dataset used by Analysis Configuration, not a separate display copy. Common data preparation can be done directly in the DEM without writing R or Python code; users then choose analysis variables and options in Analysis Configuration.
+
+It works on the current working dataset and provides:
 
 - Live table editing, row selection, column selection, search, and filtering.
 - Row insertion/deletion and column insertion/deletion.
@@ -129,6 +133,12 @@ Data Explorer is the spreadsheet-style data preparation area. It works on the cu
 - **Calculations**: calculate totals and summary statistics for selected data.
 - **AI Data Agent**: ask an AI provider to inspect or transform the current dataset.
 
+#### Database connections
+
+The Database panel connects through ODBC using an installed driver or configured DSN. It can browse database tables and views, load a selected table into Data Explorer, and save a dataset as a new database table. Saved login details use the operating system credential store.
+
+Loaded database tables are read-only from the DEM by default. The user can enable read/write and choose automatic or manual write-back for supported table edits and visible-column changes. Write-back to an existing table requires a primary key and is unavailable for truncated previews or unsupported table types. Row selection and search remain local and do not update the database. Database previews have row and memory limits.
+
 ### Results and Analysis Reports
 
 After an analysis runs, the results area presents statistical summaries, assumption checks, test paths, model diagnostics, pairwise comparisons, and interpretation details when returned by the analysis engine.
@@ -152,20 +162,29 @@ Generated plots are collected in the Plots Gallery. Users can:
 - Edit plot titles, axis labels, units, colors, legends, text, scales, and custom reference elements.
 - Toggle chart-specific elements such as points, labels, biplot layers, cluster displays, and annotations when supported by the chart type.
 
-### R and Python Editor / Console
+### Advanced Mode: R, Python, and SQL Editor / Console
 
-The integrated coding area supports separate R and Python workspaces.
+Advanced Mode provides R and Python editors and interactive consoles, plus a SQL editor/console when a database is connected.
 
 - Edit R and Python files with syntax-aware editors.
+- Open and save R, Python, and SQL scripts.
 - Open files from the workspace browser.
 - Run interactive R or Python console sessions.
+- Run SQL against the active ODBC database connection and view query result sets in the console.
 - Save editor files and console sessions.
 - Change the console working directory.
 - Use package installation support for Python.
 - Use AI to generate, explain, lint, or repair code.
+- Give the coding assistant active dataset or connected database schema context when available.
 - Compare R wrapper code with the project’s reference/golden wrapper where enabled.
 
-The statistical analysis engine is primarily R-based, while Python is used by supporting workers and selected bioinformatics/data-processing utilities.
+The DEM can be connected to the R console and synchronized into R as a data frame, automatically or manually. R and Python data frames can be synchronized back into Data Explorer. The SQL console uses the active database connection directly; SQL changes to the database trigger a refresh of the loaded DEM table and, when connected, its R data frame. The DEM read/write toggle applies to grid write-back only. SQL operations follow the connected database account's permissions and can change the database even when DEM grid write-back is off.
+
+The statistical analysis engine is primarily R-based, while Python is used for supporting workers and selected bioinformatics/data-processing utilities.
+
+### Integrated Terminal
+
+Advanced Mode also provides a terminal for running commands in the selected working directory. It runs the user's system shell and is separate from the interactive R and Python consoles. Commands use the permissions and tools available on the local machine.
 
 ### AI Assistant tools
 
@@ -180,6 +199,22 @@ AI features are available in several parts of the application:
 - AI-generated reports from completed analysis results.
 
 Provider keys and local AI settings should be stored in the application configuration or environment, never committed to the repository.
+
+### Research panel
+
+The Research panel provides shortcuts to the AI Assistant and external research resources, including Google Scholar, arXiv, PubMed, GenBank, and NCBI SRA. These links open external services; the panel does not itself search or download their content.
+
+### File Reader
+
+File Reader displays supported documents from the workspace, including PDF, text, Markdown, DOC, DOCX, JSON, and JSONC files. Document reading is subject to file-type and size limits.
+
+### Quality Control panel
+
+The Quality Control panel scans the workspace for FastQC HTML reports and displays a selected report inside the app. It also provides access to the FastQC analysis assistant. Running quality-control tools and generating reports depends on the configured workflow and installed software.
+
+### Model Memory
+
+Model Memory lists saved regression models. Users can load a saved model setup back into Machine Learning analysis, remove saved models, and use supported linear or logistic models to make predictions from an uploaded CSV or Excel dataset.
 
 ### Themes and interface settings
 
