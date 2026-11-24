@@ -14,11 +14,19 @@ NGR is referred to as **NGR** here; no expansion of the name is assumed. These t
 
 ## NGR today
 
-### Data Explorer Module (DEM)
+### Data Explorer Module (DEM): working data, selection, and analysis
 
-The DEM holds the active working dataset. Users can load or create data, edit cells and rows, filter and select data, inspect missing values, reshape tables, calculate summaries, and run dplyr/tidyr-style transformations without writing code for routine operations. The active sheet is the data source for Analysis Configuration.
+DEM is NGR's editable, tabular working area: the dataset users prepare and then send into an analysis or coding workflow. It plays a role similar to a data frame in R or a DataFrame in Python, while exposing common table operations through the interface. Users can edit cells and rows, select or filter rows, transform and reshape data, calculate summaries, and inspect missing values without writing code for routine preparation. Data stays organized in sheets, and the active sheet determines the dataset available to analysis.
 
-The R console can receive the active DEM data as a data frame when the user connects it and selects automatic or manual synchronization. Data frames produced in R or Python can be synchronized back to the DEM. These transfers follow the selected connection and sync settings; they do not happen unconditionally on every edit.
+**Selection controls the analysis input.** Analysis Configuration receives the active sheet's columns and the rows selected in DEM. When the user has selected a subset of rows, the analysis uses that subset; when all rows are selected, it uses the full active dataset. The user then chooses the analysis variables and their roles (for example, outcome, group, or subject) in the analysis controls. Thus row selection scopes which observations are analyzed, while analysis settings choose which variables and statistical method are used. Search and display filtering should not be described as changing the analysis sample unless those rows are also selected.
+
+**DEM data and the uploaded file have format-dependent save behavior.** The grid is the app's working view of the dataset, but edits do not always stay separate from the source. Dirty edits to a physical CSV are automatically written back to that CSV. For CSV and Excel export actions, the app can instead save the full dataset or selected rows to a new file and prevents that export action from overwriting the uploaded source. Other imported formats may remain as in-app working data until exported. Database-backed sheets have their own optional write-back setting, described below. Users should therefore treat the source-file path, the current DEM sheet, and any exported copy as distinct concepts, while knowing that CSV edits currently persist to the original CSV.
+
+### DEM connections: Advanced Mode and databases
+
+When Advanced Mode is connected to DEM, the active dataset can be synchronized into an R data frame using automatic or manual sync. R and Python data frames can be synchronized back into DEM. The connection and sync mode determine when these transfers happen. The documented DEM-to-console data-frame sync targets R; Python can return data frames to DEM, but the comparison should not imply an equivalent automatic DEM-to-Python push unless the app adds one.
+
+The database panel can load a bounded table preview into a DEM sheet. Database-backed grid edits remain local unless the user enables **Read / write**; supported write-back requires a usable primary key and is unavailable for truncated previews or unsupported table types. Row selection and search are local view operations and are not database writes. Advanced Mode's SQL editor executes statements directly on the active ODBC connection, separately from DEM grid write-back. A database-changing SQL statement can therefore modify the connected database even when the DEM grid's **Read / write** setting is off; the connected database account controls SQL permissions. After changes, the app refreshes the loaded DEM table and, when connected, its synchronized R frame.
 
 ### Biostatistical analysis
 
@@ -30,11 +38,9 @@ Regression includes automatic model selection and implemented linear, binary log
 
 ### Advanced Mode and databases
 
-Advanced Mode provides R and Python editors and interactive consoles, a system terminal, and an SQL editor/console when a database connection is active. Users can pass DEM data into R and return R or Python data frames to the DEM. Generated AI code must still be run by the user in the appropriate console.
+Advanced Mode provides R and Python editors and interactive consoles, a system terminal, and an SQL editor/console when a database connection is active. It extends the DEM workflow with code-based operations for users who need custom transformations or analyses: DEM can sync its active dataset to R, and R or Python data frames can be returned to the DEM. Generated AI code must still be run by the user in the appropriate console.
 
-The database panel connects through ODBC. It includes MySQL, MariaDB, PostgreSQL, and SQL Server presets and supports other databases when a compatible driver or DSN is installed. Users can browse tables and views, load a bounded preview into the DEM, save a dataset as a new table, and enable supported write-back to an existing table when it has a usable primary key.
-
-Advanced Mode SQL executes directly on the active ODBC connection. Database-changing statements refresh the loaded DEM table and, when connected, the synchronized R data frame. The DEM grid read/write switch controls grid write-back only; SQL follows the connected database account's permissions.
+The database panel connects through ODBC. It includes MySQL, MariaDB, PostgreSQL, and SQL Server presets and supports other databases when a compatible driver or DSN is installed. Users can browse tables and views, load a bounded preview into the DEM, save a dataset as a new table, and enable supported write-back to an existing table when it has a usable primary key. The DEM grid's optional write-back path is separate from SQL execution in Advanced Mode.
 
 ### AI and missing-value prediction
 
@@ -52,7 +58,10 @@ Alignment, metagenomics, DNA-seq, and RNA-seq choices also appear in the interfa
 
 | Area | **NGR** | **Galaxy** | **jamovi** |
 |---|---|---|---|
-| **Data preparation** | DEM live grid with table operations, transformations, and database integration. | Dataset tools, histories, and workflow steps; organized around files and tool execution. | Spreadsheet editing and computed variables for statistical work. |
+| **Working data and source files** | DEM provides an editable active-sheet dataset. CSV edits auto-save to the source CSV; CSV/XLSX export can save the full dataset or selected rows to a separate file. Database sheets have optional write-back. | File-oriented datasets are versioned in histories as tools create outputs; original inputs remain available as history items. | Spreadsheet is the active analysis dataset; edits and computed variables are managed within the jamovi document. |
+| **Selection → analysis** | Selected DEM rows define the observations passed to Analysis Configuration; analysis controls then specify variables and test/model options. | Workflow tools receive selected datasets and tool-specific parameters; data selection is generally expressed through tools and workflow steps. | Analyses use the open data and selected variables/options; the spreadsheet supports data filtering and computed variables. |
+| **Data preparation** | DEM grid supports table operations, transformations, summaries, and database integration. | Dataset tools, histories, and workflow steps; organized around files and tool execution. | Spreadsheet editing and computed variables for statistical work. |
+| **DEM / code / database connection** | DEM can sync to R; R/Python data frames can return to DEM. Database grid write-back is separately controlled; Advanced Mode SQL runs directly against the ODBC database. | Tools and workflows connect datasets through history inputs and outputs; code and database access depend on the server setup. | R syntax mode and Rj provide code-based analysis; database integration depends on modules and external setup. |
 | **Statistics** | R-based analyses and conditional test paths in the current wrapper. | Depends on tools installed on the selected Galaxy server. | Built-in analyses plus community modules. |
 | **Machine learning** | Regression and model-selection paths are implemented; several displayed models are unfinished. | Available through installed tools and workflows; instance-dependent. | Available through some community modules; broader than the core analysis set. |
 | **Bioinformatics** | Selected executable workflows, especially FastQC and eccDNA Finder; other panels have varying completion. | Broad bioinformatics tool ecosystem and workflow support; resources depend on the server. | Statistical analyses and modules rather than a general-purpose sequencing workflow platform. |
