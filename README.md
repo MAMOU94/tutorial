@@ -390,6 +390,7 @@ react-app/dist/          Generated frontend build output
 ## Documentation
 
 For the lower-level function and IPC reference, see [`skills/README_FUNCTIONS.md`](./skills/README_FUNCTIONS.md).
+For a source-based comparison with Galaxy and jamovi, see [`NGR_vs_Galaxy_vs_Jamovi.md`](./NGR_vs_Galaxy_vs_Jamovi.md).
 
 ## Security and data handling
 
